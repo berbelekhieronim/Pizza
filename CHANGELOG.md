@@ -1,0 +1,107 @@
+# Changelog
+
+What changed, newest first. The task stores its version with every pizza (`summary.v` in `pz_summary`), so data can be
+matched to the format below. Add an entry for every change that reaches participants or the analysis.
+
+## 0.9.0 (2026-10-26)
+
+**Pilot studies, changes of mind, data for R**
+- **Pilot studies.** `server/study.json` → `"studies"`: per-study intro, consent, completion text, groups and
+  conditions (example: `pilot-asd`). Personal invite links (`/?i=…`) per study, group and recruitment source, made on
+  the researcher page and downloaded as a spreadsheet with opened / finished status. An invite is the participant's id,
+  so reopening it resumes the session, and unknown links are refused. Open study links (`/?study=…&group=…&source=…`).
+  The researcher page, reports, R download and raw download can be filtered by study. `study` and `source` are columns
+  and groupings in the analysis.
+- **Changes of mind.** The log now records which pieces *Start over* removed (`clear` + ids), the topping of each
+  *Undo*, and a declined *Start over* (`clearno`). The analysis replays the log piece by piece:
+  - new table `removals_long.csv`;
+  - per-pizza columns `n_removed_*`, `removed_list`, `revision_rate`, `dropped_list`, `n_restored`, start overs,
+    moves, edits after *I'm done*, sauce/cheese changes after toppings, toppings hovered but never picked
+    (`considered_list`) and `rejected_list`;
+  - per-topping columns `added_pieces`, `removed_pieces`, `dropped`, `moves`, `resizes`, `considered_not_picked`;
+  - `replay_matches_final` checks that the replay ends with the finished pizza.
+
+  `revision_rate` joins the profiles (32 measures).
+- **explore.html.** *Leads for a larger study* lists the largest differences, with the n per group needed for 80% power
+  at the observed effect and at half of it. *Against chance* tests one group against the chance level of each systematic
+  measure. Per-topping "changed mind" and "considered" rows.
+- **R.** All tables use `NA` and 1/0. New `pieces_long.csv`, `variables.csv` (data dictionary) and `load_pizza.R`
+  (base R: types, factor levels, labels; `pizza_wide()`). The researcher page has *Download for R*. CI checks the loader
+  in R.
+- **CI.** Every check is listed on the run's summary page with the face benchmark. The log and the reports built from
+  simulated data are kept as run artifacts.
+
+## 0.8.0
+
+**Methods page, count-based symmetry, desktop only, new toppings**
+- **Methods page** (`analysis/methods.py`, researcher page → *Methods*). Every output column and test has a formula and
+  names its function and line. Worked examples are computed by the code and checked against the hand calculation. The
+  smoke test fails on any undocumented column.
+- **Symmetry redefined.**
+  - Old: `sym_*`, a distance ratio searched every 10°, which scored a perfectly mirrored pizza 0.37 when its axis was at 45°.
+  - New: `mirror_match` / `mirror_chance` / `mirror_score` and `rot_*` count the pieces whose mirror or rotated image
+    lands on a piece of the same topping. The best axis is searched to 0.25°, and the count is compared against random
+    layouts. `pieces_long` marks each piece's partner.
+- **Desktop and laptop only.** Phones and tablets get a notice and no data is recorded (`desktopOnly`). The tray has
+  4 columns on computers.
+- **Toppings.** Added tuna (common), kangaroo (exotic meat) and fig (sweet-savoury). Pear left the default tray, which
+  now has 20 toppings.
+
+## 0.7.0
+
+**Exploratory study**
+- An "About you" card ends the follow-up. It asks:
+  - self-described neurotype, and for autism and ADHD whether it is formally diagnosed, self-identified or awaiting
+    assessment;
+  - eating history and diet;
+  - two 1-7 self-ratings, age band and gender.
+
+  From these the analysis derives `neurotype` (AuDHD / Autistic / ADHD / Other ND / Not ND).
+- **Movement of every drag** (event field 10): path, straightness, pauses, dwell, hold, edge crossings. Columns `mv_*`.
+- **explore.html.** Every measure is compared across every grouping (Cliff's δ, bootstrap CI, Mann-Whitney or
+  permutation p, BH q), with correlations with the self-ratings and `--covariates`, a correlation map, and clusters ×
+  groups. `--group` takes several columns.
+
+## 0.6.0
+
+**Face detection**
+- Touching pieces merge into features. Eyes can have pupils, be heaps, or be two different toppings. Mouths can be
+  rows of mixed toppings. Eyebrows and cheeks count as part of the face.
+- `tests/face_benchmark.py` finds 81% of faces and flags 1.5% of non-faces (was 61% / 1.2%). `preview.js` runs the same
+  detector, checked by the smoke test.
+
+## 0.5.0
+
+**Strong-feelings follow-up; researcher page fixes**
+- The default follow-up is one list ("strong feelings about any of these?"), then five ASD/ADHD/AuDHD-relevant
+  questions per ingredient tapped: feeling, sensory reasons, safe food, sameness, craving. The old ratings remain as
+  `style: 'ratings'`.
+- One button per step: the task's own button moves the survey on.
+- The researcher page works inside the codespace preview: the key is in every link, and reports rebuild on demand.
+
+## 0.4.0
+
+**Study server and stand-alone repository**
+- `server/server.py`: participant page, saving as people go, a researcher page with reports and a zip download, and a
+  one-click Codespace with fixed links.
+- Profiles and clusters (Ward, silhouette, PCA), face and crust/border analysis, size matching, time to completion.
+
+## 0.3.0
+
+**Hold-to-resize pulse; diet classes, normality, dashboard**
+- Holding a piece makes its size pulse between 0.5× and 2.5×.
+- Diet class of each pizza, normality against a reference distribution, the data dashboard and the demo's captured-data
+  preview.
+
+## 0.2.0
+
+**Symmetry and contact**
+- No-sauce option.
+- Contact and stacking of pieces; symmetry drawn on every pizza.
+
+## 0.1.0
+
+**First version**
+- Practice → build → follow-up for Qualtrics (embedded data). Records ingredients, quantities, positions, order and
+  timings.
+- Analysis of variety, avoidance, symmetry/clustering and norms.

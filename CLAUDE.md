@@ -1,5 +1,11 @@
 # Working on this repository
 
+**Start of a session:** read `HANDOFF.md` (state, decisions, open items) and the top of `CHANGELOG.md`, then run
+`python3 tests/smoke_test.py`.
+**End of a session (or before handing over):** add a `CHANGELOG.md` entry for what changed (bump `VERSION` in
+`pizza-builder.js` when the recorded data changes), update `HANDOFF.md` (snapshot, decisions, open items, session log),
+make sure the smoke test passes, push, and check that the GitHub Actions run is green (its summary lists every check).
+
 - **Every change to a measure or test updates the Methods page in the same change.** `analysis/methods.py` holds one
   entry per output column (formula + the `analyse.py` function that computes it) and the worked examples. Add, rename
   or redefine a column in `analysis/analyse.py` → edit its entry in `SECTIONS`; if the formula changed, update the

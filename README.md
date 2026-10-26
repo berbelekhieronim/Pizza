@@ -32,6 +32,18 @@ the toppings are drawn in SVG by the script itself.
 | `examples/` | the reports built from simulated data, and the script that simulates it |
 | `tests/smoke_test.py` | checks everything end to end; GitHub runs it on every push |
 
+## Documentation
+
+| document | for |
+|---|---|
+| this README | what the task does, running it (Qualtrics or the study server), pilots, the analysis |
+| `CODEBOOK.md` | every recorded field and output table |
+| **Methods page** (`methods.html`, researcher page → *Methods*) | how every number and test is computed, with worked examples checked against the code |
+| `variables.csv` + `load_pizza.R` (written with the analysis) | the data dictionary and loader for R |
+| `CHANGELOG.md` | what changed in each version (the version is stored with every pizza) |
+| `HANDOFF.md` | current state, design decisions, open questions and next steps, for whoever continues the work |
+| GitHub Actions → a run's *Summary* | every automatic check of that commit, the face benchmark, and the log and example reports as downloads |
+
 ## Quick start: a link to send to participants
 
 1. **[Open this repository in a Codespace](https://codespaces.new/berbelekhieronim/pizza?quickstart=1)**

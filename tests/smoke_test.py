@@ -23,12 +23,35 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = sys.executable
 failures = []
+results = []          # (section, ok, what) for the CI job summary
+section = ['']
 
 
 def check(cond, what):
     print(('  ok    ' if cond else '  FAIL  ') + what)
+    results.append((section[0], bool(cond), what))
     if not cond:
         failures.append(what)
+
+
+def heading(name):
+    print(name)
+    section[0] = name
+
+
+def write_summary(path, seconds):
+    """A Markdown report of every check (GitHub shows it on the run's page when path is $GITHUB_STEP_SUMMARY)."""
+    sha = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    r_ver = subprocess.run(['Rscript', '-e', 'cat(R.version$major, R.version$minor, sep=".")'], capture_output=True, text=True).stdout if shutil.which('Rscript') else ''
+    lines = ['## Pizza Builder checks: %s' % ('all %d passed' % len(results) if not failures else '%d of %d FAILED' % (len(failures), len(results))),
+             '', 'Commit `%s` · Python %s · %s · node %s · %.0f s' % (sha or '?', sys.version.split()[0], ('R ' + r_ver) if r_ver else 'no R',
+                                                                  'yes' if shutil.which('node') else 'no', seconds), '']
+    for sec in dict.fromkeys(r[0] for r in results):
+        rs = [r for r in results if r[0] == sec]
+        lines += ['<details%s><summary><b>%s</b>: %d/%d</summary>' % ('' if all(r[1] for r in rs) else ' open', sec, sum(r[1] for r in rs), len(rs)), '',
+                  '| | check |', '|---|---|'] + ['| %s | %s |' % ('✅' if ok else '❌', what.replace('|', '\\|')) for _, ok, what in rs] + ['', '</details>', '']
+    with open(path, 'a', encoding='utf-8') as f:
+        f.write('\n'.join(lines) + '\n')
 
 
 def run(*args):
@@ -49,9 +72,11 @@ def http(method, url, body=None):
 
 
 def main():
+    t_start = time.time()
+    keep = os.environ.get('PIZZA_KEEP_OUTPUT')          # CI: keep the reports built from simulated data, as a run artifact
     tmp = tempfile.mkdtemp(prefix='pizza-smoke-')
     try:
-        print('analysis')
+        heading('analysis')
         check(run('examples/simulate.py', os.path.join(tmp, 'sample'), '5', '24', 'AB'), 'simulate 24 participants')
         check(run('examples/simulate.py', os.path.join(tmp, 'ref'), '9', '40', 'B'), 'simulate a reference of 40 pizzas')
         out = os.path.join(tmp, 'out')
@@ -99,7 +124,7 @@ def main():
         check(run('analysis/analyse.py', os.path.join(tmp, 'plain.json'), '--group', 'group', '--out', os.path.join(tmp, 'o1')), 'one participant with a plain pizza')
         check(run('analysis/analyse.py', os.path.join(tmp, 'plain.json'), first[1], '--group', 'group', '--out', os.path.join(tmp, 'o2')), 'two participants')
 
-        print('study server')
+        heading('study server')
         with socket.socket() as s:
             s.bind(('127.0.0.1', 0))
             port = s.getsockname()[1]
@@ -167,7 +192,7 @@ def main():
             srv.wait(timeout=10)
 
         if shutil.which('node'):
-            print('javascript')
+            heading('javascript')
             for f in ('pizza-builder.js', 'preview.js'):
                 check(subprocess.run(['node', '--check', f], cwd=ROOT).returncode == 0, 'syntax ' + f)
             # the demo preview's face detector must give the same answers as analyse.py
@@ -199,7 +224,7 @@ def main():
             check(out_.returncode == 0 and json.loads(out_.stdout) == [c['py'] for c in cases],
                   'symmetry (matches, axis, rotation) agrees between preview.js and analyse.py (%d pizzas)' % len(cases))
 
-        print('face benchmark')
+        heading('face benchmark')
         sys.path[:0] = [os.path.join(ROOT, 'tests'), os.path.join(ROOT, 'analysis')]
         import face_benchmark as FB
         res = FB.run(60, quiet=True)
@@ -207,7 +232,11 @@ def main():
         fp = sum(res[label] for label, _ in FB.NOT_FACES) / len(FB.NOT_FACES)
         check(hit >= 0.7 and fp <= 0.05, 'finds %.0f%% of drawn faces, flags %.1f%% of non-faces' % (100 * hit, 100 * fp))
     finally:
+        if keep and os.path.isdir(os.path.join(tmp, 'out')):
+            shutil.copytree(os.path.join(tmp, 'out'), keep, dirs_exist_ok=True)
         shutil.rmtree(tmp, ignore_errors=True)
+    if os.environ.get('GITHUB_STEP_SUMMARY'):
+        write_summary(os.environ['GITHUB_STEP_SUMMARY'], time.time() - t_start)
     print('\n%s' % ('all checks passed' if not failures else '%d check(s) failed' % len(failures)))
     sys.exit(1 if failures else 0)
 
