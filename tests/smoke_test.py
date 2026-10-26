@@ -112,6 +112,29 @@ def main():
             print('javascript')
             for f in ('pizza-builder.js', 'preview.js'):
                 check(subprocess.run(['node', '--check', f], cwd=ROOT).returncode == 0, 'syntax ' + f)
+            # the demo preview's face detector must give the same answers as analyse.py
+            sys.path[:0] = [os.path.join(ROOT, 'tests'), os.path.join(ROOT, 'analysis')]
+            import face_benchmark as FB
+            g, cases = FB.Gen(3), []
+            for _, make in FB.FACES + FB.NOT_FACES:
+                for _ in range(15):
+                    ps = make(g)
+                    r = FB.A.face_detect(ps)
+                    cases.append({'ps': ps, 'py': r and [sorted(r['eyes']), r['mouth'], r['nose'], r['deco']]})
+            js = ("global.window = global; require(%s); const cs = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
+                  "console.log(JSON.stringify(cs.map(c => { const r = PizzaPreview.faceDetect(c.ps);"
+                  " return r && [r.eyes.slice().sort((a, b) => a - b), r.mouth, r.nose, r.deco]; })));" % json.dumps(os.path.join(ROOT, 'preview.js')))
+            out = subprocess.run(['node', '-e', js], input=json.dumps(cases), capture_output=True, text=True)
+            same = out.returncode == 0 and json.loads(out.stdout) == [c['py'] for c in cases]
+            check(same, 'face detection agrees between preview.js and analyse.py (%d pizzas)' % len(cases))
+
+        print('face benchmark')
+        sys.path[:0] = [os.path.join(ROOT, 'tests'), os.path.join(ROOT, 'analysis')]
+        import face_benchmark as FB
+        res = FB.run(60, quiet=True)
+        hit = sum(res[label] for label, _ in FB.FACES) / len(FB.FACES)
+        fp = sum(res[label] for label, _ in FB.NOT_FACES) / len(FB.NOT_FACES)
+        check(hit >= 0.7 and fp <= 0.05, 'finds %.0f%% of drawn faces, flags %.1f%% of non-faces' % (100 * hit, 100 * fp))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print('\n%s' % ('all checks passed' if not failures else '%d check(s) failed' % len(failures)))

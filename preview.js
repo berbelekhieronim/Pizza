@@ -110,82 +110,141 @@
   function mean(a) { return a.reduce(function (x, y) { return x + y; }, 0) / a.length; }
   function pstdev(a) { var m = mean(a); return Math.sqrt(mean(a.map(function (x) { return (x - m) * (x - m); }))); }
 
-  // Face detection: the same rules as face_detect() in analyse.py (see its description there).
+  // Face detection: the same rules, in the same order, as face_features() and face_detect() in analyse.py
+  // (see the description there); tests compare the two on hundreds of pizzas.
+  function faceFeatures(ps) {
+    var n = ps.length, caps = ps.map(capsule), parent = ps.map(function (_, i) { return i; });
+    function find(x) { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+    for (var i = 0; i < n; i++) for (var j = i + 1; j < n; j++) {
+      var gap = segDist(caps[i][0], caps[i][1], caps[j][0], caps[j][1]) - caps[i][2] - caps[j][2];
+      if ((ps[i].ing === ps[j].ing && gap <= 0.01) || gap <= -0.5 * Math.min(caps[i][2], caps[j][2])) parent[find(i)] = find(j);
+    }
+    var groups = new Map();
+    for (i = 0; i < n; i++) { var r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(i); }
+    var feats = [];
+    groups.forEach(function (members) {
+      var areas = members.map(function (i) { var c = caps[i], h = Math.hypot(c[1][0] - c[0][0], c[1][1] - c[0][1]) / 2; return Math.PI * c[2] * c[2] + 4 * h * c[2]; });
+      var A = areas.reduce(function (x, y) { return x + y; }, 0);
+      var cx = 0, cy = 0; members.forEach(function (i, k) { cx += ps[i].x * areas[k]; cy += ps[i].y * areas[k]; }); cx /= A; cy /= A;
+      var pts = []; members.forEach(function (i) { pts.push(caps[i][0], caps[i][1]); });
+      var sxx = 0, syy = 0, sxy = 0; pts.forEach(function (q) { sxx += (q[0] - cx) * (q[0] - cx); syy += (q[1] - cy) * (q[1] - cy); sxy += (q[0] - cx) * (q[1] - cy); });
+      var th = 0.5 * Math.atan2(2 * sxy, sxx - syy), ux = Math.cos(th), uy = Math.sin(th);
+      var wbar = members.reduce(function (x, i) { return x + caps[i][2]; }, 0) / members.length;
+      var along = pts.map(function (q) { return (q[0] - cx) * ux + (q[1] - cy) * uy; }), across = pts.map(function (q) { return -(q[0] - cx) * uy + (q[1] - cy) * ux; });
+      var length = Math.max.apply(null, along) - Math.min.apply(null, along) + 2 * wbar, width = Math.max.apply(null, across) - Math.min.apply(null, across) + 2 * wbar;
+      var cnt = {}, top = null; members.forEach(function (i) { cnt[ps[i].ing] = (cnt[ps[i].ing] || 0) + 1; if (top === null || cnt[ps[i].ing] > cnt[top]) top = ps[i].ing; });
+      feats.push({ members: members, x: cx, y: cy, r: Math.sqrt(A / Math.PI), elong: length / Math.max(width, 1e-6), len: length, ux: ux, uy: uy, ing: top });
+    });
+    return feats;
+  }
+
   function faceDetect(ps) {
     var n = ps.length;
     if (n < 3) return null;
-    var info = ps.map(function (p) {
-      var c = capsule(p), h = Math.hypot(c[1][0] - c[0][0], c[1][1] - c[0][1]) / 2;
-      return { x: p.x, y: p.y, w: c[2], h: h, ing: p.ing, ux: h ? (c[1][0] - c[0][0]) / (2 * h) : 1, uy: h ? (c[1][1] - c[0][1]) / (2 * h) : 0 };
-    });
-    var best = null, cos35 = Math.cos(35 * Math.PI / 180);
-    for (var i = 0; i < n; i++) for (var j = i + 1; j < n; j++) {
-      var A = info[i], B = info[j];
-      if (A.h > 0.03 || B.h > 0.03 || A.ing !== B.ing) continue;
-      var dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy);
-      if (d < 0.3 || d > 1.0) continue;
-      var part = {}; part[i] = part[j] = 1;
-      for (var k = 0; k < n; k++) if (k !== i && k !== j && (Math.hypot(info[k].x - A.x, info[k].y - A.y) <= A.w || Math.hypot(info[k].x - B.x, info[k].y - B.y) <= B.w)) part[k] = 1;
-      var crowded = false;
-      for (k = 0; k < n && !crowded; k++) if (!part[k] && (Math.hypot(info[k].x - A.x, info[k].y - A.y) < 0.4 * d || Math.hypot(info[k].x - B.x, info[k].y - B.y) < 0.4 * d)) crowded = true;
-      if (crowded) continue;
+    var F = faceFeatures(ps), m = F.length, best = null, cos35 = Math.cos(35 * Math.PI / 180);
+    function halfLen(pc) { var c = capsule(ps[pc]); return Math.hypot(c[1][0] - c[0][0], c[1][1] - c[0][1]) / 2; }
+    function eyeLike(f) {
+      if (f.elong > 1.7) return false;
+      var mem = f.members;
+      if (mem.length === 1) return capsule(ps[mem[0]])[2] > 0 && halfLen(mem[0]) <= 0.03;
+      if (mem.length > 6) return false;
+      var ings = {}; mem.forEach(function (pc) { ings[ps[pc].ing] = 1; });
+      if (Object.keys(ings).length === 1) return true;
+      var host = mem.reduce(function (h, pc) { return capsule(ps[pc])[2] > capsule(ps[h])[2] ? pc : h; }, mem[0]), hw = capsule(ps[host])[2];
+      return mem.every(function (pc) { return pc === host || Math.hypot(ps[pc].x - ps[host].x, ps[pc].y - ps[host].y) <= hw; });
+    }
+    var eyesOk = F.map(eyeLike);
+    for (var i = 0; i < m; i++) for (var j = i + 1; j < m; j++) {
+      var A = F[i], B = F[j];
+      if (!(eyesOk[i] && eyesOk[j])) continue;
+      if (Math.max(A.r, B.r) / Math.max(1e-6, Math.min(A.r, B.r)) > 1.6) continue;
+      var same = A.ing === B.ing, dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy);
+      if (d < 0.25 || d > 1.3 || d < 1.1 * (A.r + B.r)) continue;
       var ux = dx / d, uy = dy / d, mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2;
       [1, -1].forEach(function (sgn) {
-        var px = -uy * sgn, py = ux * sgn, loc = [];
-        for (var k = 0; k < n; k++) if (!part[k]) { var vx = info[k].x - mx, vy = info[k].y - my; loc.push([k, (vx * ux + vy * uy) / d, (vx * px + vy * py) / d]); }
+        var px = -uy * sgn, py = ux * sgn, loc = [], pos = {};
+        for (var k = 0; k < m; k++) if (k !== i && k !== j) { var vx = F[k].x - mx, vy = F[k].y - my, l = [k, (vx * ux + vy * uy) / d, (vx * px + vy * py) / d]; loc.push(l); pos[k] = [l[1], l[2]]; }
+        function mirroredPair(zone) {
+          var found = null;
+          loc.forEach(function (a) { loc.forEach(function (b) {
+            if (a[0] < b[0] && F[a[0]].ing === F[b[0]].ing && a[1] * b[1] < 0 && Math.abs(a[1] + b[1]) <= 0.15 && Math.abs(a[2] - b[2]) <= 0.15 && zone(a[1], a[2]) && zone(b[1], b[2])) found = [a[0], b[0]];
+          }); });
+          return found || [];
+        }
+        var brows = mirroredPair(function (al, pp) { return pp >= -0.6 && pp <= -0.1 && Math.abs(Math.abs(al) - 0.5) <= 0.3; });
+        var cheeks = mirroredPair(function (al, pp) { return pp >= 0.1 && pp <= 1.0 && Math.abs(al) >= 0.55 && Math.abs(al) <= 1.1; });
+        var deco = {}; brows.concat(cheeks).forEach(function (k) { deco[k] = 1; });
+        if (loc.some(function (l) { return brows.indexOf(l[0]) < 0 && (Math.hypot(l[1] + 0.5, l[2]) < 0.4 || Math.hypot(l[1] - 0.5, l[2]) < 0.4); })) return;
+        var taken = {}; F[i].members.concat(F[j].members).forEach(function (pc) { taken[pc] = 1; });
+        Object.keys(deco).forEach(function (k) { F[k].members.forEach(function (pc) { taken[pc] = 1; }); });
+        var ploc = [], ppos = {};
+        ps.forEach(function (p, pc) { if (!taken[pc]) { var vx = p.x - mx, vy = p.y - my, l = [pc, (vx * ux + vy * uy) / d, (vx * px + vy * py) / d]; ploc.push(l); ppos[pc] = [l[1], l[2]]; } });
         var mouth = null, mouthAl = 0, kind = '';
-        loc.some(function (l) {
-          var q = info[l[0]];
-          if (q.h >= 0.04 && l[2] >= 0.45 && l[2] <= 2.2 && Math.abs(l[1]) <= 0.35 && Math.abs(q.ux * ux + q.uy * uy) >= cos35 && 2 * (q.h + q.w) >= 0.45 * d) {
-            mouth = [l[0]]; mouthAl = l[1]; kind = NAMES[q.ing] || q.ing; return true;
+        ploc.some(function (l) {
+          var c = capsule(ps[l[0]]), h = halfLen(l[0]);
+          if (h >= 0.04 && l[2] >= 0.45 && l[2] <= 2.2 && Math.abs(l[1]) <= 0.35 && Math.abs(((c[1][0] - c[0][0]) * ux + (c[1][1] - c[0][1]) * uy) / (2 * h)) >= cos35 && 2 * (h + c[2]) >= 0.45 * d) {
+            mouth = [l[0]]; mouthAl = l[1]; kind = NAMES[ps[l[0]].ing] || ps[l[0]].ing; return true;
           }
           return false;
         });
         if (!mouth) {
-          var cand = loc.filter(function (l) { return l[2] >= 0.45 && l[2] <= 2.2 && Math.abs(l[1]) <= 1.1; })
+          var cand = ploc.filter(function (l) { return l[2] >= 0.45 && l[2] <= 2.2 && Math.abs(l[1]) <= 1.1; })
             .map(function (l) { return [l[1], l[2], l[0]]; }).sort(function (a, b) { return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]; });
-          var m = cand.length, len = cand.map(function () { return 1; }), prev = cand.map(function () { return -1; });
-          for (var b2 = 0; b2 < m; b2++) for (var a2 = 0; a2 < b2; a2++) {
-            var gap = cand[b2][0] - cand[a2][0];
-            if (gap > 0 && gap <= 0.8 && Math.abs(cand[b2][1] - cand[a2][1]) <= 0.3 && len[a2] + 1 > len[b2]) { len[b2] = len[a2] + 1; prev[b2] = a2; }
+          var cn = cand.length, len = cand.map(function () { return 1; }), prev = cand.map(function () { return -1; });
+          for (var b2 = 0; b2 < cn; b2++) for (var a2 = 0; a2 < b2; a2++) {
+            var gp = cand[b2][0] - cand[a2][0];
+            if (gp > 0 && gp <= 0.8 && Math.abs(cand[b2][1] - cand[a2][1]) <= 0.3 && len[a2] + 1 > len[b2]) { len[b2] = len[a2] + 1; prev[b2] = a2; }
           }
-          var ends = cand.map(function (_, e) { return e; }).sort(function (x, y) { return len[y] - len[x] || x - y; });
-          for (var e = 0; e < ends.length && len[ends[e]] >= 3; e++) {
-            var chain = [], c = ends[e];
+          var order = cand.map(function (_, e) { return e; }).sort(function (x, y) { return len[y] - len[x] || x - y; });
+          for (var e = 0; e < order.length && len[order[e]] >= 3; e++) {
+            var chain = [], c = order[e];
             while (c !== -1) { chain.unshift(c); c = prev[c]; }
             var als = chain.map(function (c) { return cand[c][0]; }), pps = chain.map(function (c) { return cand[c][1]; });
             var gaps = als.slice(1).map(function (x, t) { return x - als[t]; });
             var even = pstdev(gaps) <= 0.35 * mean(gaps), smooth = Math.min(fitResid(als, pps, 'line'), fitResid(als, pps, 'smile')) <= 0.08;
             if (als[als.length - 1] - als[0] >= 0.6 && Math.abs(mean(als)) <= 0.25 && Math.abs(als[0] + als[als.length - 1]) <= 0.35 && even && smooth) {
               mouth = chain.map(function (c) { return cand[c][2]; }); mouthAl = mean(als);
-              var kinds = {}; mouth.forEach(function (k) { kinds[(NAMES[info[k].ing] || info[k].ing).toLowerCase()] = 1; });
-              kind = 'row of ' + mouth.length + ' ' + Object.keys(kinds).join('/');
+              var kinds = []; mouth.forEach(function (pc) { var nm = (NAMES[ps[pc].ing] || ps[pc].ing).toLowerCase(); if (kinds.indexOf(nm) < 0) kinds.push(nm); });
+              kind = 'row of ' + mouth.length + ' ' + kinds.join('/');
               break;
             }
           }
         }
         if (!mouth) return;
-        var used = {}; Object.keys(part).forEach(function (k) { used[k] = 1; }); mouth.forEach(function (k) { used[k] = 1; });
-        var mpos = {}; loc.forEach(function (l) { if (mouth.indexOf(l[0]) >= 0) mpos[l[0]] = [l[1], l[2]]; });
         if (mouth.length > 1) {
-          var ms = mouth.map(function (k) { return mpos[k]; }).sort(function (a, b) { return a[0] - b[0]; });
+          var ms = mouth.map(function (pc) { return ppos[pc]; }).sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
           var step = mean(ms.slice(1).map(function (v, t) { return v[0] - ms[t][0]; }));
           var gapEye = Infinity; ms.forEach(function (v) { [-0.5, 0.5].forEach(function (ex) { gapEye = Math.min(gapEye, Math.hypot(v[0] - ex, v[1])); }); });
           if (gapEye < Math.max(0.45, 1.3 * step)) return;
-          var endK = [mouth.reduce(function (a, b) { return mpos[a][0] <= mpos[b][0] ? a : b; }), mouth.reduce(function (a, b) { return mpos[a][0] >= mpos[b][0] ? a : b; })];
-          var mIngs = {}; mouth.forEach(function (k) { mIngs[info[k].ing] = 1; });
-          for (var k2 = 0; k2 < n; k2++) if (mIngs[info[k2].ing] && !used[k2] && endK.some(function (e2) { return Math.hypot(info[k2].x - info[e2].x, info[k2].y - info[e2].y) <= 1.5 * step * d; })) return;
+          var endL = mouth.reduce(function (a, b) { return ppos[b][0] < ppos[a][0] ? b : a; }), endR = mouth.reduce(function (a, b) { return ppos[b][0] > ppos[a][0] ? b : a; });
+          var mIngs = {}; mouth.forEach(function (pc) { mIngs[ps[pc].ing] = 1; });
+          var eyePcs = {}; F[i].members.concat(F[j].members).forEach(function (pc) { eyePcs[pc] = 1; });
+          for (var q = 0; q < n; q++) {
+            if (mIngs[ps[q].ing] && mouth.indexOf(q) < 0 && !eyePcs[q] &&
+                [endL, endR].some(function (e2) { return Math.hypot(ps[q].x - ps[e2].x, ps[q].y - ps[e2].y) <= 1.5 * step * d; })) return;
+          }
         }
-        var mouthTop = Math.min.apply(null, loc.filter(function (l) { return mouth.indexOf(l[0]) >= 0; }).map(function (l) { return l[2]; }));
-        var nose = loc.filter(function (l) { return !used[l[0]] && l[2] >= 0.05 && l[2] <= mouthTop - 0.1 && Math.abs(l[1]) <= 0.3; }).map(function (l) { return l[0]; });
-        var mv = mouth.map(function (k) { return mpos[k]; });
-        var halfW = Math.max(0.5, Math.max.apply(null, mv.map(function (v) { return Math.abs(v[0]); }))) + 0.35;
-        var top = -0.35, bottom = Math.max.apply(null, mv.map(function (v) { return v[1]; })) + 0.3, cy = (top + bottom) / 2, ry = (bottom - top) / 2;
+        var mouthFeats = {}; for (k = 0; k < m; k++) if (F[k].members.some(function (pc) { return mouth.indexOf(pc) >= 0; })) mouthFeats[k] = 1;
+        var mv = mouth.map(function (pc) { return ppos[pc]; });
+        var alMax = Math.max.apply(null, mv.map(function (v) { return Math.abs(v[0]); }));
+        var mouthTop = Math.min.apply(null, mv.map(function (v) { return v[1]; })), mouthBottom = Math.max.apply(null, mv.map(function (v) { return v[1]; }));
+        var used = {}; Object.keys(mouthFeats).concat(Object.keys(deco)).forEach(function (k) { used[k] = 1; });
+        var nose = loc.filter(function (l) { return !used[l[0]] && l[2] >= 0.05 && l[2] <= mouthTop - 0.1 && Math.abs(l[1]) <= 0.3 && F[l[0]].members.length <= 2 && F[l[0]].r <= 1.5 * Math.max(A.r, B.r); }).map(function (l) { return l[0]; });
+        var halfW = Math.max(0.5, alMax) + 0.35, top = -0.35, bottom = mouthBottom + 0.3, cy = (top + bottom) / 2, ry = (bottom - top) / 2;
         var clutter = loc.filter(function (l) { return !used[l[0]] && Math.pow(l[1] / halfW, 2) + Math.pow((l[2] - cy) / ry, 2) <= 1; }).length - Math.min(1, nose.length);
-        if (clutter > 1) return;
-        if (Object.keys(used).length + Math.min(1, nose.length) < 0.3 * n) return;
-        var score = 1 - 0.15 * clutter - 0.6 * Math.abs(mouthAl);
-        if (score >= 0.6 && (!best || score > best.score)) best = { score: score, eyes: [i, j], mouth: mouth, nose: nose.slice(0, 1), eyeIng: A.ing, mouthKind: kind };
+        if (clutter > 1 || (!same && (clutter > 0 || (mouth.length === 1 && !nose.length)))) return;
+        var faceFeats = [i, j].concat(Object.keys(mouthFeats).map(Number), nose.slice(0, 1), Object.keys(deco).map(Number));
+        var facePieces = {}; faceFeats.forEach(function (f) { F[f].members.forEach(function (pc) { facePieces[pc] = 1; }); });
+        var nFace = Object.keys(facePieces).length, fcx = mx + px * d * (mouthTop / 2), fcy = my + py * d * (mouthTop / 2);
+        var near = ps.filter(function (p) { return Math.hypot(p.x - fcx, p.y - fcy) <= 1.4 * d; }).length;
+        if (nFace < 0.3 * Math.max(near, 1) || nFace < 0.3 * n) return;
+        var score = 1 - 0.15 * clutter - 0.6 * Math.abs(mouthAl) - (same ? 0 : 0.1);
+        function pieceList(fs) { var out = []; fs.forEach(function (f) { out = out.concat(F[f].members); }); return out.sort(function (a, b) { return a - b; }); }
+        if (score >= 0.6 && (!best || score > best.score)) {
+          best = { score: score, eyes: pieceList([i]).concat(pieceList([j])), mouth: mouth.slice().sort(function (a, b) { return a - b; }), nose: pieceList(nose.slice(0, 1)),
+            deco: pieceList(Object.keys(deco).map(Number).sort(function (a, b) { return a - b; })), clutter: clutter, brows: brows.length ? 1 : 0, cheeks: cheeks.length ? 1 : 0,
+            eyeIng: same ? A.ing : A.ing + '+' + B.ing, mouthKind: kind };
+        }
       });
     }
     return best;
@@ -221,12 +280,13 @@
   }
   function facePic(ps, f) {
     if (!f) return pic(ps.map(function (p) { return glyph(p, ' opacity=".45"'); }).join(''));
-    var on = {}; f.eyes.concat(f.mouth, f.nose).forEach(function (k) { on[k] = 1; });
+    var on = {}; f.eyes.concat(f.mouth, f.nose, f.deco || []).forEach(function (k) { on[k] = 1; });
     var s = ps.map(function (p, i) { return glyph(p, ' opacity="' + (on[i] ? '1' : '.3') + '"'); }).join('');
     function ring(k, col) { var p = ps[k]; return '<circle cx="' + (p.x * 100).toFixed(1) + '" cy="' + (-p.y * 100).toFixed(1) + '" r="' + (capsule(p)[2] * 100 + 4).toFixed(1) + '" fill="none" stroke="' + col + '" stroke-width="2.6"/>'; }
     f.eyes.forEach(function (k) { s += ring(k, '#2457a6'); });
     f.mouth.forEach(function (k) { s += ring(k, '#c23b22'); });
     f.nose.forEach(function (k) { s += ring(k, '#3f8f4a'); });
+    (f.deco || []).forEach(function (k) { s += ring(k, '#8a4fa8'); });
     return pic(s);
   }
 
@@ -344,7 +404,7 @@
       '<figure><figcaption>Border</figcaption>' + borderPic(ps, bor) +
         '<div class="pv-key"><span><i style="border-color:#d08a00"></i>on the crust</span><span><i style="border-color:#c23b22"></i>over the edge</span><span>faded = inside</span></div></figure>' +
       '<figure><figcaption>Face</figcaption>' + facePic(ps, face) +
-        '<div class="pv-key">' + (face ? '<span><i style="border-color:#2457a6"></i>eyes</span><span><i style="border-color:#c23b22"></i>mouth</span>' + (face.nose.length ? '<span><i style="border-color:#3f8f4a"></i>nose</span>' : '') : '<span>no face found</span>') + '</div></figure>' +
+        '<div class="pv-key">' + (face ? '<span><i style="border-color:#2457a6"></i>eyes</span><span><i style="border-color:#c23b22"></i>mouth</span>' + (face.nose.length ? '<span><i style="border-color:#3f8f4a"></i>nose</span>' : '') + ((face.deco || []).length ? '<span><i style="border-color:#8a4fa8"></i>' + (face.brows && face.cheeks ? 'eyebrows, cheeks' : face.brows ? 'eyebrows' : 'cheeks') + '</span>' : '') : '<span>no face found</span>') + '</div></figure>' +
       '</div>' +
       '<div class="pv-groups">' +
       '<div class="pv-group"><h4>Composition</h4>' + stat('Pieces', ps.length) + stat('Different toppings', Object.keys(counts).length) +
@@ -357,7 +417,7 @@
       '<div class="pv-group"><h4>Border</h4>' + stat('Inside the sauce', ps.length - bor.crust - bor.over) + stat('On the crust', bor.crust) + stat('Over the edge', bor.over) +
         stat('Furthest overhang', bor.over ? bor.overhangMm.toFixed(0) + ' mm' : '-', 'on a 30 cm pizza') + '</div>' +
       '<div class="pv-group"><h4>Face</h4>' + stat('Face found', face ? 'yes' : 'no') +
-        (face ? stat('Eyes', esc(NAMES[face.eyeIng] || face.eyeIng)) + stat('Mouth', esc(face.mouthKind)) + stat('Nose', face.nose.length ? 'yes' : 'no') + stat('Score', face.score.toFixed(2)) : '') + '</div>' +
+        (face ? stat('Eyes', esc(face.eyeIng.split('+').map(function (k) { return NAMES[k] || k; }).join(' + '))) + stat('Mouth', esc(face.mouthKind)) + stat('Nose', face.nose.length ? 'yes' : 'no') + stat('Score', face.score.toFixed(2)) : '') + '</div>' +
       '<div class="pv-group"><h4>Space</h4>' +
         stat('Touching pairs', con.touch) + stat('Stacked pairs', con.stack) + stat('Tallest pile', con.pile ? con.pile + ' layer' + (con.pile > 1 ? 's' : '') : '-') +
         stat('Pizza covered', Math.round(coverage(ps) * 100) + '%') + '</div>' +
@@ -382,5 +442,5 @@
     el.innerHTML = html;
   }
 
-  global.PizzaPreview = { render: render, reference: REF };
+  global.PizzaPreview = { render: render, reference: REF, faceDetect: faceDetect };
 })(typeof window !== 'undefined' ? window : this);

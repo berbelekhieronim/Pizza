@@ -254,10 +254,15 @@ The measures are defined in `CODEBOOK.md`. In short:
   The rate for pieces of other categories is the chance baseline, so `size_match_index` > 0 means sizes are matched on purpose.
 - **Border:** pieces inside the sauce, on the crust, or hanging over the outer edge (and by how many mm). Toppings stay where
   they are dropped, including on the crust; only drops beyond the edge remove them.
-- **Faces:** whether the toppings form a face: two matching round eyes, a mouth (one long piece or an evenly spaced row or
-  smile), maybe a nose, at any rotation, with the face as a main feature of the pizza. On simulated pizzas it finds 92% of
-  drawn faces and flags 0-7% of pizzas without one (rings of toppings most often). Have a person code faces on a subset of
-  your own pizzas to check agreement before relying on it.
+- **Faces:** whether the toppings form a face, at any rotation. Touching pieces are first merged into features, so an eye
+  can be one piece, a piece with a pupil on it, or a small heap; the eyes can be two different toppings. A mouth is one
+  long piece or an evenly spaced row or smile of 3+ pieces (of any toppings) under the eyes. A nose, eyebrows and cheeks
+  count as part of the face, and the face must be a main feature of the pizza (at least 30% of the pieces near it and of all
+  pieces). `python3 tests/face_benchmark.py` draws hundreds of faces of 11 kinds and 11 kinds of non-face: it finds 81% of
+  faces (51% with two different eye toppings, 70% with eyebrows or hair, 83-93% for the rest) and flags 1.5% of non-faces
+  (worst: 6% of random scatters of 9-20 pieces, 5% of mirror-symmetric pizzas). The demo preview runs the same detector,
+  and the smoke test checks that both give identical answers. Have a person code faces on a subset of your own pizzas to
+  check agreement before relying on it.
 - **Diet class:** each pizza is classed vegan / vegetarian / pescatarian / contains meat by the strictest diet it fits
   (cheese and white sauce count as dairy), with piece counts and area shares per class, and checked against the stated diet.
 - **Normality:** each pizza against a reference distribution of pizzas: `--reference` files (e.g. a pilot or a norming

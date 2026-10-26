@@ -229,68 +229,159 @@ def border_measures(pieces):
             'n_centre_on_crust': sum(math.hypot(p['x'], p['y']) > 0.86 for p in pieces), 'max_overhang_mm': max(0.0, max(outs) - 1) * 150}, zones
 
 
+def face_features(pieces):
+    """Groups pieces into features: the same topping when touching (a heap of corn as one eye), different toppings when
+    one clearly sits on the other (an olive on a pepperoni: one eye with a pupil). Each feature: member piece indices, centre (area-weighted), equivalent radius, elongation along
+    its main axis, that axis, and its main topping. Units are pizza radii."""
+    n = len(pieces)
+    caps = [capsule(p) for p in pieces]
+    parent = list(range(n))
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for i in range(n):
+        for j in range(i + 1, n):
+            gap = seg_dist(caps[i][0], caps[i][1], caps[j][0], caps[j][1]) - caps[i][2] - caps[j][2]
+            same = pieces[i]['ing'] == pieces[j]['ing']
+            # the same topping merges when touching (a heap of corn); different toppings only when one clearly sits on the
+            # other (a pupil), so an eyebrow that just touches an eye stays separate
+            if (same and gap <= 0.01) or gap <= -0.5 * min(caps[i][2], caps[j][2]):
+                parent[find(i)] = find(j)
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    feats = []
+    for members in groups.values():
+        areas = []
+        for i in members:
+            (a1, a2), (b1, b2), w = caps[i]
+            h = math.hypot(b1 - a1, b2 - a2) / 2
+            areas.append(math.pi * w * w + 4 * h * w)
+        A = sum(areas)
+        cx = sum(pieces[i]['x'] * ar for i, ar in zip(members, areas)) / A
+        cy = sum(pieces[i]['y'] * ar for i, ar in zip(members, areas)) / A
+        pts = []                                  # both ends of every member's outline axis
+        for i in members:
+            pts += [caps[i][0], caps[i][1]]
+        sxx = sum((x - cx) ** 2 for x, _ in pts)
+        syy = sum((y - cy) ** 2 for _, y in pts)
+        sxy = sum((x - cx) * (y - cy) for x, y in pts)
+        th = 0.5 * math.atan2(2 * sxy, sxx - syy)
+        ux, uy = math.cos(th), math.sin(th)
+        wbar = sum(caps[i][2] for i in members) / len(members)
+        along = [(x - cx) * ux + (y - cy) * uy for x, y in pts]
+        across = [-(x - cx) * uy + (y - cy) * ux for x, y in pts]
+        length = max(along) - min(along) + 2 * wbar
+        width = max(across) - min(across) + 2 * wbar
+        feats.append({'members': members, 'x': cx, 'y': cy, 'r': math.sqrt(A / math.pi), 'elong': length / max(width, 1e-6),
+                      'len': length, 'ux': ux, 'uy': uy, 'ing': Counter(pieces[i]['ing'] for i in members).most_common(1)[0][0]})
+    return feats
+
+
 def face_detect(pieces):
-    """Looks for a face made of toppings: two round, isolated pieces of the same topping as eyes; below them (in the
-    face's own orientation, at any rotation) a mouth: one long piece lying along the eye line, or an evenly spaced row of
-    3+ pieces centred under the eyes and following a straight line or a smile; at most one nose between; and at most one
-    other piece in the face oval; and the face must make up at least 30% of the pieces on the pizza. Pieces sitting on an
-    eye (pupils) count as part of it. On simulated pizzas it found 92% of drawn faces (at any rotation, with or without
-    nose, pupils and toppings round the rim) and flagged 0-5% of random or mirror-symmetric pizzas and 7% of rings of
-    toppings. Check it against human coding of a subset of your own pizzas before relying on it.
-    Returns the best face found, or None. Distances are in units of the eye spacing d."""
+    """Looks for a face made of toppings, at any rotation. Touching pieces are first merged into features (see
+    face_features), so eyes may be single pieces, pieces with pupils, or small heaps. A face is:
+    - two round-ish eyes of similar size (the same topping, or different toppings at a small score penalty),
+      0.25-1.3 pizza radii apart, with nothing else close to either eye except eyebrows;
+    - below them (in the face's own orientation) a mouth: one long feature lying along the eye line, or an evenly
+      spaced row of 3+ features centred under the eyes, following a straight line or a smile, that stops at both ends
+      (not part of a longer ring), and does not run straight on from the eyes;
+    - at most one nose between eyes and mouth; matching pairs placed symmetrically on the face (eyebrows, cheeks) count
+      as part of it; at most one other feature inside the face oval;
+    - the face is a main feature: its pieces are at least 30% of the pieces near it and of the whole pizza.
+    Returns the best face (piece indices of eyes, mouth, nose, decorations, and a score from 0.6 to 1), or None.
+    tests/face_benchmark.py measures it on many kinds of drawn faces and non-faces; check it against human coding of
+    a subset of your own pizzas before relying on it."""
     n = len(pieces)
     if n < 3:
         return None
-    info = []
-    for p in pieces:
-        a, b, w = capsule(p)
-        h = math.hypot(b[0] - a[0], b[1] - a[1]) / 2
-        info.append({'x': p['x'], 'y': p['y'], 'w': w, 'h': h, 'ing': p['ing'],
-                     'ux': (b[0] - a[0]) / (2 * h) if h else 1.0, 'uy': (b[1] - a[1]) / (2 * h) if h else 0.0})
+    F = face_features(pieces)
+    m = len(F)
     best = None
     cos35 = math.cos(math.radians(35))
-    for i in range(n):
-        for j in range(i + 1, n):
-            A, B = info[i], info[j]
-            if A['h'] > 0.03 or B['h'] > 0.03:
+
+    def eye_like(f):
+        """A single round piece, a heap of one topping, or a piece with pupils sitting inside it."""
+        if f['elong'] > 1.7:
+            return False
+        mem = f['members']
+        if len(mem) == 1:
+            return capsule(pieces[mem[0]])[2] > 0 and math.hypot(*[a - b for a, b in zip(*capsule(pieces[mem[0]])[:2])]) / 2 <= 0.03
+        if len(mem) > 6:
+            return False
+        if len({pieces[pc]['ing'] for pc in mem}) == 1:
+            return True
+        host = max(mem, key=lambda pc: capsule(pieces[pc])[2])
+        hw = capsule(pieces[host])[2]
+        return all(math.hypot(pieces[pc]['x'] - pieces[host]['x'], pieces[pc]['y'] - pieces[host]['y']) <= hw for pc in mem if pc != host)
+
+    eyes_ok = [eye_like(f) for f in F]
+    for i in range(m):
+        for j in range(i + 1, m):
+            A, B = F[i], F[j]
+            if not (eyes_ok[i] and eyes_ok[j]):
                 continue
-            if A['ing'] != B['ing']:            # eyes are a matching pair
+            if max(A['r'], B['r']) / max(1e-6, min(A['r'], B['r'])) > 1.6:
                 continue
-            same = True
+            same = A['ing'] == B['ing']
             dx, dy = B['x'] - A['x'], B['y'] - A['y']
             d = math.hypot(dx, dy)
-            if d < 0.3 or d > 1.0:
-                continue
-            on = lambda E, q: math.hypot(q['x'] - E['x'], q['y'] - E['y']) <= E['w']
-            part = {i, j} | {k for k in range(n) if k not in (i, j) and (on(A, info[k]) or on(B, info[k]))}
-            if any(math.hypot(info[k]['x'] - E['x'], info[k]['y'] - E['y']) < 0.4 * d for E in (A, B) for k in range(n) if k not in part):
+            if d < 0.25 or d > 1.3 or d < 1.1 * (A['r'] + B['r']):
                 continue
             ux, uy = dx / d, dy / d
             mx, my = (A['x'] + B['x']) / 2, (A['y'] + B['y']) / 2
             for sgn in (1, -1):
-                px, py = -uy * sgn, ux * sgn
-                loc = []
-                for k in range(n):
-                    if k in part:
-                        continue
-                    vx, vy = info[k]['x'] - mx, info[k]['y'] - my
-                    loc.append((k, (vx * ux + vy * uy) / d, (vx * px + vy * py) / d))
+                px, py = -uy * sgn, ux * sgn            # points from the eyes towards the mouth
+                loc = []                                # (feature, along, perp) in units of d
+                for k in range(m):
+                    if k not in (i, j):
+                        vx, vy = F[k]['x'] - mx, F[k]['y'] - my
+                        loc.append((k, (vx * ux + vy * uy) / d, (vx * px + vy * py) / d))
+                pos = {k: (al, pp) for k, al, pp in loc}
+                # one pair of eyebrows (just above the eyes) and one pair of cheeks (beside the face), each a matching
+                # pair placed symmetrically, belong to the face
+                def mirrored_pair(zone):
+                    found = None
+                    for k1, al1, pp1 in loc:
+                        for k2, al2, pp2 in loc:
+                            if (k1 < k2 and F[k1]['ing'] == F[k2]['ing'] and al1 * al2 < 0 and abs(al1 + al2) <= 0.15
+                                    and abs(pp1 - pp2) <= 0.15 and zone(al1, pp1) and zone(al2, pp2)):
+                                found = {k1, k2}
+                    return found or set()
+                brows = mirrored_pair(lambda al, pp: -0.6 <= pp <= -0.1 and abs(abs(al) - 0.5) <= 0.3)
+                cheeks = mirrored_pair(lambda al, pp: 0.1 <= pp <= 1.0 and 0.55 <= abs(al) <= 1.1)
+                deco = brows | cheeks
+                # eyes stand alone: nothing but eyebrows close to either eye
+                if any(math.hypot(al - ex, pp) < 0.4 for k, al, pp in loc if k not in brows for ex in (-0.5, 0.5)):
+                    continue
+                # the mouth is found among single pieces (not merged features): one long piece along the eye line, or an
+                # evenly spaced row. Pieces belonging to the eyes or to eyebrows/cheeks are left out.
+                taken = set(F[i]['members']) | set(F[j]['members']) | {pc for k in deco for pc in F[k]['members']}
+                ploc = []
+                for pc, p in enumerate(pieces):
+                    if pc not in taken:
+                        vx, vy = p['x'] - mx, p['y'] - my
+                        ploc.append((pc, (vx * ux + vy * uy) / d, (vx * px + vy * py) / d))
+                ppos = {pc: (al, pp) for pc, al, pp in ploc}
                 mouth, mouth_al, kind = None, 0.0, ''
-                for k, al, pp in loc:              # one long piece lying along the eye line
-                    q = info[k]
-                    if (q['h'] >= 0.04 and 0.45 <= pp <= 2.2 and abs(al) <= 0.35 and abs(q['ux'] * ux + q['uy'] * uy) >= cos35
-                            and 2 * (q['h'] + q['w']) >= 0.45 * d):
-                        mouth, mouth_al, kind = [k], al, q['ing']
+                for pc, al, pp in ploc:
+                    (a1, a2), (b1, b2), w = capsule(pieces[pc])
+                    h = math.hypot(b1 - a1, b2 - a2) / 2
+                    if h >= 0.04 and 0.45 <= pp <= 2.2 and abs(al) <= 0.35 and abs(((b1 - a1) * ux + (b2 - a2) * uy) / (2 * h)) >= cos35 \
+                            and 2 * (h + w) >= 0.45 * d:
+                        mouth, mouth_al, kind = [pc], al, NAMES.get(pieces[pc]['ing'], pieces[pc]['ing'])
                         break
-                if mouth is None:                  # or a row of pieces: the longest chain with small steps
-                    cand = sorted((al, pp, k) for k, al, pp in loc if 0.45 <= pp <= 2.2 and abs(al) <= 1.1)
-                    m = len(cand)
-                    length, prev = [1] * m, [-1] * m
-                    for b_ in range(m):
+                if mouth is None:
+                    cand = sorted((al, pp, pc) for pc, al, pp in ploc if 0.45 <= pp <= 2.2 and abs(al) <= 1.1)
+                    cn = len(cand)
+                    length, prev = [1] * cn, [-1] * cn
+                    for b_ in range(cn):
                         for a_ in range(b_):
                             if 0 < cand[b_][0] - cand[a_][0] <= 0.8 and abs(cand[b_][1] - cand[a_][1]) <= 0.3 and length[a_] + 1 > length[b_]:
                                 length[b_], prev[b_] = length[a_] + 1, a_
-                    for end in sorted(range(m), key=lambda e: -length[e]):
+                    for end in sorted(range(cn), key=lambda e: -length[e]):
                         if length[end] < 3:
                             break
                         chain, c = [], end
@@ -300,50 +391,56 @@ def face_detect(pieces):
                         chain.reverse()
                         als = [cand[c][0] for c in chain]
                         pps = [cand[c][1] for c in chain]
-                        span = als[-1] - als[0]
-                        mal = statistics.mean(als)
                         gaps = [b2 - a2 for a2, b2 in zip(als, als[1:])]
-                        even = statistics.pstdev(gaps) <= 0.35 * statistics.mean(gaps)      # evenly spaced, like a drawn line
-                        # a smooth line or smile: residual from the best straight line or centred parabola stays small
+                        even = statistics.pstdev(gaps) <= 0.35 * statistics.mean(gaps)
                         smooth = min(fit_resid(als, pps, 'line'), fit_resid(als, pps, 'smile')) <= 0.08
-                        if span >= 0.6 and abs(mal) <= 0.25 and abs(als[0] + als[-1]) <= 0.35 and even and smooth:
-                            mouth, mouth_al = [cand[c][2] for c in chain], mal
-                            kinds = Counter(info[k]['ing'] for k in mouth)
+                        if als[-1] - als[0] >= 0.6 and abs(statistics.mean(als)) <= 0.25 and abs(als[0] + als[-1]) <= 0.35 and even and smooth:
+                            mouth, mouth_al = [cand[c][2] for c in chain], statistics.mean(als)
+                            kinds = Counter(pieces[pc]['ing'] for pc in mouth)
                             kind = 'row of %d %s' % (len(mouth), '/'.join(NAMES.get(x, x).lower() for x in kinds))
                             break
                 if mouth is None:
                     continue
-                used = part | set(mouth)
-                mouth_top = min(pp for k, al, pp in loc if k in mouth)
-                nose = [k for k, al, pp in loc if k not in used and 0.05 <= pp <= mouth_top - 0.1 and abs(al) <= 0.3]   # between eyes and mouth
-                mpos = {k: (al, pp) for k, al, pp in loc if k in mouth}
-                # the eyes must stand apart from the mouth, not run on into it (as neighbours in a ring of toppings would)
                 if len(mouth) > 1:
-                    ms = sorted(mpos.values())
+                    ms = sorted(ppos[pc] for pc in mouth)
                     step = statistics.mean(b2[0] - a2[0] for a2, b2 in zip(ms, ms[1:]))
-                    gap_eye = min(math.hypot(al - ex, pp) for al, pp in ms for ex in (-0.5, 0.5))
-                    if gap_eye < max(0.45, 1.3 * step):
-                        continue
-                    # a drawn mouth stops: no further piece of the same topping carries the row on past either end
-                    ends = [min(mouth, key=lambda k: mpos[k][0]), max(mouth, key=lambda k: mpos[k][0])]
-                    mouth_ings = {info[k]['ing'] for k in mouth}
-                    if any(info[k]['ing'] in mouth_ings and k not in used and
-                           math.hypot(info[k]['x'] - info[e]['x'], info[k]['y'] - info[e]['y']) <= 1.5 * step * d for e in ends for k in range(n)):
-                        continue
-                # clutter: stray pieces inside the face oval (around eyes, nose and mouth); toppings further out, like hair, do not count
-                half_w = max(0.5, max(abs(v[0]) for v in mpos.values())) + 0.35
-                top, bottom = -0.35, max(v[1] for v in mpos.values()) + 0.3
+                    if min(math.hypot(al - ex, pp) for al, pp in ms for ex in (-0.5, 0.5)) < max(0.45, 1.3 * step):
+                        continue                        # the eyes run straight on into the mouth: a ring, not a face
+                    ends = [min(mouth, key=lambda pc: ppos[pc][0]), max(mouth, key=lambda pc: ppos[pc][0])]
+                    mings = {pieces[pc]['ing'] for pc in mouth}
+                    eye_pcs = set(F[i]['members']) | set(F[j]['members'])
+                    if any(pieces[pc]['ing'] in mings and pc not in mouth and pc not in eye_pcs
+                           and math.hypot(pieces[pc]['x'] - pieces[e]['x'], pieces[pc]['y'] - pieces[e]['y']) <= 1.5 * step * d
+                           for e in ends for pc in range(n)):
+                        continue                        # the row carries on past an end: part of a ring
+                mouth_feats = {k for k in range(m) if set(F[k]['members']) & set(mouth)}
+                mouth_al_max = max(abs(ppos[pc][0]) for pc in mouth)
+                mouth_top = min(ppos[pc][1] for pc in mouth)
+                mouth_bottom = max(ppos[pc][1] for pc in mouth)
+                used = mouth_feats | deco
+                nose = [k for k, al, pp in loc if k not in used and 0.05 <= pp <= mouth_top - 0.1 and abs(al) <= 0.3
+                        and len(F[k]['members']) <= 2 and F[k]['r'] <= 1.5 * max(A['r'], B['r'])]
+                half_w = max(0.5, mouth_al_max) + 0.35
+                top, bottom = -0.35, mouth_bottom + 0.3
                 cy, ry = (top + bottom) / 2, (bottom - top) / 2
                 clutter = sum(1 for k, al, pp in loc if k not in used and (al / half_w) ** 2 + ((pp - cy) / ry) ** 2 <= 1) - min(1, len(nose))
-                if clutter > 1:
+                if clutter > 1 or (not same and (clutter > 0 or (len(mouth) == 1 and not nose))):
+                    continue                            # mismatched eyes need a clean face and a row mouth or a nose
+                # the face is a main feature of its surroundings: its pieces are at least 30% of the pieces near it
+                face_feats = [i, j] + sorted(mouth_feats) + nose[:1] + sorted(deco)
+                face_pieces = {pc for f in face_feats for pc in F[f]['members']}
+                fcx = mx + px * d * (mouth_top / 2)
+                fcy = my + py * d * (mouth_top / 2)
+                near = sum(1 for p in pieces if math.hypot(p['x'] - fcx, p['y'] - fcy) <= 1.4 * d)
+                if len(face_pieces) < 0.3 * max(near, 1) or len(face_pieces) < 0.3 * n:
                     continue
-                if len(used | set(nose[:1])) < 0.3 * n:   # a face someone makes is a main feature of the pizza, not 5 pieces among 35
-                    continue
-                score = 1 - 0.15 * clutter - 0.6 * abs(mouth_al)
+                score = 1 - 0.15 * clutter - 0.6 * abs(mouth_al) - (0 if same else 0.1)
                 if score >= 0.6 and (best is None or score > best['score']):
-                    best = {'score': score, 'eyes': (i, j), 'mouth': mouth, 'nose': nose[:1], 'clutter': clutter,
-                            'eye_topping': A['ing'], 'mouth_kind': kind,
-                            'up_deg': round(math.degrees(math.atan2(-py, -px))) % 360}
+                    piece_list = lambda fs: sorted(pc for f in fs for pc in F[f]['members'])
+                    best = {'score': score, 'eyes': tuple(piece_list([i]) + piece_list([j])), 'mouth': sorted(mouth),
+                            'nose': piece_list(nose[:1]), 'deco': piece_list(sorted(deco)), 'clutter': clutter,
+                            'brows': int(bool(brows)), 'cheeks': int(bool(cheeks)), 'eye_topping': A['ing'] if same else A['ing'] + '+' + B['ing'],
+                            'mouth_kind': kind, 'up_deg': round(math.degrees(math.atan2(-py, -px))) % 360}
     return best
 
 
@@ -564,10 +661,12 @@ def spatial(pieces, rnd):
     f = face_detect(pieces)
     out['face_detected'] = int(f is not None)
     out['face_score'] = f['score'] if f else 0.0
-    out['face_eyes'] = NAMES.get(f['eye_topping'], f['eye_topping']) if f else None
+    out['face_eyes'] = ' + '.join(NAMES.get(k, k) for k in f['eye_topping'].split('+')) if f else None
     out['face_mouth'] = (NAMES.get(f['mouth_kind'], f['mouth_kind']) if f else None)
     out['face_nose'] = (int(bool(f['nose'])) if f else None)
     out['face_up_deg'] = f['up_deg'] if f else None
+    out['face_brows'] = f['brows'] if f else None
+    out['face_cheeks'] = f['cheeks'] if f else None
     out['sym_mirror'], out['sym_rot180'], out['sym_axis_deg'] = symmetry(pieces, rnd)
     out['sym_rot_best'], out['sym_rot_k'] = rot_symmetry(pieces, rnd)
     return out
