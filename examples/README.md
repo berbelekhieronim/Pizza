@@ -6,6 +6,7 @@ two groups ("Group A/B (simulated)") and a simulated reference of 200 pizzas. No
 | file | what |
 |---|---|
 | `dashboard.html` | the data preview: diet breakdown, normality against the reference, space / size / time by group, every participant |
+| `profiles.html` | every participant as a profile: compare any two, clusters, the profile map and heatmap |
 | `arrangement.html` | symmetry and contact drawn on each pizza (from a smaller set of 16 deliberately varied simulated pizzas) |
 | `simulate.py` | makes the simulated participants |
 

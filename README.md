@@ -14,7 +14,8 @@ the toppings are drawn in SVG by the script itself.
 | `qualtrics/*.js` | paste-in code, one per survey page |
 | `analysis/analyse.py` | scores a Qualtrics export: variety, avoidance, symmetry/clustering, order, timing, norm deviation |
 | `CODEBOOK.md` | every recorded field and every computed measure |
-| `preview.js` | the demo's readable preview of one participant's captured data |
+| `preview.js` | the demo's readable preview of one participant's captured data, with symmetry, border and face pictures |
+| `server/` | a small study server for running participants without Qualtrics, e.g. from a GitHub Codespace (below) |
 | `examples/` | the reports built from simulated data, and the script that simulates it |
 
 ## The procedure
@@ -55,7 +56,7 @@ the toppings are drawn in SVG by the script itself.
 | question | measured by (column names from `analysis/analyse.py`) |
 |---|---|
 | **H1a** distinctive / unusual choices | a priori: `n_distinct_unusual`, `prop_unusual_distinct`, `prop_unusual_pieces`. In this sample: `ingredient_rarity` (how few others chose the same toppings), `combo_rarity` (how rarely others combined the same pairs, which catches unusual combinations of familiar toppings), `profile_uniqueness` (1 − mean Jaccard similarity to everyone else). Perceived: `norm_mean_included` (low = toppings the person thinks others find inappropriate), `counter_normative`, `pz_distinct` |
-| **H1b** systematic organisation | symmetry: `sym_mirror`, `sym_rot180`, `sym_rot_best` + `sym_rot_k`. Even spacing: `clark_evans`, `nn_cv`, `angular_regularity`. Repeated pattern: `sector_similarity`, `slice_spread`, `sector_cv`. Rule-like order: `blockiness`, `sweep_consistency`. Self-report: `pz_system`. Fine-tuning: `n_ev_move` |
+| **H1b** systematic organisation | symmetry: `sym_mirror`, `sym_rot180`, `sym_rot_best` + `sym_rot_k`. Even spacing: `clark_evans`, `nn_cv`, `angular_regularity`. Repeated pattern: `sector_similarity`, `slice_spread`, `sector_cv`. Rule-like order: `blockiness`, `sweep_consistency`. Size matching: `size_match_same`, `size_match_index`. Figurative: `face_detected`, `face_score`. Staying inside the sauce vs using the crust: `border_share`. Self-report: `pz_system`. Fine-tuning: `n_ev_move`. Overall: the clusters in `profiles.html` |
 | restricted choice / avoidance | `n_pieces`, `n_distinct`, `shannon`, `simpson`, categories, `n_never_picked`, `n_picked_not_kept`, reasons (`why_*`) |
 | **H2a** identity expression | `ident_mean`, `ident_mean_unusual`, per-topping `ident`, `pz_express`, `pz_distinct`; plus your identity-salience manipulation as `condition` |
 | **H2b** agency and control | `pz_auton`, `pz_control`; plus your control manipulation as `condition` |
@@ -104,6 +105,34 @@ from `qualtrics/`.
 analysis on it. Check that `pz_events` arrives complete. A long build is ~5-15 KB of text, well within what
 embedded data holds, but confirm this with your own pilot data.
 
+## Running participants without Qualtrics (GitHub Codespace)
+
+For a pilot with a few participants you can skip Qualtrics: `server/server.py` serves the whole study (intro and consent,
+practice, build, ratings, completion code) and saves each participant as they go.
+
+1. On GitHub: **Code → Codespaces → ⋯ → New with options**, choose the dev container configuration
+   **Pizza study server**, and create the codespace. When it opens, the server starts by itself in the terminal and prints
+   the **participant link** and the **researcher page** link with its password. To start it by hand:
+   `python3 pizza-builder/server/server.py`.
+2. The server tries to make port 8000 public so participants can open the link. If the terminal says it is still private:
+   open the **Ports** tab, right-click port 8000 → **Port Visibility → Public**.
+3. Send participants the link. Add `?group=ASD` (or `NT`, etc.) to record their group, and `&pid=...` to use your own IDs;
+   Prolific's `PROLIFIC_PID` is picked up too. Conditions listed in `server/study.json` are assigned in turn.
+4. Watch sessions arrive on the researcher page. **Build reports** runs the analysis on everyone so far (dashboard,
+   profiles and clusters, symmetry and contact); **Download all data** gives a zip of every session.
+
+Edit `server/study.json` for the title, intro text, consent sentence, completion message or a redirect URL (e.g. a
+Prolific completion link), the conditions, and whether to add the "typical participant" build.
+
+Things to know:
+- A codespace stops after about 30 minutes without activity in its editor (you can raise this to 4 hours in your GitHub
+  settings under Codespaces → Default idle timeout). Keep its tab open while participants take part. A stopped codespace
+  keeps its data; open it again and the server restarts.
+- Data lives in `pizza-builder/server/data/` inside the codespace, never in the repository (it is git-ignored). Download
+  it from the researcher page when you are done: unused codespaces are deleted after a period set by GitHub.
+- Each start prints a new researcher password unless you set `PIZZA_ADMIN_KEY` in the codespace's environment.
+- Your organisation may not allow public ports; then use Qualtrics, or ask for that setting to be changed.
+
 ### Where the script comes from
 
 The paste-in files load `pizza-builder.js` from this repository through jsDelivr, pinned to a specific commit
@@ -140,22 +169,24 @@ Set in the `PizzaBuilder.mount(box, { ... })` call:
 ## Analysis
 
 ```
-python3 analysis/analyse.py my_export.csv --out results
+python3 analysis/analyse.py my_export.csv --group <your ASD/NT column> --out results
 ```
 
-This needs Python 3.10 or newer and nothing else. Add `--group <column>` (e.g. your ASD / NT column) to compare groups
-in the arrangement report. It writes `participants.csv` (one row per pizza),
-`ingredients_long.csv` (participant × topping, ready for mixed models), `events_long.csv`, and every pizza
-redrawn as SVG plus a `gallery.html` contact sheet, and **`arrangement.html`**. That is the visual analysis of
-symmetry and contact: every pizza drawn three times, with its best mirror axis, its best rotational symmetry
-(rings mark where each topping's symmetric partner would have to be: green = a matching topping is there,
-red = none nearby), and its touching and stacked pieces. Sample-wide dot plots compare the groups at the top.
-**`dashboard.html`** is the data at a glance, for proposals and for checking data as it comes in. It shows:
-- the diet breakdown, overall and by group
-- stated diet against the pizza each person made
-- the normality distribution, with the most unusual pizzas
-- space, size and time compared across groups
-- a sortable table of every participant, with a thumbnail of each pizza The measures are defined in `CODEBOOK.md`. In short:
+This needs Python 3.10 or newer and nothing else. `--reference <files>` sets the pizzas that define "normal" (default: the
+rest of the sample) and `--clusters <k>` fixes the number of clusters. It writes:
+
+| file | what |
+|---|---|
+| `participants.csv` | one row per pizza: every measure below |
+| `ingredients_long.csv` | participant × topping, ready for mixed models |
+| `events_long.csv` | every interaction, for sequence analyses |
+| `profiles.csv` | each participant's standardised profile and cluster |
+| **`dashboard.html`** | the data at a glance, for proposals and for checking data as it comes in: diet breakdown, stated diet against the pizza, the normality distribution with the most unusual pizzas, space / size / time by group, a sortable table of every participant with a thumbnail |
+| **`profiles.html`** | every participant as a profile of 27 measures; compare any two side by side (with each person's most similar participants); hierarchical clusters with plain-language descriptions, how the groups spread across them (χ²), a map of all profiles, and a heatmap ordered by the clustering tree |
+| **`arrangement.html`** | symmetry and contact drawn on every pizza: the best mirror axis, the best rotation (rings mark where each topping's symmetric partner would have to be: green = a matching topping is there, red = none nearby), and touching and stacked pieces, with group comparisons |
+| `pizzas/`, `gallery.html` | every pizza redrawn from its coordinates |
+
+The measures are defined in `CODEBOOK.md`. In short:
 
 - **Variety and distinctiveness:** number of pieces and distinct toppings, Shannon diversity and evenness, Simpson index, categories,
   unusual-tier toppings, and how rare the person's toppings and topping pairs are in the sample.
@@ -172,6 +203,14 @@ red = none nearby), and its touching and stacked pieces. Sample-wide dot plots c
   - whether piles are made of the same topping or of different ones
   - the median edge-to-edge gap in mm
 - **Size and amount:** pieces enlarged and shrunk, mean / smallest / largest size, and total topping area in cm², which is the truer quantity once pieces can change size.
+- **Size matching:** for every resized piece, is another piece of the same topping (or the same category) the same size, within 10%?
+  The rate for pieces of other categories is the chance baseline, so `size_match_index` > 0 means sizes are matched on purpose.
+- **Border:** pieces inside the sauce, on the crust, or hanging over the outer edge (and by how many mm). Toppings stay where
+  they are dropped, including on the crust; only drops beyond the edge remove them.
+- **Faces:** whether the toppings form a face: two matching round eyes, a mouth (one long piece or an evenly spaced row or
+  smile), maybe a nose, at any rotation, with the face as a main feature of the pizza. On simulated pizzas it finds 92% of
+  drawn faces and flags 0-7% of pizzas without one (rings of toppings most often). Have a person code faces on a subset of
+  your own pizzas to check agreement before relying on it.
 - **Diet class:** each pizza is classed vegan / vegetarian / pescatarian / contains meat by the strictest diet it fits
   (cheese and white sauce count as dairy), with piece counts and area shares per class, and checked against the stated diet.
 - **Normality:** each pizza against a reference distribution of pizzas: `--reference` files (e.g. a pilot or a norming
@@ -183,7 +222,11 @@ red = none nearby), and its touching and stacked pieces. Sample-wide dot plots c
   the choices that contribute most.
 - **Order:** first topping, blockiness (grouping by topping vs alternating), a steady sweep round the pizza, meat before vegetables.
 - **Timing:** decision time (end of one action to picking up the next, excluding the drag itself), gaps between
-  placements, drag time, time to finish, time away from the tab.
+  placements, drag time, time away from the tab, and **time to completion**: when "I'm done" was first pressed, when the
+  pizza was confirmed and submitted, and how often the participant pressed it but went back to edit.
+- **Profiles and clusters:** 27 measures across composition, normality, space, size, order, time and faces, each
+  standardised in the sample and signed so that higher means more of the named trait. Participants are compared by the
+  distance between their profiles and grouped by Ward clustering, with the number of clusters chosen by silhouette.
 - **Norm deviation:**
   - against the *perceived* norm: own inclusions vs "most people would find it appropriate" ratings
     (correlation; counter-normative inclusions; normative avoidances; a 0-1 deviation score);
@@ -204,6 +247,8 @@ red = none nearby), and its touching and stacked pieces. Sample-wide dot plots c
   timing within device type, or include these as covariates. Use `decision_median`, which excludes drag time, rather than
   raw totals. Positions are stored relative to the pizza, so they compare directly across screen sizes. Pieces are
   the same size relative to the pizza on every screen.
+- **Faces and borders.** Treat `face_detected` as a screening flag and confirm it by human coding; treat crust use as
+  meaningful only when the pizza was big enough on screen (`pizzaPx`) for the crust to be easy to avoid.
 - **Tray position.** The tray order is random per participant, and `tray_pos` is recorded so position effects can be estimated.
 - **Attention.** `hiddenMs` and `flag_tab_away` mark time spent on another tab. `flag_fast` marks builds finished in
   under 15 s. Decide on exclusion rules before collecting data.

@@ -3,8 +3,8 @@
 ## Conventions
 
 - **Coordinates**: `x` to the right, `y` up, relative to the pizza centre; `1.0` = outer edge of the crust.
-  Sauce covers `r < 0.86`. A topping dropped on the crust (`0.9 < r ≤ 1`) is pulled in to `r = 0.9` (`snapped = 1`);
-  dropped beyond `r = 1` it is off the pizza.
+  Sauce covers `r < 0.86`. A topping stays where it is dropped, including on the crust (`0.86 < r ≤ 1`); dropped beyond
+  `r = 1` it is off the pizza. (With the `snapIn` option, centres beyond `r = 0.9` are pulled in to 0.9 and `snapped = 1`.)
 - **Times**: milliseconds since the page's task appeared.
 - **Topping codes**:
 
@@ -63,7 +63,8 @@ A JSON array of `[t, type, ...]`:
 ### `<prefix>summary` - totals, device and layout
 
 `v` script version · `mode` · `cond` condition label · `start` ISO time · `finished` ·
-`tFinish`, `tFirstPick`, `tFirstAdd`, `tLast` · `nPieces`, `nDistinct`, `counts` {code: n} · `sauce`, `cheese` · `tray` order ·
+`tFinish`, `tDone` (first press of "I'm done"), `tSubmit` (confirmed and submitted; = `tFinish`), `nDone` (presses of "I'm done"),
+`nDoneCancelled` (times they went back to edit), `tFirstPick`, `tFirstAdd`, `tLast` · `nPieces`, `nDistinct`, `counts` {code: n} · `sauce`, `cheese` · `tray` order ·
 `n` {event type: count} · `nGrown`, `nShrunk` (pieces made bigger / smaller) · `dragMsMedian` · `addGapMsMedian` · `hiddenMs`, `hides` ·
 `pointer` (first pointer type used) · `coarse` (touch-first device) · `hover` (device can hover) · `vw`, `vh`, `dpr` ·
 `pizzaPx` (pizza diameter on screen in CSS px) · `layout` (`wide` side-by-side or `narrow` stacked) · `trimmed` (hover events dropped to save space).
@@ -147,6 +148,10 @@ Scales run 1-7:
 | `count_pct` | *how many*: how extreme the number of different toppings is in the reference, in both directions, as 100 × (1 − two-sided tail probability). A plain pizza or one with everything scores high |
 | `atypicality_pct`, `normality_band` | the more extreme of the two percentiles; `typical` < 75, `uncommon` 75-95, `unusual` > 95 |
 | `unusual_elements` | up to three choices that make the pizza most surprising (each ≥ 2 bits), e.g. "added nori (on 3% of reference pizzas)" or "0 different toppings (like 1% of reference pizzas)" |
+| `n_resized_pieces`, `size_match_same`, `size_match_category`, `size_match_other`, `size_match_index` | size matching: of the pieces resized by more than 10%, the share with another piece of the same topping / of another topping in the same category / of a different category within 10% of its size; the last is the chance baseline, and the index is same − other |
+| `n_on_crust`, `n_over_edge`, `border_share`, `n_centre_on_crust`, `max_overhang_mm` | pieces whose outline reaches the crust (beyond r = 0.86) / hangs over the outer edge (beyond r = 1); their share of all pieces; pieces centred on the crust; the furthest overhang in mm on a 30 cm pizza |
+| `face_detected`, `face_score`, `face_eyes`, `face_mouth`, `face_nose`, `face_up_deg` | a face made of toppings: found or not, how clean it is (0.6-1), the eye topping, the mouth (a long piece or "row of n ..."), whether there is a nose, and which way the face points (degrees, 90 = up). Rules in `face_detect()` in the analysis script |
+| `cluster` | the participant's cluster in `profiles.html` (blank if there are too few pizzas) |
 | `topping_area_cm2` | total area covered by toppings' outlines (overlaps counted twice), on a 30 cm pizza |
 | `coverage` | share of the sauced area under toppings |
 | `sym_mirror`, `sym_axis_deg` | best mirror symmetry: mean distance from each reflected piece to the nearest piece of the same topping, at the best of 18 axes, ÷ the same for 40 random layouts of the same toppings. <1 = more symmetric than chance |
@@ -156,6 +161,7 @@ Scales run 1-7:
 | `sweep_consistency` | share of consecutive placements that keep turning round the pizza in the same direction (1 = a steady clockwise/anticlockwise sweep, ~0.5 = none) |
 | `meat_before_veg` | mean relative rank of vegetable placements minus meat placements (>0 = meat first) |
 | `t_first_pick`, `t_finish`, `t_active` | ms; `t_active` excludes time on another tab |
+| `t_done_first`, `t_submit`, `t_after_done`, `n_done_presses` | time to completion: first press of "I'm done", confirmed submission, the time between them, and how often "I'm done" was pressed (more than once = went back to edit) |
 | `decision_median` | median ms from the end of one action to lifting the next topping. This is decision time without the motor component |
 | `add_gap_median`, `drag_median` | median ms between placements; median drag duration |
 | `practice_*`, `drag_vs_practice` | motor baseline from the practice (drag time, targeting error, tries, duration, pointer); build drag ÷ practice drag |
@@ -189,3 +195,20 @@ Scales run 1-7:
 - no beef → pepperoni
 - dairy-free → blue cheese),
 the ratings (`like`, `fam`, `safe`, `disg`, `norm`, `ident`), `never_tasted`, `why_<reason>` (0/1; empty when the question was not asked), `why_other_text`, `rating_ms`.
+
+### `profiles.csv`
+
+`pid`, `group`, `cluster`, then `z_<measure>` for each of the 27 profile measures: the measure standardised across the
+sample (mean 0, SD 1, capped at ±3; missing values take the sample median), signed so that higher means *more* of the
+named trait. Measures marked log are log(1 + x) first. In order:
+- **Composition:** pieces (log), different toppings, variety (Shannon), unusual toppings share, animal products (0 vegan … 3 meat)
+- **Normality:** unusual combination (which-toppings percentile), unusual number of toppings (how-many percentile)
+- **Space:** mirror symmetry (−`sym_mirror`), rotational symmetry (−`sym_rot_best`), even spacing (−`nn_cv`), repeating slice pattern,
+  spread out (Clark-Evans), coverage, touching, stacking, on or over the crust, off-centre
+- **Size:** amount (log area), size variation, pieces resized, size matching within a topping
+- **Order:** grouped by topping, placed in a sweep
+- **Time:** time to start, decision time, time to completion (each log)
+- **Figurative:** face-like (`face_score`)
+
+Clusters: Ward's hierarchical clustering on the Euclidean distances between profiles; the number of clusters (2-8) is the one
+with the highest mean silhouette, unless `--clusters` fixes it.

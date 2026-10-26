@@ -22,6 +22,8 @@
   var FOOT = { pep: [0, 13], ham: [1, 6.4], chk: [1.5, 6.5], anc: [12, 2.8], mus: [0, 11], grp: [11, 3], oni: [10, 2], oli: [0, 6.1], crn: [0, 4.7],
     pin: [0, 6.5], jal: [0, 5.6], bas: [9.5, 5], shr: [0, 8], egg: [1, 7.2], gor: [0, 5], nor: [1.5, 6.3], kim: [2, 5.8], par: [8, 4], ban: [0, 6.2],
     wal: [0.6, 5.8], tom: [0, 10] };
+  var CATS = { pep: 'meat', ham: 'meat', chk: 'meat', anc: 'seafood', shr: 'seafood', mus: 'veg', grp: 'veg', oni: 'veg', oli: 'veg', crn: 'veg',
+    jal: 'veg', kim: 'veg', pin: 'fruit', par: 'fruit', ban: 'fruit', bas: 'herb', egg: 'egg', gor: 'dairy', nor: 'seaweed', wal: 'nut' };
   var CLASS_LABEL = { vegan: 'Vegan', vegetarian: 'Vegetarian', pescatarian: 'Pescatarian', meat: 'Contains meat' };
 
   function J(v, d) { try { return v ? JSON.parse(v) : d; } catch (e) { return d; } }
@@ -55,22 +57,194 @@
     }
     return { touch: touch, stack: stack, share: ps.length ? Object.keys(inTouch).length / ps.length : 0, pile: ps.length ? Math.max.apply(null, depth) : 0 };
   }
-  function mirrorRatio(ps) {
-    if (ps.length < 2) return null;
-    function cost(pts, phi) {
-      var c = Math.cos(2 * phi), s = Math.sin(2 * phi), tot = 0;
-      pts.forEach(function (p) {
-        var tx = c * p.x + s * p.y, ty = s * p.x - c * p.y, best = Infinity;
-        pts.forEach(function (q) { if (q.ing === p.ing) best = Math.min(best, Math.hypot(tx - q.x, ty - q.y)); });
-        tot += best;
-      });
-      return tot / pts.length;
-    }
-    function bestCost(pts) { var b = Infinity; for (var a = 0; a < 180; a += 10) b = Math.min(b, cost(pts, a * Math.PI / 180)); return b; }
-    var seed = 1, rnd = function () { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }, nul = 0;
-    for (var k = 0; k < 30; k++) nul += bestCost(ps.map(function (p) { var r = 0.9 * Math.sqrt(rnd()), t = rnd() * 2 * Math.PI; return { ing: p.ing, x: r * Math.cos(t), y: r * Math.sin(t) }; }));
-    return bestCost(ps) / (nul / 30);
+  // Symmetry: mean distance from each transformed piece to the nearest piece of the same topping, divided by the same
+  // for random layouts of the same toppings (0 = perfect, 1 = like random). Mirror: best of 18 axes; rotation: k = 2..8.
+  function symCost(ps, T) {
+    var tot = 0;
+    ps.forEach(function (p) {
+      var t = T(p.x, p.y), best = Infinity;
+      ps.forEach(function (q) { if (q.ing === p.ing) best = Math.min(best, Math.hypot(t[0] - q.x, t[1] - q.y)); });
+      tot += best;
+    });
+    return tot / ps.length;
   }
+  function mirrorT(phi) { var c = Math.cos(2 * phi), s = Math.sin(2 * phi); return function (x, y) { return [c * x + s * y, s * x - c * y]; }; }
+  function rotT(a) { var c = Math.cos(a), s = Math.sin(a); return function (x, y) { return [c * x - s * y, s * x + c * y]; }; }
+  function randomLike(ps, rnd) { return ps.map(function (p) { var r = 0.9 * Math.sqrt(rnd()), t = rnd() * 2 * Math.PI; return { ing: p.ing, x: r * Math.cos(t), y: r * Math.sin(t) }; }); }
+  function symmetry(ps) {
+    if (ps.length < 2) return null;
+    var seed = 7, rnd = function () { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    var axes = []; for (var a = 0; a < 180; a += 10) axes.push(a * Math.PI / 180);
+    function bestMirror(pts) { var b = Infinity, ax = 0; axes.forEach(function (phi) { var c = symCost(pts, mirrorT(phi)); if (c < b) { b = c; ax = phi; } }); return [b, ax]; }
+    var obs = bestMirror(ps), nul = 0, N = 30;
+    for (var i = 0; i < N; i++) nul += bestMirror(randomLike(ps, rnd))[0];
+    var best = null;
+    for (var k = 2; k <= 8; k++) {
+      var T = rotT(2 * Math.PI / k), o = symCost(ps, T), nn = 0;
+      for (var j = 0; j < 15; j++) nn += symCost(randomLike(ps, rnd), T);
+      var ratio = o / (nn / 15);
+      if (!best || ratio <= best.ratio + 0.02) best = { ratio: best ? Math.min(ratio, best.ratio) : ratio, k: k };
+    }
+    return { mirror: obs[0] / (nul / N), axis: obs[1], rot: best.ratio, k: best.k };
+  }
+
+  function border(ps) {
+    var zones = ps.map(function (p) {
+      var c = capsule(p), rOut = Math.max(Math.hypot(c[0][0], c[0][1]), Math.hypot(c[1][0], c[1][1])) + c[2];
+      return { zone: rOut > 1.005 ? 'over' : rOut > 0.86 ? 'crust' : 'inside', rOut: rOut };
+    });
+    var maxOut = zones.reduce(function (m, z) { return Math.max(m, z.rOut); }, 0);
+    return { zones: zones, crust: zones.filter(function (z) { return z.zone === 'crust'; }).length,
+      over: zones.filter(function (z) { return z.zone === 'over'; }).length, overhangMm: Math.max(0, maxOut - 1) * 150 };
+  }
+
+  function fitResid(xs, ys, kind) {
+    if (xs.length < 3) return 0;
+    var fx = kind === 'line' ? xs : xs.map(function (x) { return x * x; });
+    var mx = fx.reduce(function (a, b) { return a + b; }, 0) / fx.length, my = ys.reduce(function (a, b) { return a + b; }, 0) / ys.length;
+    var vx = 0, cv = 0; fx.forEach(function (x, i) { vx += (x - mx) * (x - mx); cv += (x - mx) * (ys[i] - my); });
+    var b = vx ? cv / vx : 0, worst = 0;
+    fx.forEach(function (x, i) { worst = Math.max(worst, Math.abs(ys[i] - (my + b * (x - mx)))); });
+    return worst;
+  }
+  function mean(a) { return a.reduce(function (x, y) { return x + y; }, 0) / a.length; }
+  function pstdev(a) { var m = mean(a); return Math.sqrt(mean(a.map(function (x) { return (x - m) * (x - m); }))); }
+
+  // Face detection: the same rules as face_detect() in analyse.py (see its description there).
+  function faceDetect(ps) {
+    var n = ps.length;
+    if (n < 3) return null;
+    var info = ps.map(function (p) {
+      var c = capsule(p), h = Math.hypot(c[1][0] - c[0][0], c[1][1] - c[0][1]) / 2;
+      return { x: p.x, y: p.y, w: c[2], h: h, ing: p.ing, ux: h ? (c[1][0] - c[0][0]) / (2 * h) : 1, uy: h ? (c[1][1] - c[0][1]) / (2 * h) : 0 };
+    });
+    var best = null, cos35 = Math.cos(35 * Math.PI / 180);
+    for (var i = 0; i < n; i++) for (var j = i + 1; j < n; j++) {
+      var A = info[i], B = info[j];
+      if (A.h > 0.03 || B.h > 0.03 || A.ing !== B.ing) continue;
+      var dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy);
+      if (d < 0.3 || d > 1.0) continue;
+      var part = {}; part[i] = part[j] = 1;
+      for (var k = 0; k < n; k++) if (k !== i && k !== j && (Math.hypot(info[k].x - A.x, info[k].y - A.y) <= A.w || Math.hypot(info[k].x - B.x, info[k].y - B.y) <= B.w)) part[k] = 1;
+      var crowded = false;
+      for (k = 0; k < n && !crowded; k++) if (!part[k] && (Math.hypot(info[k].x - A.x, info[k].y - A.y) < 0.4 * d || Math.hypot(info[k].x - B.x, info[k].y - B.y) < 0.4 * d)) crowded = true;
+      if (crowded) continue;
+      var ux = dx / d, uy = dy / d, mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2;
+      [1, -1].forEach(function (sgn) {
+        var px = -uy * sgn, py = ux * sgn, loc = [];
+        for (var k = 0; k < n; k++) if (!part[k]) { var vx = info[k].x - mx, vy = info[k].y - my; loc.push([k, (vx * ux + vy * uy) / d, (vx * px + vy * py) / d]); }
+        var mouth = null, mouthAl = 0, kind = '';
+        loc.some(function (l) {
+          var q = info[l[0]];
+          if (q.h >= 0.04 && l[2] >= 0.45 && l[2] <= 2.2 && Math.abs(l[1]) <= 0.35 && Math.abs(q.ux * ux + q.uy * uy) >= cos35 && 2 * (q.h + q.w) >= 0.45 * d) {
+            mouth = [l[0]]; mouthAl = l[1]; kind = NAMES[q.ing] || q.ing; return true;
+          }
+          return false;
+        });
+        if (!mouth) {
+          var cand = loc.filter(function (l) { return l[2] >= 0.45 && l[2] <= 2.2 && Math.abs(l[1]) <= 1.1; })
+            .map(function (l) { return [l[1], l[2], l[0]]; }).sort(function (a, b) { return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]; });
+          var m = cand.length, len = cand.map(function () { return 1; }), prev = cand.map(function () { return -1; });
+          for (var b2 = 0; b2 < m; b2++) for (var a2 = 0; a2 < b2; a2++) {
+            var gap = cand[b2][0] - cand[a2][0];
+            if (gap > 0 && gap <= 0.8 && Math.abs(cand[b2][1] - cand[a2][1]) <= 0.3 && len[a2] + 1 > len[b2]) { len[b2] = len[a2] + 1; prev[b2] = a2; }
+          }
+          var ends = cand.map(function (_, e) { return e; }).sort(function (x, y) { return len[y] - len[x] || x - y; });
+          for (var e = 0; e < ends.length && len[ends[e]] >= 3; e++) {
+            var chain = [], c = ends[e];
+            while (c !== -1) { chain.unshift(c); c = prev[c]; }
+            var als = chain.map(function (c) { return cand[c][0]; }), pps = chain.map(function (c) { return cand[c][1]; });
+            var gaps = als.slice(1).map(function (x, t) { return x - als[t]; });
+            var even = pstdev(gaps) <= 0.35 * mean(gaps), smooth = Math.min(fitResid(als, pps, 'line'), fitResid(als, pps, 'smile')) <= 0.08;
+            if (als[als.length - 1] - als[0] >= 0.6 && Math.abs(mean(als)) <= 0.25 && Math.abs(als[0] + als[als.length - 1]) <= 0.35 && even && smooth) {
+              mouth = chain.map(function (c) { return cand[c][2]; }); mouthAl = mean(als);
+              var kinds = {}; mouth.forEach(function (k) { kinds[(NAMES[info[k].ing] || info[k].ing).toLowerCase()] = 1; });
+              kind = 'row of ' + mouth.length + ' ' + Object.keys(kinds).join('/');
+              break;
+            }
+          }
+        }
+        if (!mouth) return;
+        var used = {}; Object.keys(part).forEach(function (k) { used[k] = 1; }); mouth.forEach(function (k) { used[k] = 1; });
+        var mpos = {}; loc.forEach(function (l) { if (mouth.indexOf(l[0]) >= 0) mpos[l[0]] = [l[1], l[2]]; });
+        if (mouth.length > 1) {
+          var ms = mouth.map(function (k) { return mpos[k]; }).sort(function (a, b) { return a[0] - b[0]; });
+          var step = mean(ms.slice(1).map(function (v, t) { return v[0] - ms[t][0]; }));
+          var gapEye = Infinity; ms.forEach(function (v) { [-0.5, 0.5].forEach(function (ex) { gapEye = Math.min(gapEye, Math.hypot(v[0] - ex, v[1])); }); });
+          if (gapEye < Math.max(0.45, 1.3 * step)) return;
+          var endK = [mouth.reduce(function (a, b) { return mpos[a][0] <= mpos[b][0] ? a : b; }), mouth.reduce(function (a, b) { return mpos[a][0] >= mpos[b][0] ? a : b; })];
+          var mIngs = {}; mouth.forEach(function (k) { mIngs[info[k].ing] = 1; });
+          for (var k2 = 0; k2 < n; k2++) if (mIngs[info[k2].ing] && !used[k2] && endK.some(function (e2) { return Math.hypot(info[k2].x - info[e2].x, info[k2].y - info[e2].y) <= 1.5 * step * d; })) return;
+        }
+        var mouthTop = Math.min.apply(null, loc.filter(function (l) { return mouth.indexOf(l[0]) >= 0; }).map(function (l) { return l[2]; }));
+        var nose = loc.filter(function (l) { return !used[l[0]] && l[2] >= 0.05 && l[2] <= mouthTop - 0.1 && Math.abs(l[1]) <= 0.3; }).map(function (l) { return l[0]; });
+        var mv = mouth.map(function (k) { return mpos[k]; });
+        var halfW = Math.max(0.5, Math.max.apply(null, mv.map(function (v) { return Math.abs(v[0]); }))) + 0.35;
+        var top = -0.35, bottom = Math.max.apply(null, mv.map(function (v) { return v[1]; })) + 0.3, cy = (top + bottom) / 2, ry = (bottom - top) / 2;
+        var clutter = loc.filter(function (l) { return !used[l[0]] && Math.pow(l[1] / halfW, 2) + Math.pow((l[2] - cy) / ry, 2) <= 1; }).length - Math.min(1, nose.length);
+        if (clutter > 1) return;
+        if (Object.keys(used).length + Math.min(1, nose.length) < 0.3 * n) return;
+        var score = 1 - 0.15 * clutter - 0.6 * Math.abs(mouthAl);
+        if (score >= 0.6 && (!best || score > best.score)) best = { score: score, eyes: [i, j], mouth: mouth, nose: nose.slice(0, 1), eyeIng: A.ing, mouthKind: kind };
+      });
+    }
+    return best;
+  }
+
+  // ---- small pictures of the pizza with an analysis drawn on top
+  var COLORS = { pep: '#a8281e', ham: '#e59a94', chk: '#e6cc9c', anc: '#5d3d2f', mus: '#d9c3a1', grp: '#3f8a2e', oni: '#93357a', oli: '#25231f', crn: '#f2c63a',
+    pin: '#f3cf55', jal: '#6ea548', bas: '#2f7d32', shr: '#ef8a5f', egg: '#f6f1df', gor: '#d9d6c6', nor: '#1f2a1d', kim: '#d4542b', par: '#e8e2b8', ban: '#f5eab8', wal: '#9a6a3c', tom: '#d8432c' };
+  function glyph(p, extra) {
+    var c = capsule(p), col = COLORS[p.ing] || '#888';
+    if (c[0][0] === c[1][0] && c[0][1] === c[1][1]) return '<circle cx="' + (c[0][0] * 100).toFixed(1) + '" cy="' + (-c[0][1] * 100).toFixed(1) + '" r="' + (c[2] * 100).toFixed(1) + '" fill="' + col + '"' + (extra || '') + '/>';
+    return '<line x1="' + (c[0][0] * 100).toFixed(1) + '" y1="' + (-c[0][1] * 100).toFixed(1) + '" x2="' + (c[1][0] * 100).toFixed(1) + '" y2="' + (-c[1][1] * 100).toFixed(1) +
+      '" stroke="' + col + '" stroke-width="' + (c[2] * 200).toFixed(1) + '" stroke-linecap="round"' + (extra || '') + '/>';
+  }
+  function pic(inner) { return '<svg viewBox="-112 -112 224 224" class="pv-pic" role="img"><circle r="100" fill="#dcae6c"/><circle r="86" fill="#f1e2bf"/>' + inner + '</svg>'; }
+  function symPic(ps, sym) {
+    if (!sym) return pic(ps.map(function (p) { return glyph(p); }).join(''));
+    var ex = Math.cos(sym.axis) * 106, ey = -Math.sin(sym.axis) * 106, T = mirrorT(sym.axis), s = ps.map(function (p) { return glyph(p, ' opacity=".85"'); }).join('');
+    s += '<line x1="' + (-ex).toFixed(1) + '" y1="' + (-ey).toFixed(1) + '" x2="' + ex.toFixed(1) + '" y2="' + ey.toFixed(1) + '" stroke="#2457a6" stroke-width="2" stroke-dasharray="6 4"/>';
+    ps.forEach(function (p) {
+      var t = T(p.x, p.y), d = Infinity;
+      ps.forEach(function (q) { if (q.ing === p.ing) d = Math.min(d, Math.hypot(t[0] - q.x, t[1] - q.y)); });
+      var col = d <= 0.06 ? '#2e8b57' : d <= 0.15 ? '#d08a00' : '#c23b22';
+      s += '<circle cx="' + (t[0] * 100).toFixed(1) + '" cy="' + (-t[1] * 100).toFixed(1) + '" r="' + Math.max(capsule(p)[2] * 75, 3).toFixed(1) + '" fill="none" stroke="' + col + '" stroke-width="2.4"/>';
+    });
+    return pic(s);
+  }
+  function borderPic(ps, b) {
+    var col = { inside: '#9a9a9a', crust: '#d08a00', over: '#c23b22' };
+    return pic('<circle r="86" fill="none" stroke="#b07a2c" stroke-width="1.2" stroke-dasharray="3 3"/>' +
+      ps.map(function (p, i) { var z = b.zones[i].zone; return glyph(p, ' opacity="' + (z === 'inside' ? '.35' : '1') + '"') +
+        (z === 'inside' ? '' : '<circle cx="' + (p.x * 100).toFixed(1) + '" cy="' + (-p.y * 100).toFixed(1) + '" r="' + (capsule(p)[2] * 100 + 3).toFixed(1) + '" fill="none" stroke="' + col[z] + '" stroke-width="2.4"/>'); }).join(''));
+  }
+  function facePic(ps, f) {
+    if (!f) return pic(ps.map(function (p) { return glyph(p, ' opacity=".45"'); }).join(''));
+    var on = {}; f.eyes.concat(f.mouth, f.nose).forEach(function (k) { on[k] = 1; });
+    var s = ps.map(function (p, i) { return glyph(p, ' opacity="' + (on[i] ? '1' : '.3') + '"'); }).join('');
+    function ring(k, col) { var p = ps[k]; return '<circle cx="' + (p.x * 100).toFixed(1) + '" cy="' + (-p.y * 100).toFixed(1) + '" r="' + (capsule(p)[2] * 100 + 4).toFixed(1) + '" fill="none" stroke="' + col + '" stroke-width="2.6"/>'; }
+    f.eyes.forEach(function (k) { s += ring(k, '#2457a6'); });
+    f.mouth.forEach(function (k) { s += ring(k, '#c23b22'); });
+    f.nose.forEach(function (k) { s += ring(k, '#3f8f4a'); });
+    return pic(s);
+  }
+
+  // Size matching, as in analyse.py: for each resized piece, is another piece of the same topping / same category /
+  // other category within 10% of its size? The other-category share is the chance baseline.
+  function sizeMatching(ps) {
+    var tol = 0.1, resized = ps.filter(function (p) { return Math.abs(p.g - 1) > tol; }), same = [], cat = [], other = [];
+    function hit(p, pool) { return pool.some(function (q) { return Math.abs(p.g - q.g) <= tol * Math.max(p.g, q.g); }); }
+    resized.forEach(function (p) {
+      var sp = ps.filter(function (q) { return q !== p && q.ing === p.ing; });
+      var cp = ps.filter(function (q) { return q.ing !== p.ing && CATS[q.ing] === CATS[p.ing]; });
+      var op = ps.filter(function (q) { return CATS[q.ing] !== CATS[p.ing]; });
+      if (sp.length) same.push(hit(p, sp)); if (cp.length) cat.push(hit(p, cp)); if (op.length) other.push(hit(p, op));
+    });
+    function share(v) { return v.length ? v.filter(Boolean).length / v.length : null; }
+    return { n: resized.length, same: share(same), cat: share(cat), other: share(other) };
+  }
+
   function coverage(ps) {
     var caps = ps.map(capsule), hit = 0, tot = 0, G = 40;
     for (var i = 0; i < G; i++) for (var j = 0; j < G; j++) {
@@ -126,7 +300,12 @@
     '.pv-chips{display:flex;flex-wrap:wrap;gap:6px}.pv-chip{display:inline-block;padding:2px 9px;border-radius:999px;color:#fff;font-size:.82rem;white-space:nowrap}' +
     '.pv-vegan{background:#3f8f4a}.pv-vegetarian{background:#b8890f}.pv-pescatarian,.pv-seafood{background:#2f78b5}.pv-meat{background:#b8432a}' +
     '.pv-typical{background:#2e8b57}.pv-uncommon{background:#c27f00}.pv-unusual{background:#c23b22}.pv-empty{color:var(--muted,#666)}' +
-    '.pv-note{font-size:.8rem;color:var(--muted,#666);margin:0}';
+    '.pv-note{font-size:.8rem;color:var(--muted,#666);margin:0}' +
+    '.pv-pics{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}' +
+    '.pv-pics figure{margin:0;border:1px solid var(--line,#ddd);border-radius:12px;padding:8px;background:var(--panel,#fff);min-width:0}' +
+    '.pv-pics figcaption{font-weight:600;font-size:.9rem;margin-bottom:4px}.pv-pic{width:100%;max-width:220px;height:auto;display:block;margin:0 auto}' +
+    '.pv-key{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:.75rem;color:var(--muted,#666);margin-top:4px}' +
+    '.pv-key i{display:inline-block;width:10px;height:10px;border-radius:50%;border:2.4px solid;margin-right:4px;vertical-align:-1px}';
 
   function render(el, f) {
     if (!document.getElementById('pv-style')) { var st = document.createElement('style'); st.id = 'pv-style'; st.textContent = CSS; document.head.appendChild(st); }
@@ -137,7 +316,7 @@
     var counts = {}; ps.forEach(function (p) { counts[p.ing] = (counts[p.ing] || 0) + 1; });
     var set = {}; Object.keys(counts).forEach(function (k) { set[k] = 1; });
     var tray = summ.tray || Object.keys(REF.counts);
-    var cls = dietClass(ps, summ), nrm = normality(set, tray), con = contacts(ps), mir = mirrorRatio(ps);
+    var cls = dietClass(ps, summ), nrm = normality(set, tray), con = contacts(ps), sym = symmetry(ps), bor = border(ps), face = faceDetect(ps);
     var unusual = Object.keys(counts).filter(function (k) { return TIER[k] === 'unusual'; }).length;
     var adds = ev.filter(function (e) { return e[1] === 'add'; }), firstPick = (ev.filter(function (e) { return e[1] === 'pick'; })[0] || [])[0];
     var decisions = [], last = null;
@@ -146,8 +325,10 @@
       if (['add', 'reject', 'move', 'remove', 'tap', 'resize', 'undo', 'sauce', 'cheese'].indexOf(e[1]) >= 0) last = e[0];
     });
     var fin_t = (ev.filter(function (e) { return e[1] === 'finish'; })[0] || [])[0];
+    var dones = ev.filter(function (e) { return e[1] === 'done'; }), doneT = dones.length ? dones[0][0] : null;
     var area = ps.reduce(function (a, p) { return a + areaCm2(p); }, 0);
     var grown = ps.filter(function (p) { return p.g > 1.01; }).length, shrunk = ps.filter(function (p) { return p.g < 0.99; }).length;
+    var sm = sizeMatching(ps), pc = function (v) { return v == null ? '-' : Math.round(v * 100) + '%'; };
     var chips = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; }).map(function (k) {
       return '<span class="pv-chip pv-' + (DIET[k] || 'vegan') + '">' + esc(NAMES[k] || k) + ' ×' + counts[k] + '</span>';
     }).join('') || '<span class="pv-empty">No toppings (plain pizza)</span>';
@@ -157,19 +338,35 @@
       '<span class="pv-chip pv-' + nrm.band + '">' + nrm.band + ' · ' + Math.round(nrm.pct) + 'th percentile</span>' +
       (summ.finished ? '' : '<span class="pv-chip" style="background:#6e635b">still building</span>') + '</div>' +
       '<div class="pv-chips">' + chips + '</div>' +
+      '<div class="pv-pics">' +
+      '<figure><figcaption>Symmetry</figcaption>' + symPic(ps, sym) +
+        '<div class="pv-key"><span><i style="border-color:#2e8b57"></i>mirror partner there</span><span><i style="border-color:#d08a00"></i>close</span><span><i style="border-color:#c23b22"></i>missing</span></div></figure>' +
+      '<figure><figcaption>Border</figcaption>' + borderPic(ps, bor) +
+        '<div class="pv-key"><span><i style="border-color:#d08a00"></i>on the crust</span><span><i style="border-color:#c23b22"></i>over the edge</span><span>faded = inside</span></div></figure>' +
+      '<figure><figcaption>Face</figcaption>' + facePic(ps, face) +
+        '<div class="pv-key">' + (face ? '<span><i style="border-color:#2457a6"></i>eyes</span><span><i style="border-color:#c23b22"></i>mouth</span>' + (face.nose.length ? '<span><i style="border-color:#3f8f4a"></i>nose</span>' : '') : '<span>no face found</span>') + '</div></figure>' +
+      '</div>' +
       '<div class="pv-groups">' +
       '<div class="pv-group"><h4>Composition</h4>' + stat('Pieces', ps.length) + stat('Different toppings', Object.keys(counts).length) +
         stat('Unusual toppings', unusual) + stat('Sauce / cheese', esc((summ.sauce || '-') + ' / ' + (summ.cheese || '-'))) + '</div>' +
       '<div class="pv-group"><h4>Normality</h4>' + stat('Which toppings', Math.round(nrm.comp) + 'th %ile', nrm.bits.toFixed(1) + ' bits of surprise') +
         stat('How many', Math.round(nrm.cnt) + 'th %ile', why || 'only common choices') +
         '<p class="pv-note">Against a SIMULATED reference of ' + REF.n + ' pizzas. In the study this comes from your pilot or the sample.</p></div>' +
-      '<div class="pv-group"><h4>Space</h4>' + stat('Mirror symmetry', mir == null ? '-' : mir.toFixed(2) + ' × random', '0 = perfectly symmetric, 1 = like a random layout') +
+      '<div class="pv-group"><h4>Symmetry</h4>' + stat('Mirror', sym ? sym.mirror.toFixed(2) + ' × random' : '-', '0 = perfectly symmetric, 1 = like a random layout') +
+        stat('Mirror axis', sym ? Math.round(sym.axis * 180 / Math.PI) + '°' : '-') + stat('Rotation', sym ? sym.rot.toFixed(2) + ' × random' : '-', sym ? 'best: ' + sym.k + '-fold' : '') + '</div>' +
+      '<div class="pv-group"><h4>Border</h4>' + stat('Inside the sauce', ps.length - bor.crust - bor.over) + stat('On the crust', bor.crust) + stat('Over the edge', bor.over) +
+        stat('Furthest overhang', bor.over ? bor.overhangMm.toFixed(0) + ' mm' : '-', 'on a 30 cm pizza') + '</div>' +
+      '<div class="pv-group"><h4>Face</h4>' + stat('Face found', face ? 'yes' : 'no') +
+        (face ? stat('Eyes', esc(NAMES[face.eyeIng] || face.eyeIng)) + stat('Mouth', esc(face.mouthKind)) + stat('Nose', face.nose.length ? 'yes' : 'no') + stat('Score', face.score.toFixed(2)) : '') + '</div>' +
+      '<div class="pv-group"><h4>Space</h4>' +
         stat('Touching pairs', con.touch) + stat('Stacked pairs', con.stack) + stat('Tallest pile', con.pile ? con.pile + ' layer' + (con.pile > 1 ? 's' : '') : '-') +
         stat('Pizza covered', Math.round(coverage(ps) * 100) + '%') + '</div>' +
       '<div class="pv-group"><h4>Size</h4>' + stat('Topping area', area.toFixed(0) + ' cm²', 'on a 30 cm pizza') + stat('Made bigger', grown) + stat('Made smaller', shrunk) +
+        stat('Sized like the same topping', pc(sm.same), sm.n ? 'of ' + sm.n + ' resized piece' + (sm.n > 1 ? 's' : '') + '; same category ' + pc(sm.cat) + ', other categories ' + pc(sm.other) + ' (chance)' : 'nothing resized yet') +
         stat('Size range', ps.length ? Math.min.apply(null, ps.map(function (p) { return p.g; })).toFixed(2) + '–' + Math.max.apply(null, ps.map(function (p) { return p.g; })).toFixed(2) : '-') + '</div>' +
       '<div class="pv-group"><h4>Time</h4>' + stat('First topping', sec(firstPick)) + stat('Median decision', sec(median(decisions)), 'end of one action to picking up the next topping') +
-        stat('Placements', adds.length) + stat('Total', sec(fin_t)) + (prac ? stat('Practice drag (motor baseline)', sec(prac.dragMsMedian)) : '') + '</div>' +
+        stat('Placements', adds.length) + stat('Pressed "I\'m done"', sec(doneT), dones.length > 1 ? 'pressed ' + dones.length + ' times, went back to edit ' + (dones.length - 1) + '\u00d7' : '') +
+        stat('Time to completion', sec(fin_t), 'confirmed and submitted') + (prac ? stat('Practice drag (motor baseline)', sec(prac.dragMsMedian)) : '') + '</div>' +
       (fol ? '<div class="pv-group"><h4>Follow-up</h4>' + stat('Stated diet', esc((fol.diet || []).join(', ') || '-')) + stat('Food health', esc((fol.health || []).join(', ') || '-')) +
         stat('"Expresses who I am"', fol.pizza && fol.pizza.express != null ? fol.pizza.express + ' / 7' : '-') +
         stat('"Followed a rule or system"', fol.pizza && fol.pizza.system != null ? fol.pizza.system + ' / 7' : '-') +

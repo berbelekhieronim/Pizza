@@ -18,7 +18,7 @@
 
   var VERSION = '0.1.0';
   var VIEW = 105;        // half-width of every pizza viewBox; the pizza's outer radius is 100
-  var R_SNAP = 0.9;      // a topping centre dropped on the crust is pulled in to this radius
+  var R_SNAP = 0.9;      // with snapIn, a topping centre dropped on the crust is pulled in to this radius
   var R_OFF = 1.0;       // dropped further out than this = off the pizza
 
   // ---------------------------------------------------------------- helpers
@@ -463,7 +463,7 @@
     sauces: ['none', 'tomato', 'white', 'bbq'], cheeses: ['none', 'light', 'normal', 'extra'],
     sauce: 'tomato', cheese: 'normal', baseChoices: true,
     minSeconds: 0, minPieces: 0, maxPieces: 250, showCounts: false,
-    touchLift: 44, logHover: true, confirm: true, bake: true, autoScroll: true,
+    touchLift: 44, logHover: true, confirm: true, bake: true, autoScroll: true, snapIn: false,
     grow: true, growDelay: 500, growMin: 0.5, growMax: 2.5, growPeriod: 3000, stillPx: 8,
     target: [0.42, 0.3], targetTol: 0.12, maxEventChars: 60000,
     names: null, text: null, onSave: null, onFinish: null, onEvent: null
@@ -753,7 +753,7 @@
     var p = d.p, ms = Math.round(now() - d.t0), gNew = Math.round(d.g * 100) / 100, grew = Math.abs(gNew - (p.g || 1)) > 0.01;
     var g = this._geom(), q = this._toPizza(e.clientX + d.offX, e.clientY + d.offY, g);
     var r = Math.sqrt(q.x * q.x + q.y * q.y), snap = 0;
-    if (r > R_SNAP && r <= R_OFF) { q.x *= R_SNAP / r; q.y *= R_SNAP / r; snap = 1; }
+    if (this.o.snapIn && r > R_SNAP && r <= R_OFF) { q.x *= R_SNAP / r; q.y *= R_SNAP / r; snap = 1; }
     var on = r <= R_OFF, x = r3(q.x), y = r3(q.y);
     this._dropGhost(d, on && !cancelled);
 
@@ -935,6 +935,7 @@
       if (e[1] === 'add' || e[1] === 'move') drags.push(e[6]);
       if (e[1] === 'add') { adds.push(e[0]); if (first.add == null) first.add = e[0]; }
       if (e[1] === 'pick' && first.pick == null) first.pick = e[0];
+      if (e[1] === 'done' && first.done == null) first.done = e[0];
     });
     var gaps = []; for (var i = 1; i < adds.length; i++) gaps.push(adds[i] - adds[i - 1]);
     var last = ev.length ? ev[ev.length - 1][0] : 0, fin = null;
@@ -942,7 +943,8 @@
     var mq = function (q) { try { return global.matchMedia(q).matches; } catch (e) { return null; } };
     var summary = {
       v: VERSION, mode: o.mode, prefix: o.prefix, cond: o.condition, start: this.startIso, finished: this.finished,
-      tFinish: fin, tFirstPick: first.pick == null ? null : first.pick, tFirstAdd: first.add == null ? null : first.add, tLast: last,
+      tFinish: fin, tDone: first.done == null ? null : first.done, tSubmit: fin, nDone: n.done || 0, nDoneCancelled: n.cancel || 0,
+      tFirstPick: first.pick == null ? null : first.pick, tFirstAdd: first.add == null ? null : first.add, tLast: last,
       nPieces: this.pieces.length, nDistinct: Object.keys(counts).filter(function (k) { return counts[k] > 0; }).length,
       counts: counts, sauce: o.baseChoices ? this.sauce : null, cheese: o.baseChoices ? this.cheese : null, tray: this.tray,
       n: { pick: n.pick || 0, add: n.add || 0, reject: n.reject || 0, tap: n.tap || 0, move: n.move || 0, remove: n.remove || 0, resize: n.resize || 0, undo: n.undo || 0, clear: n.clear || 0, hover: n.hover || 0 },

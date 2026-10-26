@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Make a pizza</title>
+<style>
+  :root { --ink:#2a2421; --muted:#6e635b; --line:#e3dbd2; --bg:#f6f2ed; --accent:#a8361d; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .wrap { max-width:980px; margin:0 auto; padding:16px max(16px, env(safe-area-inset-right)) 40px max(16px, env(safe-area-inset-left)); }
+  .sheet { background:#fff; border:1px solid var(--line); border-radius:14px; padding:18px; }
+  h1 { font-size:1.35rem; margin:0 0 10px; }
+  .intro p { max-width:62ch; }
+  label.consent { display:flex; gap:10px; align-items:flex-start; margin:16px 0; max-width:62ch; cursor:pointer; }
+  label.consent input { width:22px; height:22px; margin-top:2px; flex:none; }
+  .next { display:flex; justify-content:flex-end; margin-top:16px; }
+  button.go { font:inherit; font-weight:600; padding:12px 24px; border-radius:10px; border:0; background:var(--accent); color:#fff; cursor:pointer; }
+  button.go:disabled { opacity:.45; cursor:default; }
+  .code { font:600 1.6rem/1.2 ui-monospace, Menlo, Consolas, monospace; letter-spacing:.06em; background:#f4efe9; border-radius:10px; padding:10px 14px; display:inline-block; user-select:all; }
+  .status { color:var(--muted); font-size:.85rem; min-height:1.2em; margin-top:8px; }
+  .progress { color:var(--muted); font-size:.85rem; margin:0 0 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="sheet">
+    <p class="progress" id="progress"></p>
+    <div id="stage"></div>
+    <div class="next" id="next" hidden><button class="go" type="button">Next &rarr;</button></div>
+    <p class="status" id="status" aria-live="polite"></p>
+  </div>
+</div>
+<script src="pizza-builder.js"></script>
+<script>
+(function () {
+  var params = new URLSearchParams(location.search);
+  var S = { pid: null, cond: '', fields: {}, stage: 'intro', study: {} };
+  var steps = ['intro', 'practice', 'build', 'followup', 'done'];
+  var stage = document.getElementById('stage'), next = document.getElementById('next'), status = document.getElementById('status');
+  var widget = null, timer = null, pending = false;
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  // Save to the server: batched every second while working, at once at the end of each page, and on leaving the page.
+  function send(now) {
+    clearTimeout(timer);
+    if (!now) { timer = setTimeout(function () { send(true); }, 1000); return; }
+    if (!S.pid) return;
+    var body = JSON.stringify({ pid: S.pid, stage: S.stage, fields: S.fields });
+    pending = true;
+    return fetch('api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: body.length < 60000 })
+      .then(function (r) { pending = false; status.textContent = r.ok ? '' : 'Could not save just now; it will try again.'; if (!r.ok) send(); })
+      .catch(function () { pending = false; status.textContent = 'Connection lost; your answers are kept and will be sent when it is back.'; send(); });
+  }
+  window.addEventListener('pagehide', function () {
+    if (S.pid && navigator.sendBeacon) navigator.sendBeacon('api/save', new Blob([JSON.stringify({ pid: S.pid, stage: S.stage, fields: S.fields })], { type: 'application/json' }));
+  });
+  function onSave(k, v) { S.fields[k] = v; send(); }
+
+  function order() {
+    var o = ['intro', 'practice', 'build'];
+    if (S.study.typical_build) o.push('typical');
+    return o.concat(['followup', 'done']);
+  }
+  function go(name) {
+    S.stage = name;
+    if (widget && widget.destroy) widget.destroy();
+    widget = null;
+    stage.innerHTML = '';
+    next.hidden = true;
+    var o = order(), i = o.indexOf(name);
+    document.getElementById('progress').textContent = (name === 'intro' || name === 'done') ? '' : 'Part ' + i + ' of ' + (o.length - 2);
+    window.scrollTo(0, 0);
+    send(true);
+    if (name === 'intro') return intro();
+    if (name === 'done') return done();
+    var box = document.createElement('div');
+    stage.appendChild(box);
+    var opts = { mode: name === 'typical' ? 'build' : name, onSave: onSave, condition: S.cond, onFinish: function () { send(true); showNext(o[i + 1]); } };
+    if (name === 'typical') {
+      opts.prefix = 'pzt_';
+      opts.prompt = 'Now make the pizza you think a typical person taking part in this study would choose. Drag toppings onto the pizza; drag a topping off to remove it.';
+    }
+    if (name === 'followup') opts.counts = S.fields.pz_counts || null;
+    widget = PizzaBuilder.mount(box, opts);
+  }
+  function showNext(to) {
+    next.hidden = false;
+    next.querySelector('button').onclick = function () { go(to); };
+  }
+  function intro() {
+    var st = S.study;
+    stage.innerHTML = '<div class="intro"><h1>' + esc(st.title || 'Make a pizza') + '</h1>' +
+      (st.intro || []).map(function (p) { return '<p>' + esc(p) + '</p>'; }).join('') +
+      '<label class="consent"><input type="checkbox" id="agree"> <span>' + esc(st.consent || 'I agree to take part.') + '</span></label></div>';
+    var box = document.getElementById('agree');
+    next.hidden = false;
+    var btn = next.querySelector('button');
+    btn.disabled = true;
+    box.onchange = function () { btn.disabled = !box.checked; };
+    btn.onclick = function () { if (!box.checked) return; btn.disabled = false; S.fields.consent = new Date().toISOString(); go('practice'); };
+  }
+  function done() {
+    var st = S.study;
+    stage.innerHTML = '<h1>Thank you</h1><p>' + esc(st.completion_message || 'You are done.') + '</p><p class="code">' + esc(S.pid) + '</p>';
+    var finish = send(true);
+    if (st.completion_redirect) {
+      stage.innerHTML += '<p>Taking you back in a moment&hellip;</p>';
+      Promise.resolve(finish).then(function () { setTimeout(function () { location.href = st.completion_redirect; }, 1500); });
+    }
+  }
+
+  Promise.all([
+    fetch('study.json').then(function (r) { return r.json(); }).catch(function () { return {}; }),
+    fetch('api/start?' + new URLSearchParams({ pid: params.get('pid') || params.get('PROLIFIC_PID') || sessionStorage.getItem('pz-pid') || '',
+      group: params.get('group') || '', cond: params.get('cond') || '' })).then(function (r) { return r.json(); })
+  ]).then(function (res) {
+    S.study = res[0] || {};
+    S.pid = res[1].pid; S.cond = res[1].cond || '';
+    try { sessionStorage.setItem('pz-pid', S.pid); } catch (e) {}
+    document.title = S.study.title || document.title;
+    go(res[1].stage === 'done' ? 'done' : 'intro');
+  }).catch(function () {
+    stage.innerHTML = '<p>The study could not start. Please check your connection and reload the page.</p>';
+  });
+})();
+</script>
+</body>
+</html>

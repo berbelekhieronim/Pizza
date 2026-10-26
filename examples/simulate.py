@@ -30,8 +30,17 @@ def person(style, pid):
         n = R.randint(4, 10) if k == 'pep' else R.randint(1, 3) if k in UNUSUAL else R.randint(2, 7)
         plan += [k] * n
     if R.random() < (.25 if style == 'A' else .55): R.shuffle(plan)   # alternating vs grouped by topping
-    arrangement = R.choices(['scatter', 'mirror', 'ring'], [.5, .3, .2] if style == 'A' else [.85, .1, .05])[0]
+    arrangement = R.choices(['scatter', 'mirror', 'ring', 'face'], [.45, .25, .15, .15] if style == 'A' else [.8, .1, .04, .06])[0]
     pts = []
+    if arrangement == 'face':          # two eyes, a smiling row of a mouth, sometimes a nose; the rest scattered round the rim
+        eye, mouth_ing = (chosen[0] if chosen else 'pep'), (chosen[-1] if chosen else 'oli')
+        face = [(eye, -.3, .3), (eye, .3, .3)] + [(mouth_ing, t * .32, -.42 + .14 * t * t) for t in (-1, -.5, 0, .5, 1)]
+        if R.random() < .5: face.append((chosen[len(chosen) // 2] if chosen else 'mus', 0, 0))
+        a = R.uniform(-.4, .4)
+        face = [(k, x * math.cos(a) - y * math.sin(a), x * math.sin(a) + y * math.cos(a)) for k, x, y in face]
+        rest = [k for k in plan][len(face):]
+        plan = [k for k, _, _ in face] + rest
+        pts = [(x, y) for _, x, y in face] + [(.8 * math.cos(t), .8 * math.sin(t)) for t in [R.uniform(0, 6.283) for _ in rest]]
     if arrangement == 'ring':
         k = len(plan)
         for i in range(k):
@@ -42,9 +51,10 @@ def person(style, pid):
         half = [(R.uniform(.05, .8), R.uniform(-.8, .8)) for _ in range((len(plan) + 1) // 2)]
         for x, y in half: pts += [(x, y), (-x + R.uniform(-.03, .03), y + R.uniform(-.03, .03))]
         pts = pts[:len(plan)]
-    else:
+    elif arrangement != 'face':
+        rim = R.random() < .2            # some people go right up to (or onto) the crust
         for _ in plan:
-            r, t = .82 * math.sqrt(R.random()), R.random() * 6.283
+            r, t = (R.uniform(.8, .98) if rim and R.random() < .4 else .82 * math.sqrt(R.random())), R.random() * 6.283
             pts.append((r * math.cos(t), r * math.sin(t)))
     grower = R.random() < .25
     slow = 1.35 if style == 'A' else 1.0
@@ -52,7 +62,7 @@ def person(style, pid):
     t += int(R.lognormvariate(8.0, .4) * slow)
     for i, (k, (x, y)) in enumerate(zip(plan, pts)):
         r = math.hypot(x, y)
-        if r > .9: x, y = x * .9 / r, y * .9 / r
+        if r > .98: x, y = x * .98 / r, y * .98 / r
         x, y = round(x, 3), round(y, 3)
         t += int(R.lognormvariate(6.9, .55) * slow); ev.append([t, 'pick', k, i + 1, 'm'])
         drag = int(R.lognormvariate(6.2, .3)); g = round(R.uniform(1.3, 2.3), 2) if grower and R.random() < .3 else 1

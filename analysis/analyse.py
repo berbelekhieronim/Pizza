@@ -11,6 +11,8 @@ Writes into --out (default: pizza_results/):
     events_long.csv      every logged interaction, for sequence analyses
     pizzas/<id>.svg      each final pizza redrawn from its coordinates; gallery.html shows them all
     arrangement.html     symmetry and contact, drawn on every pizza, and compared across groups (--group)
+    profiles.html        every participant as a profile across all measures: compare any two, clusters, map
+    profiles.csv         the standardised profile scores and cluster of each participant
     dashboard.html       the data at a glance: diet breakdown, normality against a reference distribution (--reference),
                          space / size / time by group, and a sortable table of every participant
 
@@ -208,6 +210,176 @@ def area_cm2(p):
     return (math.pi * w * w + 4 * h * w) * p['s'] ** 2 * (MM_PER_UNIT / 10) ** 2
 
 
+def border_measures(pieces):
+    """Where each piece lies relative to the crust: inside the sauce (outline within r = 0.86), on the crust, or
+    hanging over the outer edge (outline beyond r = 1). Radius 1 = 15 cm, so 1 radius unit = 150 mm."""
+    if not pieces:
+        return {'n_on_crust': 0, 'n_over_edge': 0, 'border_share': None, 'n_centre_on_crust': 0, 'max_overhang_mm': None}, []
+    zones, outs = [], []
+    for p in pieces:
+        a, b, w = capsule(p)
+        r_out = max(math.hypot(*a), math.hypot(*b)) + w
+        outs.append(r_out)
+        zones.append('over' if r_out > 1.005 else 'crust' if r_out > 0.86 else 'inside')
+    n = len(pieces)
+    return {'n_on_crust': zones.count('crust'), 'n_over_edge': zones.count('over'), 'border_share': (n - zones.count('inside')) / n,
+            'n_centre_on_crust': sum(math.hypot(p['x'], p['y']) > 0.86 for p in pieces), 'max_overhang_mm': max(0.0, max(outs) - 1) * 150}, zones
+
+
+def face_detect(pieces):
+    """Looks for a face made of toppings: two round, isolated pieces of the same topping as eyes; below them (in the
+    face's own orientation, at any rotation) a mouth: one long piece lying along the eye line, or an evenly spaced row of
+    3+ pieces centred under the eyes and following a straight line or a smile; at most one nose between; and at most one
+    other piece in the face oval; and the face must make up at least 30% of the pieces on the pizza. Pieces sitting on an
+    eye (pupils) count as part of it. On simulated pizzas it found 92% of drawn faces (at any rotation, with or without
+    nose, pupils and toppings round the rim) and flagged 0-5% of random or mirror-symmetric pizzas and 7% of rings of
+    toppings. Check it against human coding of a subset of your own pizzas before relying on it.
+    Returns the best face found, or None. Distances are in units of the eye spacing d."""
+    n = len(pieces)
+    if n < 3:
+        return None
+    info = []
+    for p in pieces:
+        a, b, w = capsule(p)
+        h = math.hypot(b[0] - a[0], b[1] - a[1]) / 2
+        info.append({'x': p['x'], 'y': p['y'], 'w': w, 'h': h, 'ing': p['ing'],
+                     'ux': (b[0] - a[0]) / (2 * h) if h else 1.0, 'uy': (b[1] - a[1]) / (2 * h) if h else 0.0})
+    best = None
+    cos35 = math.cos(math.radians(35))
+    for i in range(n):
+        for j in range(i + 1, n):
+            A, B = info[i], info[j]
+            if A['h'] > 0.03 or B['h'] > 0.03:
+                continue
+            if A['ing'] != B['ing']:            # eyes are a matching pair
+                continue
+            same = True
+            dx, dy = B['x'] - A['x'], B['y'] - A['y']
+            d = math.hypot(dx, dy)
+            if d < 0.3 or d > 1.0:
+                continue
+            on = lambda E, q: math.hypot(q['x'] - E['x'], q['y'] - E['y']) <= E['w']
+            part = {i, j} | {k for k in range(n) if k not in (i, j) and (on(A, info[k]) or on(B, info[k]))}
+            if any(math.hypot(info[k]['x'] - E['x'], info[k]['y'] - E['y']) < 0.4 * d for E in (A, B) for k in range(n) if k not in part):
+                continue
+            ux, uy = dx / d, dy / d
+            mx, my = (A['x'] + B['x']) / 2, (A['y'] + B['y']) / 2
+            for sgn in (1, -1):
+                px, py = -uy * sgn, ux * sgn
+                loc = []
+                for k in range(n):
+                    if k in part:
+                        continue
+                    vx, vy = info[k]['x'] - mx, info[k]['y'] - my
+                    loc.append((k, (vx * ux + vy * uy) / d, (vx * px + vy * py) / d))
+                mouth, mouth_al, kind = None, 0.0, ''
+                for k, al, pp in loc:              # one long piece lying along the eye line
+                    q = info[k]
+                    if (q['h'] >= 0.04 and 0.45 <= pp <= 2.2 and abs(al) <= 0.35 and abs(q['ux'] * ux + q['uy'] * uy) >= cos35
+                            and 2 * (q['h'] + q['w']) >= 0.45 * d):
+                        mouth, mouth_al, kind = [k], al, q['ing']
+                        break
+                if mouth is None:                  # or a row of pieces: the longest chain with small steps
+                    cand = sorted((al, pp, k) for k, al, pp in loc if 0.45 <= pp <= 2.2 and abs(al) <= 1.1)
+                    m = len(cand)
+                    length, prev = [1] * m, [-1] * m
+                    for b_ in range(m):
+                        for a_ in range(b_):
+                            if 0 < cand[b_][0] - cand[a_][0] <= 0.8 and abs(cand[b_][1] - cand[a_][1]) <= 0.3 and length[a_] + 1 > length[b_]:
+                                length[b_], prev[b_] = length[a_] + 1, a_
+                    for end in sorted(range(m), key=lambda e: -length[e]):
+                        if length[end] < 3:
+                            break
+                        chain, c = [], end
+                        while c != -1:
+                            chain.append(c)
+                            c = prev[c]
+                        chain.reverse()
+                        als = [cand[c][0] for c in chain]
+                        pps = [cand[c][1] for c in chain]
+                        span = als[-1] - als[0]
+                        mal = statistics.mean(als)
+                        gaps = [b2 - a2 for a2, b2 in zip(als, als[1:])]
+                        even = statistics.pstdev(gaps) <= 0.35 * statistics.mean(gaps)      # evenly spaced, like a drawn line
+                        # a smooth line or smile: residual from the best straight line or centred parabola stays small
+                        smooth = min(fit_resid(als, pps, 'line'), fit_resid(als, pps, 'smile')) <= 0.08
+                        if span >= 0.6 and abs(mal) <= 0.25 and abs(als[0] + als[-1]) <= 0.35 and even and smooth:
+                            mouth, mouth_al = [cand[c][2] for c in chain], mal
+                            kinds = Counter(info[k]['ing'] for k in mouth)
+                            kind = 'row of %d %s' % (len(mouth), '/'.join(NAMES.get(x, x).lower() for x in kinds))
+                            break
+                if mouth is None:
+                    continue
+                used = part | set(mouth)
+                mouth_top = min(pp for k, al, pp in loc if k in mouth)
+                nose = [k for k, al, pp in loc if k not in used and 0.05 <= pp <= mouth_top - 0.1 and abs(al) <= 0.3]   # between eyes and mouth
+                mpos = {k: (al, pp) for k, al, pp in loc if k in mouth}
+                # the eyes must stand apart from the mouth, not run on into it (as neighbours in a ring of toppings would)
+                if len(mouth) > 1:
+                    ms = sorted(mpos.values())
+                    step = statistics.mean(b2[0] - a2[0] for a2, b2 in zip(ms, ms[1:]))
+                    gap_eye = min(math.hypot(al - ex, pp) for al, pp in ms for ex in (-0.5, 0.5))
+                    if gap_eye < max(0.45, 1.3 * step):
+                        continue
+                    # a drawn mouth stops: no further piece of the same topping carries the row on past either end
+                    ends = [min(mouth, key=lambda k: mpos[k][0]), max(mouth, key=lambda k: mpos[k][0])]
+                    mouth_ings = {info[k]['ing'] for k in mouth}
+                    if any(info[k]['ing'] in mouth_ings and k not in used and
+                           math.hypot(info[k]['x'] - info[e]['x'], info[k]['y'] - info[e]['y']) <= 1.5 * step * d for e in ends for k in range(n)):
+                        continue
+                # clutter: stray pieces inside the face oval (around eyes, nose and mouth); toppings further out, like hair, do not count
+                half_w = max(0.5, max(abs(v[0]) for v in mpos.values())) + 0.35
+                top, bottom = -0.35, max(v[1] for v in mpos.values()) + 0.3
+                cy, ry = (top + bottom) / 2, (bottom - top) / 2
+                clutter = sum(1 for k, al, pp in loc if k not in used and (al / half_w) ** 2 + ((pp - cy) / ry) ** 2 <= 1) - min(1, len(nose))
+                if clutter > 1:
+                    continue
+                if len(used | set(nose[:1])) < 0.3 * n:   # a face someone makes is a main feature of the pizza, not 5 pieces among 35
+                    continue
+                score = 1 - 0.15 * clutter - 0.6 * abs(mouth_al)
+                if score >= 0.6 and (best is None or score > best['score']):
+                    best = {'score': score, 'eyes': (i, j), 'mouth': mouth, 'nose': nose[:1], 'clutter': clutter,
+                            'eye_topping': A['ing'], 'mouth_kind': kind,
+                            'up_deg': round(math.degrees(math.atan2(-py, -px))) % 360}
+    return best
+
+
+def fit_resid(xs, ys, kind):
+    """Largest residual of a least-squares fit: 'line' y = a + b x, or 'smile' y = a + c x² (a curve symmetric about x = 0)."""
+    if len(xs) < 3:
+        return 0.0
+    fx = xs if kind == 'line' else [x * x for x in xs]
+    mx, my = statistics.mean(fx), statistics.mean(ys)
+    vx = sum((x - mx) ** 2 for x in fx)
+    b = sum((x - mx) * (y - my) for x, y in zip(fx, ys)) / vx if vx else 0.0
+    return max(abs(y - (my + b * (x - mx))) for x, y in zip(fx, ys))
+
+
+def size_matching(pieces, tol=0.1):
+    """Do people make pieces the same size on purpose? For every resized piece (size more than 10% from normal): is
+    there another piece of the same topping / of another topping in the same category / of a different category whose
+    size is within 10%? The last is the chance baseline, so size_match_index > 0 means matching sizes within a topping
+    more than across categories."""
+    resized = [p for p in pieces if abs(p['g'] - 1) > tol]
+    def hit(p, pool):
+        return any(abs(p['g'] - q['g']) <= tol * max(p['g'], q['g']) for q in pool)
+    same, cat, other = [], [], []
+    for p in resized:
+        sp = [q for q in pieces if q is not p and q['ing'] == p['ing']]
+        cp = [q for q in pieces if q['ing'] != p['ing'] and CATS.get(q['ing']) == CATS.get(p['ing'])]
+        op = [q for q in pieces if CATS.get(q['ing']) != CATS.get(p['ing'])]
+        if sp:
+            same.append(hit(p, sp))
+        if cp:
+            cat.append(hit(p, cp))
+        if op:
+            other.append(hit(p, op))
+    share = lambda v: sum(v) / len(v) if v else None
+    out = {'n_resized_pieces': len(resized), 'size_match_same': share(same), 'size_match_category': share(cat), 'size_match_other': share(other)}
+    out['size_match_index'] = (out['size_match_same'] - out['size_match_other']) if same and other else None
+    return out
+
+
 def nn_dists(pts):
     out = []
     for i, (x, y) in enumerate(pts):
@@ -341,6 +513,8 @@ def spatial(pieces, rnd):
     out = {}
     n = len(pieces)
     if n == 0:
+        out.update(border_measures(pieces)[0])
+        out.update({'face_detected': 0, 'face_score': 0.0})
         return out
     xs, ys = [p['x'] for p in pieces], [p['y'] for p in pieces]
     rs = [math.hypot(x, y) for x, y in zip(xs, ys)]
@@ -383,6 +557,14 @@ def spatial(pieces, rnd):
         out['segregation'] = same / n - expected
     out['coverage'] = coverage(pieces)
     out.update(contact_measures(pieces)[0])
+    out.update(border_measures(pieces)[0])
+    f = face_detect(pieces)
+    out['face_detected'] = int(f is not None)
+    out['face_score'] = f['score'] if f else 0.0
+    out['face_eyes'] = NAMES.get(f['eye_topping'], f['eye_topping']) if f else None
+    out['face_mouth'] = (NAMES.get(f['mouth_kind'], f['mouth_kind']) if f else None)
+    out['face_nose'] = (int(bool(f['nose'])) if f else None)
+    out['face_up_deg'] = f['up_deg'] if f else None
     out['sym_mirror'], out['sym_rot180'], out['sym_axis_deg'] = symmetry(pieces, rnd)
     out['sym_rot_best'], out['sym_rot_k'] = rot_symmetry(pieces, rnd)
     return out
@@ -434,6 +616,10 @@ def timing(events, summary):
             last_end = e[0]
     fin = next((e[0] for e in events if e[1] == 'finish'), None)
     out['t_first_pick'] = next((e[0] for e in events if e[1] == 'pick'), None)
+    out['t_done_first'] = next((e[0] for e in events if e[1] == 'done'), None)      # first press of "I'm done"
+    out['t_submit'] = fin                                                         # confirmed: the pizza is submitted
+    out['n_done_presses'] = sum(e[1] == 'done' for e in events)
+    out['t_after_done'] = (fin - out['t_done_first']) if (fin is not None and out['t_done_first'] is not None) else None
     out['t_finish'] = fin
     out['t_active'] = (fin - (summary or {}).get('hiddenMs', 0)) if fin is not None else None
     out['add_gap_median'] = statistics.median(gaps) if gaps else None
@@ -804,7 +990,8 @@ DASH_COLS = [  # (key, heading, group, format)
     ('sym_mirror', 'Mirror sym.', 'space', '%.2f'), ('sym_rot_best', 'Rotation sym.', 'space', '%.2f'), ('clark_evans', 'Spread (CE)', 'space', '%.2f'),
     ('coverage', 'Coverage', 'space', '%.2f'), ('prop_touching', 'Touching', 'space', '%.2f'), ('max_stack_depth', 'Pile', 'space', '%d'),
     ('topping_area_cm2', 'Area cm²', 'size', '%.0f'), ('n_grown', 'Enlarged', 'size', '%d'), ('n_shrunk', 'Shrunk', 'size', '%d'), ('size_max', 'Max size', 'size', '%.1f'),
-    ('t_first_pick', 'First pick s', 'time', 's'), ('decision_median', 'Decision s', 'time', 's'), ('t_active', 'Total s', 'time', 's'),
+    ('t_first_pick', 'First pick s', 'time', 's'), ('decision_median', 'Decision s', 'time', 's'), ('t_submit', 'Done s', 'time', 's'),
+    ('n_on_crust', 'On crust', 'space', '%d'), ('n_over_edge', 'Over edge', 'space', '%d'), ('face_detected', 'Face', 'figurative', '%d'),
 ]
 
 
@@ -863,10 +1050,12 @@ def dashboard_report(entries, ref_info, group_label):
              dot_plot('Share of pieces touching another piece', vals('prop_touching'), lo=0.0, hi=1.0))
     size = (dot_plot('Total topping area (cm² on a 30 cm pizza)', vals('topping_area_cm2'), lo=0.0, fmt='%.0f') +
             dot_plot('Number of pieces', vals('n_pieces'), lo=0.0, fmt='%.0f') +
+            dot_plot('Size matching: share of resized pieces sized like another piece of the same topping', vals('size_match_same'), lo=0.0, hi=1.0) +
             dot_plot('Mean piece size (1 = normal; holding a topping pulses it between 0.5 and 2.5)', vals('size_mean'), lo=0.5, hi=2.5, fmt='%.1f'))
     time_ = (dot_plot('Median decision time, seconds (end of one action to picking up the next topping)', vals('decision_median', 1000), lo=0.0, fmt='%.1f') +
              dot_plot('Total build time, seconds (time on other tabs removed)', vals('t_active', 1000), lo=0.0, fmt='%.0f') +
-             dot_plot('Time to first topping, seconds', vals('t_first_pick', 1000), lo=0.0, fmt='%.1f'))
+             dot_plot('Time to first topping, seconds', vals('t_first_pick', 1000), lo=0.0, fmt='%.1f') +
+             dot_plot('Time to completion: confirmed "I\'m done", seconds', vals('t_submit', 1000), lo=0.0, fmt='%.0f'))
     head = '<tr><th class="l">Pizza</th><th class="l">Participant</th><th class="l">Group</th>%s</tr>' % ''.join(
         '<th%s>%s<span class="grp">%s</span></th>' % (' class="l"' if f is None else '', esc(h), g) for _, h, g, f in DASH_COLS)
     body = []
@@ -1025,11 +1214,426 @@ def normality(own_recs, ref_sets_external, toppings):
     return ref_scores, len(ref)
 
 
+# The profile: one standardised score per measure, signed so that a higher score always means "more" of the named
+# trait (e.g. mirror symmetry uses -sym_mirror, because a lower ratio is more symmetric). 'log' = log(1 + x) first.
+PROFILE_FEATURES = [
+    ('Composition', 'n_pieces', 'Pieces', 'log', 1), ('Composition', 'n_distinct', 'Different toppings', None, 1),
+    ('Composition', 'shannon', 'Variety', None, 1), ('Composition', 'prop_unusual_distinct', 'Unusual toppings', None, 1),
+    ('Composition', 'diet_rank', 'Animal products', None, 1),
+    ('Normality', 'composition_pct', 'Unusual combination', None, 1), ('Normality', 'count_pct', 'Unusual number of toppings', None, 1),
+    ('Space', 'sym_mirror', 'Mirror symmetry', None, -1), ('Space', 'sym_rot_best', 'Rotational symmetry', None, -1),
+    ('Space', 'nn_cv', 'Even spacing', None, -1), ('Space', 'sector_similarity', 'Repeating slice pattern', None, 1),
+    ('Space', 'clark_evans', 'Spread out', None, 1), ('Space', 'coverage', 'Coverage', None, 1),
+    ('Space', 'prop_touching', 'Touching', None, 1), ('Space', 'prop_stacked', 'Stacking', None, 1),
+    ('Space', 'border_share', 'On or over the crust', None, 1), ('Space', 'centroid_offset', 'Off-centre', None, 1),
+    ('Size', 'topping_area_cm2', 'Amount (area)', 'log', 1), ('Size', 'size_sd', 'Size variation', None, 1),
+    ('Size', 'resized_share', 'Pieces resized', None, 1), ('Size', 'size_match_same', 'Size matching within a topping', None, 1),
+    ('Order', 'blockiness', 'Grouped by topping', None, 1), ('Order', 'sweep_consistency', 'Placed in a sweep', None, 1),
+    ('Time', 't_first_pick', 'Time to start', 'log', 1), ('Time', 'decision_median', 'Decision time', 'log', 1),
+    ('Time', 't_submit', 'Time to completion', 'log', 1),
+    ('Figurative', 'face_score', 'Face-like', None, 1),
+]
+
+
+def build_profiles(recs):
+    """z-scores of every profile feature across the participants given (missing values take the sample median)."""
+    cols = []
+    for dom, key, label, tf, sign in PROFILE_FEATURES:
+        raw = [r.get(key) if isinstance(r.get(key), (int, float)) else None for r in recs]
+        vals = [(math.log1p(max(v, 0)) if tf == 'log' else v) * sign if v is not None else None for v in raw]
+        present = [v for v in vals if v is not None]
+        med = statistics.median(present) if present else 0.0
+        filled = [v if v is not None else med for v in vals]
+        mu = statistics.mean(filled) if filled else 0.0
+        sd = statistics.pstdev(filled) if len(filled) > 1 else 0.0
+        cols.append([max(-3.0, min(3.0, (v - mu) / sd)) if sd > 0 else 0.0 for v in filled])
+    return [[c[i] for c in cols] for i in range(len(recs))]
+
+
+def euclid(a, b):
+    return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
+
+
+def ward(Z):
+    """Agglomerative clustering with Ward's criterion (Lance-Williams updates on squared distances).
+    Returns the merges as (a, b, height, new_id, size), ids 0..n-1 being the participants."""
+    n = len(Z)
+    D = {}
+    for i in range(n):
+        for j in range(i + 1, n):
+            D[(i, j)] = sum((x - y) ** 2 for x, y in zip(Z[i], Z[j]))
+    size = {i: 1 for i in range(n)}
+    active = set(range(n))
+    merges, nid = [], n
+    key = lambda a, b: (a, b) if a < b else (b, a)
+    while len(active) > 1:
+        (a, b), dab = min(D.items(), key=lambda kv: kv[1])
+        for k in active - {a, b}:
+            dka, dkb = D.pop(key(k, a)), D.pop(key(k, b))
+            sk, sa, sb = size[k], size[a], size[b]
+            D[key(k, nid)] = ((sk + sa) * dka + (sk + sb) * dkb - sk * dab) / (sk + sa + sb)
+        del D[(a, b)]
+        size[nid] = size[a] + size[b]
+        active -= {a, b}
+        active.add(nid)
+        merges.append((a, b, math.sqrt(max(dab, 0)), nid, size[nid]))
+        nid += 1
+    return merges
+
+
+def cut(merges, n, k):
+    parent = list(range(n + len(merges)))
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for a, b, _, nid, _ in merges[:n - k]:
+        parent[find(a)] = nid
+        parent[find(b)] = nid
+    roots, labels = {}, []
+    for i in range(n):
+        r = find(i)
+        labels.append(roots.setdefault(r, len(roots)))
+    return labels
+
+
+def leaf_order(merges, n):
+    if not merges:
+        return list(range(n))
+    kids = {nid: (a, b) for a, b, _, nid, _ in merges}
+    out, stack = [], [merges[-1][3]]
+    while stack:
+        x = stack.pop()
+        if x < n:
+            out.append(x)
+        else:
+            a, b = kids[x]
+            stack += [b, a]
+    return out
+
+
+def silhouette(Z, labels, dist):
+    ks = set(labels)
+    if len(ks) < 2:
+        return None
+    vals = []
+    for i in range(len(Z)):
+        own = [dist[i][j] for j in range(len(Z)) if j != i and labels[j] == labels[i]]
+        if not own:
+            vals.append(0.0)
+            continue
+        a = statistics.mean(own)
+        b = min(statistics.mean([dist[i][j] for j in range(len(Z)) if labels[j] == c]) for c in ks if c != labels[i])
+        vals.append((b - a) / max(a, b) if max(a, b) > 0 else 0.0)
+    return statistics.mean(vals)
+
+
+def jacobi_eig(M):
+    """Eigenvalues and eigenvectors of a symmetric matrix, largest first (Jacobi rotations)."""
+    n = len(M)
+    A = [row[:] for row in M]
+    V = [[float(i == j) for j in range(n)] for i in range(n)]
+    for _ in range(100):
+        off = sum(A[i][j] ** 2 for i in range(n) for j in range(n) if i != j)
+        if off < 1e-12:
+            break
+        for p in range(n):
+            for q in range(p + 1, n):
+                if abs(A[p][q]) < 1e-14:
+                    continue
+                th = 0.5 * math.atan2(2 * A[p][q], A[q][q] - A[p][p])
+                c, s_ = math.cos(th), math.sin(th)
+                for k in range(n):
+                    akp, akq = A[k][p], A[k][q]
+                    A[k][p], A[k][q] = c * akp - s_ * akq, s_ * akp + c * akq
+                for k in range(n):
+                    apk, aqk = A[p][k], A[q][k]
+                    A[p][k], A[q][k] = c * apk - s_ * aqk, s_ * apk + c * aqk
+                for k in range(n):
+                    vkp, vkq = V[k][p], V[k][q]
+                    V[k][p], V[k][q] = c * vkp - s_ * vkq, s_ * vkp + c * vkq
+    pairs = sorted(((A[i][i], [V[k][i] for k in range(n)]) for i in range(n)), key=lambda t: -t[0])
+    return [p[0] for p in pairs], [p[1] for p in pairs]
+
+
+def chi2_sf(x, df):
+    """P(chi-square with df degrees of freedom > x), via the regularised upper incomplete gamma function."""
+    if x <= 0 or df <= 0:
+        return 1.0
+    a, z = df / 2.0, x / 2.0
+    if z < a + 1:                              # series
+        term = total = 1.0 / a
+        ap = a
+        for _ in range(500):
+            ap += 1
+            term *= z / ap
+            total += term
+            if abs(term) < abs(total) * 1e-12:
+                break
+        return max(0.0, 1 - total * math.exp(-z + a * math.log(z) - math.lgamma(a)))
+    b, c, d = z + 1 - a, 1e300, 1 / (z + 1 - a)   # continued fraction
+    h = d
+    for i in range(1, 500):
+        an = -i * (i - a)
+        b += 2
+        d = an * d + b
+        d = 1e-300 if abs(d) < 1e-300 else d
+        c = b + an / c
+        c = 1e-300 if abs(c) < 1e-300 else c
+        d = 1 / d
+        h *= d * c
+        if abs(d * c - 1) < 1e-12:
+            break
+    return min(1.0, math.exp(-z + a * math.log(z) - math.lgamma(a)) * h)
+
+
+CLUSTER_COLORS = ['#2457a6', '#c2571a', '#3f8f4a', '#8a4fa8', '#b8892a', '#1f8a8a', '#b8432a', '#5d6b7a']
+
+
+def profile_analysis(entries, k_force=None):
+    """Profiles, distances, Ward clusters (k chosen by silhouette unless forced), PCA."""
+    recs = [r for r, _ in entries]
+    Z = build_profiles(recs)
+    n = len(Z)
+    out = {'Z': Z, 'labels': [0] * n, 'k': 1, 'sil': {}, 'order': list(range(n)), 'merges': [], 'pcs': None}
+    if n < 4:
+        return out
+    dist = [[euclid(Z[i], Z[j]) for j in range(n)] for i in range(n)]
+    merges = ward(Z)
+    ks = range(2, min(8, n - 1) + 1)
+    sil = {k: silhouette(Z, cut(merges, n, k), dist) for k in ks}
+    k = k_force or max(sil, key=lambda kk: (sil[kk] or -1))
+    out.update({'labels': cut(merges, n, k), 'k': k, 'sil': sil, 'order': leaf_order(merges, n), 'merges': merges, 'dist': dist})
+    p = len(Z[0])
+    C = [[sum(Z[i][a] * Z[i][b] for i in range(n)) / (n - 1) for b in range(p)] for a in range(p)]
+    vals, vecs = jacobi_eig(C)
+    tot = sum(v for v in vals if v > 0) or 1
+    out['pcs'] = {'var': [vals[0] / tot, vals[1] / tot], 'vecs': vecs[:2],
+                  'xy': [[sum(Z[i][a] * vecs[c][a] for a in range(p)) for c in range(2)] for i in range(n)]}
+    return out
+
+
+def describe_cluster(Zc):
+    """Plain-language summary of a cluster's mean profile: the strongest differences from the sample."""
+    means = [statistics.mean(col) for col in zip(*Zc)]
+    ranked = sorted(range(len(means)), key=lambda i: -abs(means[i]))
+    parts = ['%s %s' % ('more' if means[i] > 0 else 'less', PROFILE_FEATURES[i][2].lower()) for i in ranked[:4] if abs(means[i]) >= 0.4]
+    return means, (', '.join(parts) if parts else 'close to the sample average on every measure')
+
+
+def dendrogram_svg(merges, n, order, labels, width=220):
+    """Dendrogram drawn sideways, leaves top to bottom in the heatmap's row order."""
+    if not merges:
+        return ''
+    rowh = max(4, min(14, 900 // max(n, 1)))
+    H = n * rowh
+    ypos = {leaf: (i + 0.5) * rowh for i, leaf in enumerate(order)}
+    hmax = max(m[2] for m in merges) or 1
+    X = lambda h: width - 6 - (width - 12) * h / hmax
+    xpos = {i: X(0) for i in range(n)}
+    s = ['<svg viewBox="0 0 %d %d" width="%d" height="%d" class="dendro" aria-hidden="true">' % (width, H, width, H)]
+    for a, b, h, nid, _ in merges:
+        xa, xb, xn = xpos[a], xpos[b], X(h)
+        s.append('<path d="M%.1f %.1fH%.1fV%.1fH%.1f"/>' % (xa, ypos[a], xn, ypos[b], xb))
+        xpos[nid], ypos[nid] = xn, (ypos[a] + ypos[b]) / 2
+    return ''.join(s) + '</svg>', rowh
+
+
+def heat_color(z):
+    a = min(1.0, abs(z) / 2.5)
+    return ('rgba(200,80,40,%.2f)' if z > 0 else 'rgba(40,100,190,%.2f)') % (0.08 + 0.85 * a)
+
+
+PROFILE_CSS = """
+.heat { display: flex; gap: 0; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
+.heat .dendro path { fill: none; stroke: var(--muted); stroke-width: 1; }
+.heat table { border-collapse: collapse; font-size: 11px; }
+.heat td { padding: 0; } .heat td.c { width: 18px; min-width: 18px; }
+.heat th { font-weight: 400; color: var(--muted); height: 130px; vertical-align: bottom; padding: 0 0 4px; }
+.heat th div { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; font-size: 11px; }
+.heat td.id { padding: 0 6px; white-space: nowrap; color: var(--fg); font-variant-numeric: tabular-nums; }
+.heat td.band { width: 10px; min-width: 10px; }
+.heat td.dcell { vertical-align: top; padding: 0 4px 0 0; line-height: 0; } .heat td.dcell svg { display: block; }
+.heat tbody tr { line-height: 1; }
+.heat tr.dom th { height: auto; font-weight: 600; color: var(--fg); text-align: left; font-size: 11px; padding: 0 0 2px 2px; border-left: 2px solid var(--line); }
+.cl-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.cl-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+.cl-card h3 { margin: 0 0 4px; font-size: 1rem; display: flex; align-items: center; gap: 8px; }
+.sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.thumbs { display: flex; gap: 6px; margin-top: 8px; } .thumbs svg { width: 70px; height: 70px; }
+.pbars { width: 100%; font-size: 12px; border-collapse: collapse; }
+.pbars td { padding: 1px 4px; } .pbars td.lab { white-space: nowrap; color: var(--muted); width: 1%; }
+.pbars .dom td { color: var(--fg); font-weight: 600; padding-top: 6px; }
+.pbar { position: relative; height: 12px; background: linear-gradient(90deg, transparent calc(50% - 1px), var(--line) calc(50% - 1px), var(--line) calc(50% + 1px), transparent calc(50% + 1px)); }
+.pbar i { position: absolute; top: 2px; height: 8px; border-radius: 2px; }
+.pbar i.a { background: var(--g0); } .pbar i.b { background: var(--g1); opacity: .85; top: 6px; height: 6px; }
+.compare { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+@media (max-width: 760px) { .compare { grid-template-columns: 1fr; } }
+.compare select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); max-width: 100%; }
+.compare .pick { display: flex; flex-direction: column; gap: 8px; }
+.compare .pz { display: flex; gap: 10px; } .compare .pz figure { margin: 0; padding: 6px; text-align: center; flex: 1; }
+.compare .pz svg { width: 100%; max-width: 150px; height: auto; }
+.sim li { margin: 2px 0; } .sim button { font: inherit; background: none; border: 0; color: var(--g0); text-decoration: underline; cursor: pointer; padding: 0; }
+.scatter .pt { stroke: var(--panel); stroke-width: 1.2; } .scatter .axis-l { stroke: var(--line); } .scatter text { fill: var(--muted); font-size: 11px; }
+"""
+
+
+def profiles_report(entries, prof, group_label):
+    recs = [r for r, _ in entries]
+    n = len(recs)
+    if n < 4:
+        return '<!doctype html><title>Pizza Profiles</title><p>Profiles and clusters need at least 4 pizzas.</p>'
+    Z, labels, k, order = prof['Z'], prof['labels'], prof['k'], prof['order']
+    groups = []
+    for r in recs:
+        if r['_group'] not in groups:
+            groups.append(r['_group'])
+    # heatmap with dendrogram
+    dsvg, rowh = dendrogram_svg(prof['merges'], n, order, labels)
+    doms = []
+    for f in PROFILE_FEATURES:
+        if not doms or doms[-1][0] != f[0]:
+            doms.append([f[0], 0])
+        doms[-1][1] += 1
+    head = ('<tr class="dom"><th></th><th></th><th></th>%s</tr><tr><th></th><th></th><th></th>%s</tr>'
+            % (''.join('<th colspan="%d">%s</th>' % (c, esc(d)) for d, c in doms), ''.join('<th><div>%s</div></th>' % esc(f[2]) for f in PROFILE_FEATURES)))
+    rows = ''.join('<tr style="height:%dpx">%s<td class="id">%s</td><td class="band" style="background:%s" title="cluster %d"></td>%s</tr>' % (
+        rowh, ('<td class="dcell" rowspan="%d">%s</td>' % (n, dsvg)) if r == 0 else '', esc(recs[i]['pid']) if rowh >= 10 else '',
+        CLUSTER_COLORS[labels[i] % 8], labels[i] + 1,
+        ''.join('<td class="c" style="background:%s" title="%s: %s %+.1f"></td>' % (heat_color(z), esc(recs[i]['pid']), esc(PROFILE_FEATURES[c][2]), z) for c, z in enumerate(Z[i])))
+        for r, i in enumerate(order))
+    heat = '<div class="heat"><table><thead>%s</thead><tbody>%s</tbody></table></div>' % (head, rows)
+    # clusters
+    sil = ' · '.join('k=%d: %.2f' % (kk, v) for kk, v in sorted(prof['sil'].items()) if v is not None)
+    cards = []
+    for c in range(k):
+        idx = [i for i in range(n) if labels[i] == c]
+        Zc = [Z[i] for i in idx]
+        means, words = describe_cluster(Zc)
+        gc = Counter(recs[i]['_group'] for i in idx)
+        cen = means
+        near = sorted(idx, key=lambda i: euclid(Z[i], cen))[:4]
+        bars = ''.join('<tr><td class="lab">%s</td><td><div class="pbar"><i class="a" style="%s"></i></div></td></tr>' % (
+            esc(PROFILE_FEATURES[f][2]), bar_style(means[f])) for f in sorted(range(len(means)), key=lambda f: -abs(means[f]))[:6])
+        cards.append('<div class="cl-card"><h3><span class="sw" style="background:%s"></span>Cluster %d <span class="muted" style="font-weight:400">%d pizzas</span></h3>'
+                     '<p style="margin:0 0 6px">%s.</p><p class="note" style="margin:0 0 6px">%s</p><table class="pbars">%s</table><div class="thumbs">%s</div></div>'
+                     % (CLUSTER_COLORS[c % 8], c + 1, len(idx), esc(words[0].upper() + words[1:]),
+                        esc(' · '.join('%s: %d' % (g, gc.get(g, 0)) for g in groups)), bars, ''.join(thumb(entries[i][1], {}) for i in near)))
+    # cluster x group
+    cross = ''
+    if len(groups) > 1:
+        tab = [[sum(1 for i in range(n) if labels[i] == c and recs[i]['_group'] == g) for g in groups] for c in range(k)]
+        rt = [sum(r) for r in tab]
+        ct = [sum(tab[c][g] for c in range(k)) for g in range(len(groups))]
+        chi = sum((tab[c][g] - rt[c] * ct[g] / n) ** 2 / (rt[c] * ct[g] / n) for c in range(k) for g in range(len(groups)) if rt[c] and ct[g])
+        df = (k - 1) * (len(groups) - 1)
+        pval = chi2_sf(chi, df)
+        small = sum(1 for c in range(k) for g in range(len(groups)) if rt[c] * ct[g] / n < 5)
+        cross = ('<figure><figcaption>Clusters by %s</figcaption><table class="cross"><tr><th>Cluster</th>%s</tr>%s</table>'
+                 '<p class="note">χ²(%d) = %.2f, p = %.3f.%s This tests whether the groups spread differently across the clusters; '
+                 'the clusters were found without using the groups.</p></figure>'
+                 % (esc(group_label), ''.join('<th>%s</th>' % esc(g) for g in groups),
+                    ''.join('<tr><td><span class="sw" style="background:%s"></span> %d</td>%s</tr>' % (CLUSTER_COLORS[c % 8], c + 1, ''.join('<td>%d</td>' % v for v in tab[c])) for c in range(k)),
+                    df, chi, pval, (' %d of %d expected counts are below 5, so treat p as rough (an exact or permutation test is safer).' % (small, k * len(groups))) if small else ''))
+    # PCA map
+    scatter = ''
+    if prof['pcs']:
+        xy = prof['pcs']['xy']
+        xs, ys = [p[0] for p in xy], [p[1] for p in xy]
+        lim = max(1.0, max(abs(v) for v in xs + ys)) * 1.08
+        W, H = 520, 420
+        X = lambda v: 30 + (v + lim) / (2 * lim) * (W - 40)
+        Y = lambda v: H - 30 - (v + lim) / (2 * lim) * (H - 40)
+        shapes = ['circle', 'rect', 'tri', 'diamond']
+        def mark(i):
+            x, y, col, sh = X(xs[i]), Y(ys[i]), CLUSTER_COLORS[labels[i] % 8], shapes[groups.index(recs[i]['_group']) % 4]
+            t = '<title>%s · cluster %d · %s</title>' % (esc(recs[i]['pid']), labels[i] + 1, esc(recs[i]['_group']))
+            if sh == 'circle':
+                return '<circle class="pt" cx="%.1f" cy="%.1f" r="5.5" fill="%s">%s</circle>' % (x, y, col, t)
+            if sh == 'rect':
+                return '<rect class="pt" x="%.1f" y="%.1f" width="10" height="10" fill="%s">%s</rect>' % (x - 5, y - 5, col, t)
+            if sh == 'tri':
+                return '<path class="pt" d="M%.1f %.1fL%.1f %.1fL%.1f %.1fZ" fill="%s">%s</path>' % (x, y - 6, x + 6, y + 5, x - 6, y + 5, col, t)
+            return '<path class="pt" d="M%.1f %.1fL%.1f %.1fL%.1f %.1fL%.1f %.1fZ" fill="%s">%s</path>' % (x, y - 6, x + 6, y, x, y + 6, x - 6, y, col, t)
+        load = lambda c: ', '.join('%s %s' % ('+' if prof['pcs']['vecs'][c][a] > 0 else '−', PROFILE_FEATURES[a][2].lower())
+                                   for a in sorted(range(len(PROFILE_FEATURES)), key=lambda a: -abs(prof['pcs']['vecs'][c][a]))[:3])
+        scatter = ('<figure><figcaption>Map of all profiles (first two principal components). Colour = cluster, shape = %s</figcaption>'
+                   '<svg viewBox="0 0 %d %d" class="dots scatter" style="max-width:%dpx" role="img" aria-label="Profile map">'
+                   '<line class="axis-l" x1="%.1f" x2="%.1f" y1="10" y2="%d"/><line class="axis-l" y1="%.1f" y2="%.1f" x1="30" x2="%d"/>%s'
+                   '<text x="%d" y="%d" text-anchor="end">PC1 %.0f%%</text><text x="34" y="20">PC2 %.0f%%</text></svg>'
+                   '<p class="note">PC1 is mostly: %s. PC2 is mostly: %s. Shapes: %s.</p></figure>'
+                   % (esc(group_label), W, H, W, X(0), X(0), H - 30, Y(0), Y(0), W - 10, ''.join(mark(i) for i in range(n)),
+                      W - 12, H - 36, prof['pcs']['var'][0] * 100, prof['pcs']['var'][1] * 100, esc(load(0)), esc(load(1)),
+                      esc(', '.join('%s = %s' % (['●', '■', '▲', '◆'][gi % 4], g) for gi, g in enumerate(groups)))))
+    # data for the in-page comparison
+    data = {'features': [[f[0], f[2]] for f in PROFILE_FEATURES],
+            'people': [{'id': str(recs[i]['pid']), 'group': str(recs[i]['_group']), 'cluster': labels[i] + 1,
+                        'z': [round(z, 3) for z in Z[i]], 'svg': thumb(entries[i][1], {})} for i in range(n)],
+            'colors': CLUSTER_COLORS}
+    script = """<script>
+var D = %s;
+(function () {
+  var sa = document.getElementById('pa'), sb = document.getElementById('pb');
+  D.people.forEach(function (p, i) {
+    var label = p.id + ' (' + p.group + ', cluster ' + p.cluster + ')';
+    sa.add(new Option(label, i)); sb.add(new Option(label, i));
+  });
+  sb.selectedIndex = D.people.length > 1 ? 1 : 0;
+  function dist(a, b) { var s = 0; for (var i = 0; i < a.length; i++) s += (a[i] - b[i]) * (a[i] - b[i]); return Math.sqrt(s); }
+  var all = []; for (var i = 0; i < D.people.length; i++) for (var j = i + 1; j < D.people.length; j++) all.push(dist(D.people[i].z, D.people[j].z));
+  all.sort(function (x, y) { return x - y; });
+  function bar(z, cls) { var w = Math.min(50, Math.abs(z) / 3 * 50); return '<i class="' + cls + '" style="left:' + (z < 0 ? 50 - w : 50) + '%%;width:' + w + '%%"></i>'; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function show() {
+    var A = D.people[sa.value], B = D.people[sb.value], d = dist(A.z, B.z), rank = 0;
+    while (rank < all.length && all[rank] < d) rank++;
+    var rows = '', dom = '';
+    D.features.forEach(function (f, i) {
+      if (f[0] !== dom) { dom = f[0]; rows += '<tr class="dom"><td colspan="2">' + esc(dom) + '</td></tr>'; }
+      rows += '<tr><td class="lab">' + esc(f[1]) + '</td><td><div class="pbar">' + bar(A.z[i], 'a') + bar(B.z[i], 'b') + '</div></td></tr>';
+    });
+    document.getElementById('bars').innerHTML = rows;
+    document.getElementById('pzs').innerHTML = '<figure><div style="color:var(--g0);font-weight:600">' + esc(A.id) + '</div>' + A.svg + '<div class="note">cluster ' + A.cluster + '</div></figure>' +
+      '<figure><div style="color:var(--g1);font-weight:600">' + esc(B.id) + '</div>' + B.svg + '<div class="note">cluster ' + B.cluster + '</div></figure>';
+    document.getElementById('dist').textContent = 'Distance ' + d.toFixed(2) + ': closer than ' + Math.round(100 - 100 * rank / Math.max(1, all.length)) + '%% of all pairs.';
+    var near = D.people.map(function (p, i) { return [dist(A.z, p.z), i]; }).filter(function (x) { return x[1] != sa.value; }).sort(function (x, y) { return x[0] - y[0]; }).slice(0, 5);
+    document.getElementById('near').innerHTML = near.map(function (x) { var p = D.people[x[1]]; return '<li><button type="button" data-i="' + x[1] + '">' + esc(p.id) + '</button> · ' + esc(p.group) + ' · cluster ' + p.cluster + ' · ' + x[0].toFixed(2) + '</li>'; }).join('');
+  }
+  document.getElementById('near').addEventListener('click', function (e) { var i = e.target.getAttribute('data-i'); if (i != null) { sb.value = i; show(); } });
+  sa.onchange = show; sb.onchange = show; show();
+})();
+</script>""" % json.dumps(data)
+    compare = ('<div class="compare"><div class="pick"><label for="pa"><b style="color:var(--g0)">Participant A</b></label><select id="pa"></select>'
+               '<label for="pb"><b style="color:var(--g1)">Participant B</b></label><select id="pb"></select><div class="pz" id="pzs"></div>'
+               '<p class="note" id="dist"></p><div><b>Most similar to A</b><ol class="sim" id="near"></ol></div></div>'
+               '<div><table class="pbars" id="bars"></table><p class="note">Bars run from the sample average (centre line) towards less (left) or more (right) of each trait, '
+               'in standard deviations (to ±3).</p></div></div>')
+    return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
+            '<title>Pizza Profiles</title><style>%s%s%s</style></head><body><div class="wrap">'
+            '<h1>Pizza profiles and clusters</h1>'
+            '<p class="muted">Each participant\'s pizza is summarised as a profile of %d measures in seven areas. Each score is standardised across these %d '
+            'participants (0 = sample average, ±1 = one standard deviation) and signed so that higher always means <i>more</i> of the named trait. '
+            'Profiles are compared by their Euclidean distance and grouped with hierarchical clustering (Ward\'s method). The number of clusters, %d, is the one with the best '
+            'average silhouette (%s); higher is better, and values under about 0.25 mean the clusters overlap.</p>'
+            '<h2>Compare two participants</h2>%s'
+            '<h2>Clusters</h2><div class="cl-cards">%s</div>%s%s'
+            '<h2>All profiles</h2><p class="muted">One row per participant, ordered by the clustering tree; the coloured band is the cluster. '
+            'Orange = above the sample average, blue = below.</p>%s'
+            '</div>%s</body></html>'
+            % (REPORT_CSS, DASH_CSS, PROFILE_CSS, len(PROFILE_FEATURES), n, k, esc(sil), compare, ''.join(cards), cross, scatter, heat, script))
+
+
+def bar_style(z):
+    w = min(50.0, abs(z) / 3 * 50)
+    return 'left:%.1f%%;width:%.1f%%' % (50 - w if z < 0 else 50, w)
+
+
 def r4(v):
     return round(v, 4) if isinstance(v, float) else v
 
 
-def analyse(rows, builds, out_dir, seed, group_col=None, ref_rows=None):
+def analyse(rows, builds, out_dir, seed, group_col=None, ref_rows=None, k_force=None):
     rnd = random.Random(seed)
     people, ing_long, ev_long, svgs, arrangement = [], [], [], [], []
     for row in rows:
@@ -1068,6 +1672,7 @@ def analyse(rows, builds, out_dir, seed, group_col=None, ref_rows=None):
             rec['prop_unusual_pieces'] = sum(counts[k] for k in inc if TIER.get(k) == 'unusual') / n if n else None
             per = [k for k in tray if k in PERISHABLE]
             rec['diet_class'] = pizza_diet_class(pieces, summary)
+            rec['diet_rank'] = ['vegan', 'vegetarian', 'pescatarian', 'meat'].index(rec['diet_class'])
             area_by = Counter()
             for p in pieces:
                 area_by[topping_diet(p['ing'])] += area_cm2(p)
@@ -1082,6 +1687,9 @@ def analyse(rows, builds, out_dir, seed, group_col=None, ref_rows=None):
             rec['size_min'] = min(gs) if gs else None
             rec['size_mean'] = statistics.mean(gs) if gs else None
             rec['size_max'] = max(gs) if gs else None
+            rec['size_sd'] = statistics.pstdev(gs) if len(gs) > 1 else 0.0
+            rec['resized_share'] = (sum(abs(g - 1) > 0.01 for g in gs) / len(gs)) if gs else None
+            rec.update(size_matching(pieces))
             rec['topping_area_cm2'] = sum(area_cm2(p) for p in pieces)
             rec['n_perishable_included'] = sum(counts.get(k, 0) > 0 for k in per)
             rec['n_never_picked'] = sum(k not in picked for k in tray)
@@ -1208,10 +1816,20 @@ def analyse(rows, builds, out_dir, seed, group_col=None, ref_rows=None):
         rec.pop('_group', None)
     for rec, _ in arrangement:
         rec['_group'] = rec.get('group') or rec.get('condition') or 'all'
+    own_entries = [e for e in arrangement if e[0]['build'] == builds[0].rstrip('_')]
     with open(os.path.join(out_dir, 'dashboard.html'), 'w', encoding='utf-8') as f:
-        f.write(dashboard_report([e for e in arrangement if e[0]['build'] == builds[0].rstrip('_')], ref_info, group_col or 'condition'))
+        f.write(dashboard_report(own_entries, ref_info, group_col or 'condition'))
+    prof = profile_analysis(own_entries, k_force)
+    for (rec, _), z, lab in zip(own_entries, prof['Z'], prof['labels']):
+        rec['cluster'] = lab + 1 if prof['k'] > 1 else None
+    with open(os.path.join(out_dir, 'profiles.html'), 'w', encoding='utf-8') as f:
+        f.write(profiles_report(own_entries, prof, group_col or 'condition'))
+    write_csv(os.path.join(out_dir, 'profiles.csv'), [
+        dict([('pid', r['pid']), ('group', r['_group']), ('cluster', r.get('cluster'))] + [('z_' + f[1], round(v, 4)) for f, v in zip(PROFILE_FEATURES, z)])
+        for (r, _), z in zip(own_entries, prof['Z'])])
     for rec, _ in arrangement:
         rec.pop('_group', None)
+    write_csv(os.path.join(out_dir, 'participants.csv'), people)
     with open(os.path.join(out_dir, 'gallery.html'), 'w', encoding='utf-8') as f:
         f.write('<!doctype html><meta charset="utf-8"><title>Pizza gallery</title>'
                 '<body style="font-family:sans-serif;display:flex;flex-wrap:wrap;gap:8px">' + ''.join(cells) + '</body>')
@@ -1239,12 +1857,13 @@ def main():
     ap.add_argument('--builds', default='pz_,pzt_', help='field prefixes of the builds; the first is the participant\'s own pizza')
     ap.add_argument('--seed', type=int, default=1, help='seed for the random layouts behind the symmetry ratios')
     ap.add_argument('--group', default=None, help='column to compare groups by in the reports (e.g. your ASD/NT column); default: condition')
+    ap.add_argument('--clusters', type=int, default=None, help='number of clusters (default: chosen by silhouette)')
     ap.add_argument('--reference', nargs='+', default=None, help='pizzas that define "normal" (e.g. a pilot export or demo JSON files); '
                     'default: each pizza is compared with all the others in the sample')
     a = ap.parse_args()
     rows = read_inputs(a.inputs, a.id)
     ref_rows = read_inputs(a.reference, a.id) if a.reference else None
-    people = analyse(rows, [b if b.endswith('_') else b + '_' for b in a.builds.split(',') if b], a.out, a.seed, a.group, ref_rows)
+    people = analyse(rows, [b if b.endswith('_') else b + '_' for b in a.builds.split(',') if b], a.out, a.seed, a.group, ref_rows, a.clusters)
     print('%d responses, %d pizzas scored -> %s/' % (len(rows), len(people), a.out))
     if not people:
         print('No pizza fields found. Check that pz_final / __js_pz_final are declared in the survey flow.', file=sys.stderr)
