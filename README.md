@@ -17,8 +17,8 @@ the toppings are drawn in SVG by the script itself.
 
 ## The procedure
 
-1. **Practice** (`practice.js`, ~30 s). Four guided steps with a practice-only tomato slice: drop one into a target
-   circle, add two more, move one, drag one off. This teaches the controls before the real choice and
+1. **Practice** (`practice.js`, ~40 s). Five guided steps with a practice-only tomato slice: drop one into a target
+   circle, add two more, move one, make one bigger, drag one off. This teaches the controls before the real choice and
    records each person's **motor baseline** (drag speed, targeting error) on their own device.
 2. **Build** (`build.js`). Choose sauce (none / tomato / white / BBQ) and cheese (none / light / normal / extra), then drag
    toppings onto the pizza, one piece at a time. The default tray has 18 toppings in three a-priori tiers of conventionality:
@@ -28,6 +28,8 @@ the toppings are drawn in SVG by the script itself.
 
    Shrimp, egg, blue cheese, the meats and anchovies spoil quickly, so they also vary in perceived food safety.
    The tray order is shuffled for each participant and recorded.
+   Holding a topping still for half a second, while dragging it or by pressing one already on the pizza, makes it grow
+   steadily, up to 2.5 times its size; letting go keeps that size. Every piece's size is recorded.
    Pieces can be moved, dragged off to remove, undone, or cleared. "I'm done" asks for confirmation, then the pizza
    "bakes" (a short visual) and the Next button appears.
 3. **Optional perceived-norm build** (`build-typical.js`): the same task, "make the pizza a typical participant would choose".
@@ -126,6 +128,7 @@ Set in the `PizzaBuilder.mount(box, { ... })` call:
 | `showCounts` | `false` | count badges on the tray (off by default: numbers invite counting) |
 | `confirm`, `bake` | `true` | confirmation dialog, bake animation |
 | `autoScroll` | `true` | on phones, scroll once so the pizza and the whole tray are on screen together |
+| `grow`, `growDelay`, `growRate`, `growMax` | `true`, `500`, `0.8`, `2.5` | hold to grow: on/off, ms of stillness before growing starts, size added per second, largest size |
 | `touchLift` | `44` | on touch screens the dragged topping floats this many px above the finger so it stays visible |
 | `names`, `text` | | rename toppings or translate any wording, e.g. `text: { done: 'Gotowe' }` |
 | `prefix` | `pz_` / `pzp_` / `pzf_` | embedded-data field prefix; use a new one for each extra build |
@@ -137,9 +140,13 @@ Set in the `PizzaBuilder.mount(box, { ... })` call:
 python3 analysis/analyse.py my_export.csv --out results
 ```
 
-This needs Python 3.10 or newer and nothing else. It writes `participants.csv` (one row per pizza),
+This needs Python 3.10 or newer and nothing else. Add `--group <column>` (e.g. your ASD / NT column) to compare groups
+in the arrangement report. It writes `participants.csv` (one row per pizza),
 `ingredients_long.csv` (participant × topping, ready for mixed models), `events_long.csv`, and every pizza
-redrawn as SVG plus a `gallery.html` contact sheet. The measures are defined in `CODEBOOK.md`. In short:
+redrawn as SVG plus a `gallery.html` contact sheet, and **`arrangement.html`**. That is the visual analysis of
+symmetry and contact: every pizza drawn three times, with its best mirror axis, its best rotational symmetry
+(rings mark where each topping's symmetric partner would have to be: green = a matching topping is there,
+red = none nearby), and its touching and stacked pieces. Sample-wide dot plots compare the groups at the top. The measures are defined in `CODEBOOK.md`. In short:
 
 - **Variety and distinctiveness:** number of pieces and distinct toppings, Shannon diversity and evenness, Simpson index, categories,
   unusual-tier toppings, and how rare the person's toppings and topping pairs are in the sample.
@@ -147,8 +154,15 @@ redrawn as SVG plus a `gallery.html` contact sheet. The measures are defined in 
   stated reasons; whether a stated diet rules a topping out.
 - **Symmetry and clustering:** centroid offset, radial spread, circular uniformity, evenness over 8 slices
   ("does every slice get some"), Clark-Evans nearest-neighbour ratio with edge correction, same-topping segregation,
-  overlap, coverage, spacing regularity, the same mix repeating across slices. Mirror, 180° and the best k-fold rotational symmetry are each
+  coverage, spacing regularity, the same mix repeating across slices. Mirror, 180° and the best k-fold rotational symmetry are each
   expressed as a ratio to random layouts of the same toppings (< 1 = more symmetric than chance).
+- **Contact and stacking:** each piece's outline is modelled at its real length, width, rotation and size. The measures:
+  - pairs of pieces that touch, and pairs where one lies substantially on top of the other
+  - the share of pieces in contact
+  - the tallest pile
+  - whether piles are made of the same topping or of different ones
+  - the median edge-to-edge gap in mm
+- **Size and amount:** pieces enlarged, mean and largest size, and total topping area in cm², which is the truer quantity once pieces can grow.
 - **Order:** first topping, blockiness (grouping by topping vs alternating), a steady sweep round the pizza, meat before vegetables.
 - **Timing:** decision time (end of one action to picking up the next, excluding the drag itself), gaps between
   placements, drag time, time to finish, time away from the tab.

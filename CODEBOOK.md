@@ -32,7 +32,8 @@ In the Simple layout, Qualtrics stores them as `__js_<name>`.
 
 ### `<prefix>final` - the finished pizza
 
-A JSON array with one entry per piece, bottom to top: `[id, code, x, y, rotation_deg, scale, variant, add_order]`.
+A JSON array with one entry per piece, bottom to top: `[id, code, x, y, rotation_deg, scale, variant, add_order, size]`.
+`size` is how much the participant grew the piece by holding it (1 = normal, up to 2.5). The drawn size is `scale × size`.
 `id` numbers every pick-up, including ones that were rejected. `add_order` is the order of first placement.
 `scale` (0.9-1.1) and `variant` (0-2) are small random differences in appearance, kept so the pizza can be redrawn exactly.
 
@@ -44,14 +45,15 @@ A JSON array of `[t, type, ...]`:
 |---|---|---|
 | `start` | tray order (space-separated codes) | task shown |
 | `pick` | code, id, pointer (`m`ouse/`t`ouch/`p`en) | topping lifted from the tray |
-| `add` | code, id, x, y, drag_ms, snapped | dropped on the pizza |
+| `add` | code, id, x, y, drag_ms, snapped, size | dropped on the pizza |
 | `reject` | code, id, x, y, drag_ms | lifted from the tray, then dropped off the pizza |
 | `tap` | code, id | touched without dragging (a hint is shown) |
 | `grab` | code, id | placed topping picked up again |
-| `move` | code, id, x, y, drag_ms, snapped | placed topping moved |
+| `move` | code, id, x, y, drag_ms, snapped, size | placed topping moved |
+| `grow` | code, id, size, hold_ms | placed topping pressed and held in place until it grew |
 | `remove` | code, id, x, y, drag_ms | placed topping dragged off the pizza |
 | `abort` | code, id | drag interrupted by the browser (e.g. a system gesture) |
-| `undo` | undone action (`add`/`move`/`remove`/`clear`), id or count | |
+| `undo` | undone action (`add`/`move`/`grow`/`remove`/`clear`), id or count | |
 | `clear` | number of pieces removed | "Start over" confirmed |
 | `sauce`, `cheese` | new value | sauce: `none`/`tomato`/`white`/`bbq`; cheese: `none`/`light`/`normal`/`extra` |
 | `hover` | code, ms | mouse rested ≥150 ms on a tray item (desktop only) |
@@ -62,7 +64,7 @@ A JSON array of `[t, type, ...]`:
 
 `v` script version · `mode` · `cond` condition label · `start` ISO time · `finished` ·
 `tFinish`, `tFirstPick`, `tFirstAdd`, `tLast` · `nPieces`, `nDistinct`, `counts` {code: n} · `sauce`, `cheese` · `tray` order ·
-`n` {event type: count} · `dragMsMedian` · `addGapMsMedian` · `hiddenMs`, `hides` ·
+`n` {event type: count} · `nGrown` (pieces enlarged) · `dragMsMedian` · `addGapMsMedian` · `hiddenMs`, `hides` ·
 `pointer` (first pointer type used) · `coarse` (touch-first device) · `hover` (device can hover) · `vw`, `vh`, `dpr` ·
 `pizzaPx` (pizza diameter on screen in CSS px) · `layout` (`wide` side-by-side or `narrow` stacked) · `trimmed` (hover events dropped to save space).
 Practice only: `targetErr` (distance from the target centre for each attempt, max 3), `stepT` (time each step was completed), `stepsDone`.
@@ -133,7 +135,13 @@ Scales run 1-7:
 | `angular_regularity` | for each topping with ≥3 pieces, CV of the angular gaps between its pieces around the centre (0 = evenly spaced like clock positions), averaged |
 | `sector_similarity` | mean cosine similarity of the topping mix between the occupied slices: 1 = the same pattern repeats in every slice |
 | `segregation` | share of pieces whose nearest neighbour is the same topping, minus the share expected from the counts alone. >0 = toppings kept together (e.g. half-and-half) |
-| `overlap_pairs` | pairs of pieces lying on top of each other |
+| `n_touch_pairs`, `n_stack_pairs` | pairs of pieces whose outlines touch (gap ≤ 1.5 mm, or a slight overlap); pairs where one lies substantially on the other (overlap deeper than half the thinner piece's half-width). Outlines are capsules at each piece's real length, width, rotation and size |
+| `prop_touching`, `prop_stacked` | share of pieces touching at least one other / stacked on or under another |
+| `max_stack_depth` | the tallest pile, in layers (1 = nothing stacked). Drawing order is stacking order: later pieces lie on top |
+| `stack_same_share`, `touch_same_share` | share of stacked / touching pairs that are the same topping (piling one topping vs layering different ones) |
+| `nn_gap_mm` | median edge-to-edge distance from each piece to its nearest neighbour, in mm on a 30 cm pizza (negative = overlapping) |
+| `n_grown`, `size_mean`, `size_max` | pieces enlarged by holding; mean and largest size factor |
+| `topping_area_cm2` | total area covered by toppings' outlines (overlaps counted twice), on a 30 cm pizza |
 | `coverage` | share of the sauced area under toppings |
 | `sym_mirror`, `sym_axis_deg` | best mirror symmetry: mean distance from each reflected piece to the nearest piece of the same topping, at the best of 18 axes, ÷ the same for 40 random layouts of the same toppings. <1 = more symmetric than chance |
 | `sym_rot180` | the same for a half turn |
@@ -164,6 +172,8 @@ Scales run 1-7:
 
 `tier`, `perishable`, `tray_pos` (1 = first in the tray), `count`, `included`, `picks`, `rejects`, `removes`, `picked_not_kept`,
 `first_pick_ms`, `first_add_ms`, `hover_ms`, `decision_ms_mean` (mean time from the previous action to picking this topping up),
+`area_cm2` and `size_mean` (amount of this topping, and its mean size factor), `n_touching`, `n_on_top`, `n_covered`
+(pieces of this topping touching another piece, lying on another, lying under another),
 `diet_conflict` (the stated diet usually excludes this topping:
 - vegetarian → meats, anchovies, shrimp
 - vegan → those plus egg and blue cheese

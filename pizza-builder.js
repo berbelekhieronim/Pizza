@@ -396,7 +396,7 @@
   // ---------------------------------------------------------------- text
 
   var TEXT = {
-    promptBuild: 'Make the pizza you would like to eat. Drag toppings onto the pizza. To remove a topping, drag it off the pizza.',
+    promptBuild: 'Make the pizza you would like to eat. Drag toppings onto the pizza. Hold a topping still to make it bigger. To remove a topping, drag it off the pizza.',
     promptPractice: 'Practice round: learn how to place, move and remove toppings. Nothing you do here counts as your choice.',
     toppings: 'Toppings', sauce: 'Sauce', cheese: 'Cheese',
     sauceNames: { none: 'None', tomato: 'Tomato', white: 'White', bbq: 'BBQ' },
@@ -409,7 +409,9 @@
     waitNote: 'You can finish in {s} s', minNote: 'Add at least {n} toppings to finish',
     baked: 'Your pizza is ready! Please continue to the next page.',
     steps: ['Drag a tomato slice into the dashed circle', 'Add two more slices anywhere on the pizza',
-      'Move a slice that is already on the pizza: press it and drag it somewhere else', 'Remove a slice: drag it from the pizza off the edge'],
+      'Move a slice that is already on the pizza: press it and drag it somewhere else',
+      'Make a slice bigger: press it and hold still until it grows', 'Remove a slice: drag it from the pizza off the edge'],
+    growHint: 'This time, press a slice on the pizza and keep holding still: it will grow',
     tryAgain: 'Nearly - drop it inside the dashed circle',
     moveHint: 'This time, press a slice that is already on the pizza and drag it to a new place',
     removeHint: 'This time, press a slice on the pizza and drag it off the edge', practiceReady: 'Well done! Press Continue to make your own pizza.',
@@ -462,6 +464,7 @@
     sauce: 'tomato', cheese: 'normal', baseChoices: true,
     minSeconds: 0, minPieces: 0, maxPieces: 250, showCounts: false,
     touchLift: 44, logHover: true, confirm: true, bake: true, autoScroll: true,
+    grow: true, growDelay: 500, growRate: 0.8, growMax: 2.5, stillPx: 8,
     target: [0.42, 0.3], targetTol: 0.12, maxEventChars: 60000,
     names: null, text: null, onSave: null, onFinish: null, onEvent: null
   };
@@ -623,7 +626,7 @@
         if (self.locked || self.drag || (e.pointerType === 'mouse' && e.button !== 0)) return;
         e.preventDefault();
         if (self.pieces.length >= o.maxPieces) { self.toast(self.T.full); return; }
-        var p = { id: self.nextId++, ing: code, x: 0, y: 0, rot: Math.round(Math.random() * 360), s: Math.round((0.9 + Math.random() * 0.2) * 100) / 100, v: Math.floor(Math.random() * 3), n: 0 };
+        var p = { id: self.nextId++, ing: code, x: 0, y: 0, rot: Math.round(Math.random() * 360), s: Math.round((0.9 + Math.random() * 0.2) * 100) / 100, v: Math.floor(Math.random() * 3), n: 0, g: 1 };
         self.log('pick', code, p.id, (e.pointerType || 'mouse').charAt(0));
         it.classList.add('pzb-active');
         self._startDrag(e, p, it);
@@ -676,7 +679,7 @@
     var tol = (e.pointerType === 'touch' ? 10 : 3) / g.ppu, best = null, bestScore = Infinity;
     for (var i = this.pieces.length - 1; i >= 0; i--) {
       var p = this.pieces[i], dx = (q.x - p.x) * 100, dy = (q.y - p.y) * 100;
-      var rad = ING[p.ing].size * p.s * 0.85 + tol, d = Math.sqrt(dx * dx + dy * dy);
+      var rad = ING[p.ing].size * p.s * (p.g || 1) * 0.85 + tol, d = Math.sqrt(dx * dx + dy * dy);
       if (d <= rad && d / rad < bestScore - 0.15) { best = p; bestScore = d / rad; }
     }
     return best;
@@ -687,18 +690,34 @@
     if (!this.pointer) this.pointer = e.pointerType || 'mouse';
     if (!trayEl) {
       offX = g.left + (p.x * 100 + VIEW) * g.ppu - e.clientX;
-      offY = g.top + (-p.y * 100 + VIEW) * g.ppu - e.clientY - lift;
+      offY = g.top + (-p.y * 100 + VIEW) * g.ppu - e.clientY;   // lifted above the finger only once it moves
       var node = this.topsSvg.querySelector('[data-pid="' + p.id + '"]');
       if (node) node.style.visibility = 'hidden';
     }
-    var S = ING[p.ing].size * 1.3 * p.s, half = S * g.ppu * 1.08;
-    var gh = el('div', 'pzb-ghost', '<svg viewBox="' + P(-S) + ' ' + P(-S) + ' ' + P(2 * S) + ' ' + P(2 * S) + '"><g transform="rotate(' + p.rot + ') scale(' + p.s + ')">' + pieceMarkup(p.ing, p.v) + '</g></svg>');
+    var g0 = p.g || 1, S = ING[p.ing].size * 1.3 * p.s * g0, half = S * g.ppu * 1.08;
+    var gh = el('div', 'pzb-ghost', '<svg viewBox="' + P(-S) + ' ' + P(-S) + ' ' + P(2 * S) + ' ' + P(2 * S) + '"><g transform="rotate(' + p.rot + ') scale(' + P(p.s * g0) + ')">' + pieceMarkup(p.ing, p.v) + '</g></svg>');
     gh.style.width = gh.style.height = (2 * half) + 'px';
     document.body.appendChild(gh);
     try { (trayEl || this.pizzaEl).setPointerCapture(e.pointerId); } catch (err) { /* capture is a nicety */ }
-    this.drag = { p: p, tray: trayEl, id: e.pointerId, t0: now(), offX: offX, offY: offY, sx: e.clientX, sy: e.clientY,
-      lx: e.clientX, ly: e.clientY, moved: false, ghost: gh, half: half, x0: p.x, y0: p.y };
+    var t = now();
+    this.drag = { p: p, tray: trayEl, id: e.pointerId, t0: t, offX: offX, offY: offY, sx: e.clientX, sy: e.clientY,
+      lx: e.clientX, ly: e.clientY, moved: false, ghost: gh, half: half, x0: p.x, y0: p.y,
+      g0: g0, g: g0, hx: e.clientX, hy: e.clientY, ht: t, lt: t, lift: trayEl ? 0 : lift };
+    this._frame();
+  };
+
+  // Runs every frame while dragging: grows the piece while the pointer stays still, then repaints.
+  Builder.prototype._frame = function () {
+    var d = this.drag, o = this.o, self = this;
+    if (!d) return;
+    var t = now();
+    if (o.grow) {
+      if (Math.abs(d.lx - d.hx) + Math.abs(d.ly - d.hy) > o.stillPx) { d.hx = d.lx; d.hy = d.ly; d.ht = t; }
+      else if (t - d.ht > o.growDelay && d.g < o.growMax) d.g = Math.min(o.growMax, d.g + o.growRate * (t - d.lt) / 1000);
+    }
+    d.lt = t;
     this._paint();
+    d.raf = requestAnimationFrame(function () { if (self.drag === d) self._frame(); });
   };
 
   Builder.prototype._move = function (e) {
@@ -706,14 +725,13 @@
     if (!d || e.pointerId !== d.id) return;
     e.preventDefault();
     d.lx = e.clientX; d.ly = e.clientY;
-    if (!d.moved && Math.abs(d.lx - d.sx) + Math.abs(d.ly - d.sy) > 6) d.moved = true;
-    if (!d.raf) { var self = this; d.raf = requestAnimationFrame(function () { d.raf = 0; self._paint(); }); }
+    if (!d.moved && Math.abs(d.lx - d.sx) + Math.abs(d.ly - d.sy) > 6) { d.moved = true; d.offY -= d.lift; }
   };
 
   Builder.prototype._paint = function () {
     var d = this.drag; if (!d) return;
     var cx = d.lx + d.offX, cy = d.ly + d.offY;
-    d.ghost.style.transform = 'translate3d(' + (cx - d.half) + 'px,' + (cy - d.half) + 'px,0)';
+    d.ghost.style.transform = 'translate3d(' + (cx - d.half) + 'px,' + (cy - d.half) + 'px,0) scale(' + (d.g / d.g0) + ')';
     var q = this._toPizza(cx, cy, this._geom()), on = Math.sqrt(q.x * q.x + q.y * q.y) <= R_OFF;
     d.ghost.classList.toggle('pzb-out', !on);
     this.w.classList.toggle('pzb-over', on);
@@ -726,7 +744,7 @@
     if (d.raf) cancelAnimationFrame(d.raf);
     this.w.classList.remove('pzb-over');
     if (d.tray) d.tray.classList.remove('pzb-active');
-    var p = d.p, ms = Math.round(now() - d.t0);
+    var p = d.p, ms = Math.round(now() - d.t0), gNew = Math.round(d.g * 100) / 100, grew = gNew > (p.g || 1) + 0.01;
     var g = this._geom(), q = this._toPizza(e.clientX + d.offX, e.clientY + d.offY, g);
     var r = Math.sqrt(q.x * q.x + q.y * q.y), snap = 0;
     if (r > R_SNAP && r <= R_OFF) { q.x *= R_SNAP / r; q.y *= R_SNAP / r; snap = 1; }
@@ -734,6 +752,14 @@
     this._dropGhost(d, on && !cancelled);
 
     if (cancelled) { this.log('abort', p.ing, p.id); if (!d.tray) this._render(); return; }
+    if (!d.moved && grew && !d.tray) {  // pressed and held in place: the topping grew where it lies
+      this.stack.push({ a: 'grow', p: p, g: p.g });
+      p.g = gNew;
+      this.log('grow', p.ing, p.id, gNew, ms);
+      if (this.practice && this.step === 3) this._nextStep();
+      this._render();
+      return;
+    }
     if (!d.moved) {                     // a tap, not a drag
       this.log('tap', p.ing, p.id);
       if (d.tray) this.toast(this.T.tapHint); else this._render();
@@ -741,24 +767,24 @@
     }
     if (d.tray) {
       if (on) {
-        p.x = x; p.y = y; p.n = ++this.seq;
+        p.x = x; p.y = y; p.n = ++this.seq; p.g = gNew;
         this.pieces.push(p); this.stack.push({ a: 'add', p: p });
-        this.log('add', p.ing, p.id, x, y, ms, snap);
-        this._practiceAdd(p);
+        this.log('add', p.ing, p.id, x, y, ms, snap, gNew);
+        if (this.practice && this.step === 3 && grew) this._nextStep(); else this._practiceAdd(p);
       } else {
         this.log('reject', p.ing, p.id, x, y, ms);
       }
     } else if (on) {
-      this.stack.push({ a: 'move', p: p, x: p.x, y: p.y });
-      p.x = x; p.y = y;
+      this.stack.push({ a: 'move', p: p, x: p.x, y: p.y, g: p.g });
+      p.x = x; p.y = y; p.g = gNew;
       this.pieces.splice(this.pieces.indexOf(p), 1); this.pieces.push(p);   // a moved topping lands on top
-      this.log('move', p.ing, p.id, x, y, ms, snap);
-      if (this.practice && this.step === 2) this._nextStep();
+      this.log('move', p.ing, p.id, x, y, ms, snap, gNew);
+      if (this.practice && (this.step === 2 || (this.step === 3 && grew))) this._nextStep();
     } else {
       var i = this.pieces.indexOf(p);
       this.pieces.splice(i, 1); this.stack.push({ a: 'remove', p: p, i: i });
       this.log('remove', p.ing, p.id, x, y, ms);
-      if (this.practice && this.step === 3) this._nextStep();
+      if (this.practice && this.step === 4) this._nextStep();
     }
     this._render();
   };
@@ -775,7 +801,7 @@
     var s = '', counts = this.counts();
     for (var i = 0; i < this.pieces.length; i++) {
       var p = this.pieces[i];
-      s += '<g data-pid="' + p.id + '" transform="translate(' + P(p.x * 100) + ' ' + P(-p.y * 100) + ') rotate(' + p.rot + ') scale(' + p.s + ')">' + pieceMarkup(p.ing, p.v) + '</g>';
+      s += '<g data-pid="' + p.id + '" transform="translate(' + P(p.x * 100) + ' ' + P(-p.y * 100) + ') rotate(' + p.rot + ') scale(' + P(p.s * (p.g || 1)) + ')">' + pieceMarkup(p.ing, p.v) + '</g>';
     }
     this.topsSvg.innerHTML = s;
     if (this.o.showCounts) for (var k in this.items) {
@@ -792,7 +818,8 @@
     if (this.locked) return;
     var a = this.stack.pop(); if (!a) return;
     if (a.a === 'add') this.pieces.splice(this.pieces.indexOf(a.p), 1);
-    else if (a.a === 'move') { a.p.x = a.x; a.p.y = a.y; }
+    else if (a.a === 'move') { a.p.x = a.x; a.p.y = a.y; a.p.g = a.g; }
+    else if (a.a === 'grow') a.p.g = a.g;
     else if (a.a === 'remove') this.pieces.splice(a.i, 0, a.p);
     else if (a.a === 'clear') this.pieces = a.ps;
     this.log('undo', a.a, a.p ? a.p.id : a.ps.length);
@@ -821,13 +848,14 @@
       else this.toast(this.T.tryAgain);
     } else if (this.step === 1) { if (++this.stepAdds >= 2) this._nextStep(); }
     else if (this.step === 2) this.toast(this.T.moveHint);
-    else if (this.step === 3) this.toast(this.T.removeHint);
+    else if (this.step === 3) this.toast(this.T.growHint);
+    else if (this.step === 4) this.toast(this.T.removeHint);
   };
   Builder.prototype._nextStep = function () {
     this.stepT.push(Math.round(now() - this.t0));
     this.step++;
     if (this.step === 1) this.guideSvg.innerHTML = '';
-    if (this.step >= 4) this.toast(this.T.practiceReady);
+    if (this.step >= 5) this.toast(this.T.practiceReady);
     this._steps(); this._tick();
   };
   Builder.prototype._steps = function () {
@@ -843,7 +871,7 @@
     if (this.finished) return;
     var self = this, o = this.o, T = this.T, el2 = (now() - this.t0) / 1000, note = '';
     var ok = true;
-    if (this.practice) ok = this.step >= 4;
+    if (this.practice) ok = this.step >= 5;
     else {
       if (this.pieces.length < o.minPieces) { ok = false; note = fmt(T.minNote, { n: o.minPieces }); }
       if (el2 < o.minSeconds) { ok = false; note = note || fmt(T.waitNote, { s: Math.ceil(o.minSeconds - el2) }); }
@@ -911,7 +939,8 @@
       tFinish: fin, tFirstPick: first.pick == null ? null : first.pick, tFirstAdd: first.add == null ? null : first.add, tLast: last,
       nPieces: this.pieces.length, nDistinct: Object.keys(counts).filter(function (k) { return counts[k] > 0; }).length,
       counts: counts, sauce: o.baseChoices ? this.sauce : null, cheese: o.baseChoices ? this.cheese : null, tray: this.tray,
-      n: { pick: n.pick || 0, add: n.add || 0, reject: n.reject || 0, tap: n.tap || 0, move: n.move || 0, remove: n.remove || 0, undo: n.undo || 0, clear: n.clear || 0, hover: n.hover || 0 },
+      n: { pick: n.pick || 0, add: n.add || 0, reject: n.reject || 0, tap: n.tap || 0, move: n.move || 0, remove: n.remove || 0, grow: n.grow || 0, undo: n.undo || 0, clear: n.clear || 0, hover: n.hover || 0 },
+      nGrown: this.pieces.filter(function (p) { return (p.g || 1) > 1.01; }).length,
       dragMsMedian: median(drags), addGapMsMedian: median(gaps),
       hiddenMs: Math.round(this.hiddenMs + (this.hiddenAt != null ? now() - this.hiddenAt : 0)), hides: n.hide || 0,
       pointer: this.pointer, coarse: mq('(pointer: coarse)'), hover: mq('(hover: hover)'),
@@ -919,7 +948,7 @@
       pizzaPx: Math.round(this.pizzaEl.getBoundingClientRect().width * 200 / (2 * VIEW)), layout: this.layout
     };
     if (this.practice) { summary.targetErr = this.tries; summary.stepT = this.stepT; summary.stepsDone = this.step; }
-    var final = this.pieces.map(function (p) { return [p.id, p.ing, p.x, p.y, p.rot, p.s, p.v, p.n]; });
+    var final = this.pieces.map(function (p) { return [p.id, p.ing, p.x, p.y, p.rot, p.s, p.v, p.n, p.g || 1]; });
     var events = JSON.stringify(ev);
     if (events.length > o.maxEventChars) {      // keep the record small enough for embedded data: hovers go first
       events = JSON.stringify(ev.filter(function (e) { return e[1] !== 'hover'; }));

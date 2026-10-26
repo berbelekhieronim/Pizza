@@ -10,6 +10,7 @@ Writes into --out (default: pizza_results/):
     ingredients_long.csv one row per participant x topping: counts, picks, latency, ratings, reasons, diet conflict
     events_long.csv      every logged interaction, for sequence analyses
     pizzas/<id>.svg      each final pizza redrawn from its coordinates; gallery.html shows them all
+    arrangement.html     symmetry and contact, drawn on every pizza, and compared across groups (--group)
 
 Standard library only. Measure definitions are in ../CODEBOOK.md.
 """
@@ -37,6 +38,14 @@ TIER = {'pep': 'common', 'ham': 'common', 'chk': 'common', 'mus': 'common', 'grp
 PERISHABLE = {'pep', 'ham', 'chk', 'anc', 'shr', 'egg', 'gor'}
 SIZE = {'pep': 13, 'ham': 10, 'chk': 8.5, 'anc': 15, 'mus': 12, 'grp': 13.5, 'oni': 12.5, 'oli': 6.2, 'crn': 6, 'pin': 8.6,
         'jal': 6, 'bas': 12, 'shr': 9.5, 'egg': 8.5, 'gor': 6.5, 'nor': 9.5, 'kim': 9, 'par': 12, 'ban': 6.5, 'wal': 7, 'tom': 10}
+# each topping's outline as a capsule: half-length along its long axis and half-width, in pizza units before scaling
+# (pizza radius = 100 units ~ 15 cm, so 1 unit ~ 1.5 mm). Round toppings have half-length 0.
+FOOT = {'pep': (0, 13), 'ham': (1, 6.4), 'chk': (1.5, 6.5), 'anc': (12, 2.8), 'mus': (0, 11), 'grp': (11, 3), 'oni': (10, 2),
+        'oli': (0, 6.1), 'crn': (0, 4.7), 'pin': (0, 6.5), 'jal': (0, 5.6), 'bas': (9.5, 5), 'shr': (0, 8), 'egg': (1, 7.2),
+        'gor': (0, 5), 'nor': (1.5, 6.3), 'kim': (2, 5.8), 'par': (8, 4), 'ban': (0, 6.2), 'wal': (0.6, 5.8), 'tom': (0, 10)}
+MM_PER_UNIT = 1.5
+TOUCH_GAP = 1.0      # units: outlines closer than 1.5 mm count as touching
+STACK_DEPTH = 0.5    # outlines overlapping by more than half the thinner piece's half-width count as stacked
 MEATS = {'pep', 'ham', 'chk'}
 # toppings a stated diet usually rules out - lets analyses separate constraint from preference
 DIET_EXCLUDES = {
@@ -97,6 +106,81 @@ def read_inputs(paths, id_col):
 def shannon(counts):
     n = sum(counts)
     return -sum(c / n * math.log(c / n) for c in counts if c) if n else 0.0
+
+
+def capsule(p):
+    """(end a, end b, half-width) of a piece in radius units (pizza radius = 1), y up."""
+    h, w = FOOT.get(p['ing'], (0, SIZE.get(p['ing'], 8)))
+    a = math.radians(p.get('rot', 0))
+    dx, dy = math.cos(a) * h * p['s'] / 100, -math.sin(a) * h * p['s'] / 100   # the task rotates in screen space (y down)
+    return (p['x'] - dx, p['y'] - dy), (p['x'] + dx, p['y'] + dy), w * p['s'] / 100
+
+
+def point_seg(pt, a, b):
+    vx, vy = b[0] - a[0], b[1] - a[1]
+    L = vx * vx + vy * vy
+    t = 0 if L == 0 else max(0.0, min(1.0, ((pt[0] - a[0]) * vx + (pt[1] - a[1]) * vy) / L))
+    return math.hypot(pt[0] - a[0] - t * vx, pt[1] - a[1] - t * vy)
+
+
+def seg_dist(a, b, c, d):
+    def cross(o, p, q):
+        return (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0])
+    d1, d2, d3, d4 = cross(c, d, a), cross(c, d, b), cross(a, b, c), cross(a, b, d)
+    if ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0)) and d1 and d2 and d3 and d4:
+        return 0.0
+    return min(point_seg(a, c, d), point_seg(b, c, d), point_seg(c, a, b), point_seg(d, a, b))
+
+
+def contacts(pieces):
+    """Every pair of pieces whose outlines touch or overlap: (lower index, upper index, 'touch'|'stack', gap in units).
+    Pieces are in drawing order, so in a stacked pair the second one lies on top."""
+    caps = [capsule(p) for p in pieces]
+    out = []
+    for i in range(len(pieces)):
+        a1, b1, w1 = caps[i]
+        for j in range(i + 1, len(pieces)):
+            a2, b2, w2 = caps[j]
+            gap = (seg_dist(a1, b1, a2, b2) - w1 - w2) * 100
+            if gap <= TOUCH_GAP:
+                out.append((i, j, 'stack' if -gap > STACK_DEPTH * min(w1, w2) * 100 else 'touch', gap))
+    return out
+
+
+def contact_measures(pieces):
+    n = len(pieces)
+    if n < 2:
+        return {'n_touch_pairs': 0, 'n_stack_pairs': 0, 'prop_touching': 0.0 if n else None, 'prop_stacked': 0.0 if n else None,
+                'max_stack_depth': 1 if n else None}, {}
+    con = contacts(pieces)
+    touching, stacked, depth = set(), set(), [1] * n
+    for i, j, kind, _ in con:
+        touching.update((i, j))
+        if kind == 'stack':
+            stacked.update((i, j))
+    for j in range(n):                      # longest pile ending in piece j (drawing order = stacking order)
+        for i, jj, kind, _ in con:
+            if jj == j and kind == 'stack':
+                depth[j] = max(depth[j], depth[i] + 1)
+    st = [c for c in con if c[2] == 'stack']
+    gaps = []
+    caps = [capsule(p) for p in pieces]
+    for i in range(n):
+        a1, b1, w1 = caps[i]
+        gaps.append(min((seg_dist(a1, b1, caps[j][0], caps[j][1]) - w1 - caps[j][2]) * 100 for j in range(n) if j != i))
+    out = {'n_touch_pairs': len(con) - len(st), 'n_stack_pairs': len(st),
+           'prop_touching': len(touching) / n, 'prop_stacked': len(stacked) / n, 'max_stack_depth': max(depth),
+           'stack_same_share': (sum(pieces[i]['ing'] == pieces[j]['ing'] for i, j, _, _ in st) / len(st)) if st else None,
+           'touch_same_share': (sum(pieces[i]['ing'] == pieces[j]['ing'] for i, j, _, _ in con) / len(con)) if con else None,
+           'nn_gap_mm': statistics.median(gaps) * MM_PER_UNIT}
+    per = {'touching': touching, 'on_top': {j for i, j, k, _ in st}, 'under': {i for i, j, k, _ in st}, 'depth': depth, 'pairs': con}
+    return out, per
+
+
+def area_cm2(p):
+    """Area of a piece's outline: a capsule of half-length h and half-width w, 1 unit = 1.5 mm."""
+    h, w = FOOT.get(p['ing'], (0, SIZE.get(p['ing'], 8)))
+    return (math.pi * w * w + 4 * h * w) * p['s'] ** 2 * (MM_PER_UNIT / 10) ** 2
 
 
 def nn_dists(pts):
@@ -179,8 +263,8 @@ def rot_symmetry(pieces, rnd):
                 fake.append({'ing': p['ing'], 'x': r * math.cos(t), 'y': r * math.sin(t)})
             null.append(sym_cost(fake, lambda x, y: (c * x - s * y, s * x + c * y)))
         ratio = obs / statistics.mean(null)
-        if best is None or ratio < best[0]:
-            best = (ratio, k)
+        if best is None or ratio <= best[0] + 0.02:     # near-ties go to the higher order: an 8-fold ring is also 4-fold
+            best = (min(ratio, best[0]) if best else ratio, k)
     return best
 
 
@@ -272,14 +356,8 @@ def spatial(pieces, rnd):
         c = Counter(p['ing'] for p in pieces)
         expected = sum(v * (v - 1) for v in c.values()) / (n * (n - 1))
         out['segregation'] = same / n - expected
-        overl = 0
-        for i in range(n):
-            for k in range(i + 1, n):
-                a, b = pieces[i], pieces[k]
-                lim = (SIZE[a['ing']] * a['s'] + SIZE[b['ing']] * b['s']) * 0.55 / 100
-                overl += math.hypot(a['x'] - b['x'], a['y'] - b['y']) < lim
-        out['overlap_pairs'] = overl
     out['coverage'] = coverage(pieces)
+    out.update(contact_measures(pieces)[0])
     out['sym_mirror'], out['sym_rot180'], out['sym_axis_deg'] = symmetry(pieces, rnd)
     out['sym_rot_best'], out['sym_rot_k'] = rot_symmetry(pieces, rnd)
     return out
@@ -288,13 +366,14 @@ def spatial(pieces, rnd):
 def coverage(pieces, grid=48):
     """Share of the sauced area (r < 0.86) under a topping, from a grid of sample points."""
     hit = tot = 0
+    caps = [capsule(p) for p in pieces]
     for i in range(grid):
         for j in range(grid):
             x, y = -0.86 + 1.72 * (i + 0.5) / grid, -0.86 + 1.72 * (j + 0.5) / grid
             if x * x + y * y > 0.86 ** 2:
                 continue
             tot += 1
-            hit += any(math.hypot(x - p['x'], y - p['y']) < SIZE[p['ing']] * p['s'] * 0.75 / 100 for p in pieces)
+            hit += any(point_seg((x, y), a, b) <= w for a, b, w in caps)
     return hit / tot if tot else None
 
 
@@ -326,7 +405,7 @@ def timing(events, summary):
     for e in events:
         if e[1] == 'pick' and last_end is not None:
             decisions.append(e[0] - last_end)
-        if e[1] in ('add', 'reject', 'move', 'remove', 'tap', 'undo', 'sauce', 'cheese'):
+        if e[1] in ('add', 'reject', 'move', 'remove', 'tap', 'grow', 'undo', 'sauce', 'cheese'):
             last_end = e[0]
     fin = next((e[0] for e in events if e[1] == 'finish'), None)
     out['t_first_pick'] = next((e[0] for e in events if e[1] == 'pick'), None)
@@ -348,13 +427,13 @@ def practice_measures(summary, events):
             'practice_ms': (summary.get('stepT') or [None])[-1], 'practice_pointer': summary.get('pointer')}
 
 
-def ingredient_rows(pid, prefix, summary, events, counts, follow, diet):
+def ingredient_rows(pid, prefix, summary, events, counts, follow, diet, pieces=()):
     tray = (summary or {}).get('tray') or list(CATS)
     picks, rejects, removes, first_pick, first_add, hover = Counter(), Counter(), Counter(), {}, {}, Counter()
     decide, last_end = {}, None
     for e in events:
         k = e[2] if len(e) > 2 else None
-        if e[1] in ('add', 'reject', 'move', 'remove', 'tap', 'undo', 'sauce', 'cheese'):
+        if e[1] in ('add', 'reject', 'move', 'remove', 'tap', 'grow', 'undo', 'sauce', 'cheese'):
             last_end = e[0]
         if e[1] == 'pick':
             picks[k] += 1
@@ -370,6 +449,7 @@ def ingredient_rows(pid, prefix, summary, events, counts, follow, diet):
         elif e[1] == 'hover':
             hover[k] += e[3]
     excluded = set().union(*[DIET_EXCLUDES.get(d, set()) for d in diet]) if diet else set()
+    per = contact_measures(list(pieces))[1] if len(pieces) > 1 else {}
     items = (follow or {}).get('items', {})
     rows = []
     for ing in tray:
@@ -381,6 +461,11 @@ def ingredient_rows(pid, prefix, summary, events, counts, follow, diet):
              'picked_not_kept': int(picks[ing] > 0 and counts.get(ing, 0) == 0),
              'first_pick_ms': first_pick.get(ing), 'first_add_ms': first_add.get(ing), 'hover_ms': hover[ing] or None,
              'decision_ms_mean': statistics.mean(decide[ing]) if ing in decide else None,
+             'area_cm2': sum(area_cm2(p) for p in pieces if p['ing'] == ing),
+             'size_mean': (statistics.mean(p['g'] for p in pieces if p['ing'] == ing) if counts.get(ing, 0) else None),
+             'n_touching': sum(1 for i in per.get('touching', ()) if pieces[i]['ing'] == ing),
+             'n_on_top': sum(1 for i in per.get('on_top', ()) if pieces[i]['ing'] == ing),
+             'n_covered': sum(1 for i in per.get('under', ()) if pieces[i]['ing'] == ing),
              'diet_conflict': int(ing in excluded) if diet else None}
         for s in SCALES:
             r[s] = it.get(s)
@@ -413,23 +498,194 @@ CHEESE = {'none': 0, 'light': 0.35, 'normal': 0.65, 'extra': 0.9}
 LONG = {'anc': (1, 0.22), 'grp': (0.95, 0.3), 'oni': (0.9, 0.25), 'bas': (0.9, 0.45), 'mus': (0.9, 0.8)}
 
 
+def base_svg(summary):
+    return ('<circle r="100" fill="#d9a35a"/><circle r="86" fill="%s"/><circle r="84" fill="#f6dc8a" opacity="%s"/>'
+            % (SAUCE.get((summary or {}).get('sauce') or 'none', '#ecd3a0'), CHEESE.get((summary or {}).get('cheese') or 'normal', 0.65)))
+
+
+def glyph(p, extra=''):
+    (ax, ay), (bx, by), w = capsule(p)
+    col = COLORS.get(p['ing'], '#888')
+    if (ax, ay) == (bx, by):
+        return '<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s"%s/>' % (ax * 100, -ay * 100, w * 100, col, extra)
+    return ('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="%s" stroke-width="%.1f" stroke-linecap="round"%s/>'
+            % (ax * 100, -ay * 100, bx * 100, -by * 100, col, w * 200, extra))
+
+
 def pizza_svg(pieces, summary, label=''):
-    s = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="-105 -118 210 225" width="210" height="225" font-family="sans-serif">',
-         '<circle r="100" fill="#d9a35a"/>',
-         '<circle r="86" fill="%s"/>' % SAUCE.get((summary or {}).get('sauce') or 'none', '#ecd3a0'),
-         '<circle r="84" fill="#f6dc8a" opacity="%s"/>' % CHEESE.get((summary or {}).get('cheese') or 'normal', 0.65)]
-    for p in pieces:
-        size = SIZE.get(p['ing'], 8) * p['s']
-        x, y, col = p['x'] * 100, -p['y'] * 100, COLORS.get(p['ing'], '#888')
-        if p['ing'] in LONG:
-            a, b = LONG[p['ing']]
-            s.append('<ellipse cx="%.1f" cy="%.1f" rx="%.1f" ry="%.1f" fill="%s" transform="rotate(%d %.1f %.1f)"/>' % (x, y, size * a, size * b, col, p['rot'], x, y))
-        elif p['ing'] in ('oli', 'jal'):
-            s.append('<circle cx="%.1f" cy="%.1f" r="%.1f" fill="none" stroke="%s" stroke-width="%.1f"/>' % (x, y, size * 0.7, col, size * 0.45))
-        else:
-            s.append('<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s"/>' % (x, y, size * 0.85, col))
-    s.append('<text x="0" y="-106" text-anchor="middle" font-size="10" fill="#333">%s</text></svg>' % label.replace('&', '&amp;').replace('<', '&lt;'))
+    s = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="-105 -118 210 225" width="210" height="225" font-family="sans-serif">', base_svg(summary)]
+    s += [glyph(p) for p in pieces]
+    s.append('<text x="0" y="-106" text-anchor="middle" font-size="10" fill="#333">%s</text></svg>' % esc(label))
     return ''.join(s)
+
+
+def esc(t):
+    return str(t).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
+def match_class(d):
+    return 'ok' if d <= 0.06 else 'near' if d <= 0.15 else 'miss'
+
+
+def ghost_panel(pieces, summary, transform, guides):
+    """Pizza with, for every piece, a ring where its symmetric partner would have to be, coloured by whether one is there."""
+    by = {}
+    for p in pieces:
+        by.setdefault(p['ing'], []).append(p)
+    s = ['<svg viewBox="-106 -106 212 212" role="img">', base_svg(None if False else {}), guides]
+    s[1] = '<circle r="100" class="crust"/><circle r="86" class="sauce"/>'
+    s += [glyph(p, ' opacity=".9"') for p in pieces]
+    for p in pieces:
+        tx, ty = transform(p['x'], p['y'])
+        q = min(by[p['ing']], key=lambda o: math.hypot(tx - o['x'], ty - o['y']))
+        d = math.hypot(tx - q['x'], ty - q['y'])
+        c = match_class(d)
+        if c != 'ok':
+            s.append('<line class="link %s" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f"/>' % (c, tx * 100, -ty * 100, q['x'] * 100, -q['y'] * 100))
+        s.append('<circle class="ghost %s" cx="%.1f" cy="%.1f" r="%.1f"/>' % (c, tx * 100, -ty * 100, max(capsule(p)[2] * 100 * 0.75, 3)))
+    return ''.join(s) + '</svg>'
+
+
+def mirror_panel(pieces, axis_deg):
+    phi = math.radians(axis_deg or 0)
+    ex, ey = math.cos(phi) * 104, -math.sin(phi) * 104
+    guide = '<line class="axis" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f"/>' % (-ex, -ey, ex, ey)
+    return ghost_panel(pieces, None, mirror(phi), guide)
+
+
+def rotation_panel(pieces, k):
+    k = k or 2
+    a = 2 * math.pi / k
+    c, s_ = math.cos(a), math.sin(a)
+    guide = ''.join('<line class="spoke" x1="0" y1="0" x2="%.1f" y2="%.1f"/>' % (math.cos(i * a + math.pi / 2) * 100, -math.sin(i * a + math.pi / 2) * 100) for i in range(k))
+    return ghost_panel(pieces, None, lambda x, y: (c * x - s_ * y, s_ * x + c * y), guide)
+
+
+def contact_panel(pieces):
+    _, per = contact_measures(pieces)
+    s = ['<svg viewBox="-106 -106 212 212" role="img"><circle r="100" class="crust"/><circle r="86" class="sauce"/>']
+    tops = per.get('on_top', set())
+    for i, p in enumerate(pieces):
+        s.append(glyph(p, ' opacity="%s"' % ('1' if i in per.get('touching', ()) else '.45')))
+        if i in tops:
+            (ax, ay), (bx, by), w = capsule(p)
+            s.append('<circle class="stacktop" cx="%.1f" cy="%.1f" r="%.1f"/>' % (p['x'] * 100, -p['y'] * 100, w * 100 + 3))
+    for i, j, kind, _ in per.get('pairs', ()):
+        s.append('<line class="%s" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f"/>' % (kind, pieces[i]['x'] * 100, -pieces[i]['y'] * 100, pieces[j]['x'] * 100, -pieces[j]['y'] * 100))
+    for i, dpt in enumerate(per.get('depth', ())):
+        if dpt >= 3 and i not in per.get('under', ()):      # label each pile once, on its top piece
+            s.append('<text class="depth" x="%.1f" y="%.1f">%d</text>' % (pieces[i]['x'] * 100, -pieces[i]['y'] * 100 + 3.5, dpt))
+    return ''.join(s) + '</svg>'
+
+
+def dot_plot(title, values, ref=None, ref_label='', lo=0.0, hi=None, fmt='%.2f'):
+    """values: {group: [numbers]}. One row of dots per group, with the median marked."""
+    groups = [g for g in values if values[g]]
+    if not groups:
+        return ''
+    allv = [v for g in groups for v in values[g]]
+    hi = hi if hi is not None else max(allv + ([ref] if ref is not None else [])) * 1.08 or 1
+    W, right, row = 640, 20, 34
+    left = min(300, 24 + 7 * max(len(str(g)) + 5 for g in groups))
+    H = 44 + row * len(groups)
+    X = lambda v: left + (min(max(v, lo), hi) - lo) / (hi - lo) * (W - left - right)
+    s = ['<svg viewBox="0 0 %d %d" class="dots" role="img" aria-label="%s">' % (W, H, esc(title))]
+    for t in range(6):
+        v = lo + (hi - lo) * t / 5
+        s.append('<line class="grid" x1="%.1f" x2="%.1f" y1="18" y2="%d"/><text class="tick" x="%.1f" y="%d">%s</text>' % (X(v), X(v), H - 20, X(v), H - 6, fmt % v))
+    if ref is not None:
+        s.append('<line class="ref" x1="%.1f" x2="%.1f" y1="14" y2="%d"/><text class="reflabel" x="%.1f" y="12">%s</text>' % (X(ref), X(ref), H - 20, X(ref), esc(ref_label)))
+    rnd = random.Random(7)
+    for gi, g in enumerate(groups):
+        y = 34 + gi * row
+        s.append('<text class="glabel" x="%d" y="%.1f">%s <tspan class="n">n=%d</tspan></text>' % (left - 10, y + 4, esc(g), len(values[g])))
+        for v in values[g]:
+            s.append('<circle class="dot g%d" cx="%.1f" cy="%.1f" r="4.5"/>' % (gi % 4, X(v), y + rnd.uniform(-7, 7)))
+        m = statistics.median(values[g])
+        s.append('<line class="median" x1="%.1f" x2="%.1f" y1="%.1f" y2="%.1f"/>' % (X(m), X(m), y - 12, y + 12))
+    return '<figure><figcaption>%s</figcaption>%s</svg></figure>' % (esc(title), ''.join(s))
+
+
+REPORT_CSS = """
+:root { --bg:#f7f4f0; --fg:#2a2421; --muted:#6e635b; --line:#ddd3c8; --panel:#ffffff; --crust:#e2b06a; --sauce:#f3e6c9;
+  --ok:#2e8b57; --near:#d08a00; --miss:#c23b22; --axis:#2457a6; --g0:#2457a6; --g1:#c2571a; --g2:#5b8c2a; --g3:#8a4fa8;
+  --font: "Segoe UI", system-ui, -apple-system, sans-serif; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#1c1917; --fg:#ece5dd; --muted:#aa9e93; --line:#3b332d; --panel:#25201c;
+  --crust:#8a6438; --sauce:#4a3f33; --ok:#5cc28a; --near:#f0b43c; --miss:#ff7a5c; --axis:#7fb0ff; --g0:#7fb0ff; --g1:#ff9d5c; --g2:#a5d36b; --g3:#d39cf0; color-scheme: dark; } }
+:root[data-theme="dark"] { --bg:#1c1917; --fg:#ece5dd; --muted:#aa9e93; --line:#3b332d; --panel:#25201c;
+  --crust:#8a6438; --sauce:#4a3f33; --ok:#5cc28a; --near:#f0b43c; --miss:#ff7a5c; --axis:#7fb0ff; --g0:#7fb0ff; --g1:#ff9d5c; --g2:#a5d36b; --g3:#d39cf0; color-scheme: dark; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.45 var(--font); margin: 0; }
+.wrap { max-width: 1100px; margin: 0 auto; padding-block: 20px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1 { font-size: 1.5rem; margin: 0 0 6px; text-wrap: balance; } h2 { font-size: 1.1rem; margin: 28px 0 10px; }
+p { max-width: 70ch; } .muted { color: var(--muted); }
+.key { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .88rem; color: var(--muted); align-items: center; }
+.key i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid; margin-right: 5px; vertical-align: -2px; }
+.key .ok { border-color: var(--ok); } .key .near { border-color: var(--near); } .key .miss { border-color: var(--miss); }
+.key .ln { width: 18px; height: 0; border-radius: 0; border-width: 2px 0 0; }
+figure { margin: 0 0 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; overflow-x: auto; }
+figcaption { font-weight: 600; margin-bottom: 4px; }
+.dots { width: 100%; min-width: 480px; height: auto; display: block; }
+.dots .grid { stroke: var(--line); } .dots .tick { fill: var(--muted); font-size: 11px; text-anchor: middle; font-variant-numeric: tabular-nums; }
+.dots .ref { stroke: var(--fg); stroke-dasharray: 4 3; } .dots .reflabel { fill: var(--fg); font-size: 11px; text-anchor: middle; }
+.dots .glabel { fill: var(--fg); font-size: 13px; text-anchor: end; } .dots .n { fill: var(--muted); font-size: 11px; }
+.dots .dot { fill-opacity: .7; } .g0 { fill: var(--g0); } .g1 { fill: var(--g1); } .g2 { fill: var(--g2); } .g3 { fill: var(--g3); }
+.dots .median { stroke: var(--fg); stroke-width: 2.5; }
+.cards { display: grid; gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+.card h3 { margin: 0 0 8px; font-size: 1rem; } .card h3 span { color: var(--muted); font-weight: 400; }
+.panels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 640px) { .panels { grid-template-columns: 1fr; } }
+.panel { min-width: 0; } .panel svg { width: 100%; max-width: 300px; height: auto; display: block; margin: 0 auto; }
+.panel b { display: block; font-size: .9rem; } .panel .v { font-size: .85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.crust { fill: var(--crust); } .sauce { fill: var(--sauce); }
+.axis { stroke: var(--axis); stroke-width: 1.6; stroke-dasharray: 6 4; } .spoke { stroke: var(--axis); stroke-width: 1; stroke-dasharray: 3 3; opacity: .8; }
+.ghost { fill: none; stroke-width: 2.2; } .ghost.ok { stroke: var(--ok); } .ghost.near { stroke: var(--near); } .ghost.miss { stroke: var(--miss); }
+.link { stroke-width: 1.1; stroke-dasharray: 2 2; } .link.near { stroke: var(--near); } .link.miss { stroke: var(--miss); }
+.touch { stroke: var(--near); stroke-width: 1.6; } .stack { stroke: var(--miss); stroke-width: 3; }
+.stacktop { fill: none; stroke: var(--miss); stroke-width: 1.6; stroke-dasharray: 3 2; }
+.depth { fill: #fff; stroke: #000; stroke-width: .6; paint-order: stroke; font: 700 11px var(--font); text-anchor: middle; }
+"""
+
+
+def fmtv(v, f='%.2f'):
+    return '-' if v is None else (f % v if isinstance(v, float) else str(v))
+
+
+def arrangement_report(entries, group_label):
+    """entries: list of (record, pieces). Returns the HTML of the symmetry and contact report."""
+    by_group = {}
+    for rec, _ in entries:
+        by_group.setdefault(str(rec.get('_group') or 'all'), []).append(rec)
+    def vals(key):
+        return {g: [r[key] for r in rs if isinstance(r.get(key), (int, float))] for g, rs in by_group.items()}
+    plots = (dot_plot('Mirror symmetry (best axis), relative to random layouts. Lower = more symmetric', vals('sym_mirror'), 1.0, 'random', hi=1.5) +
+             dot_plot('Rotational symmetry (best of 2- to 8-fold), relative to random layouts', vals('sym_rot_best'), 1.0, 'random', hi=1.5) +
+             dot_plot('Share of pieces touching another piece', vals('prop_touching'), lo=0.0, hi=1.0) +
+             dot_plot('Share of pieces stacked on or under another piece', vals('prop_stacked'), lo=0.0, hi=1.0) +
+             dot_plot('Tallest pile (layers; 1 = nothing stacked)', vals('max_stack_depth'), lo=1.0, fmt='%.1f'))
+    cards = []
+    for rec, pieces in sorted(entries, key=lambda e: (e[0].get('sym_mirror') is None, e[0].get('sym_mirror') or 0)):
+        if len(pieces) < 2:
+            continue
+        head = '<h3>%s <span>%s · %s · %d pieces</span></h3>' % (esc(rec['pid']), esc(rec['build']), esc(rec.get('_group') or ''), rec['n_pieces'])
+        p1 = '<div class="panel">%s<b>Mirror</b><div class="v">%s × random · axis %s°</div></div>' % (mirror_panel(pieces, rec.get('sym_axis_deg')), fmtv(rec.get('sym_mirror')), fmtv(rec.get('sym_axis_deg')))
+        p2 = '<div class="panel">%s<b>Rotation</b><div class="v">%s × random · best %s-fold · half-turn %s ×</div></div>' % (rotation_panel(pieces, rec.get('sym_rot_k')), fmtv(rec.get('sym_rot_best')), fmtv(rec.get('sym_rot_k')), fmtv(rec.get('sym_rot180')))
+        p3 = ('<div class="panel">%s<b>Contact and stacking</b><div class="v">%s touching pairs · %s stacked pairs · tallest pile %s · median gap %s mm</div></div>'
+              % (contact_panel(pieces), fmtv(rec.get('n_touch_pairs')), fmtv(rec.get('n_stack_pairs')), fmtv(rec.get('max_stack_depth')), fmtv(rec.get('nn_gap_mm'), '%.1f')))
+        cards.append('<section class="card">%s<div class="panels">%s%s%s</div></section>' % (head, p1, p2, p3))
+    key = ('<div class="key"><span><i class="ok"></i>a matching topping is there</span><span><i class="near"></i>one is close (within 15% of the radius)</span>'
+           '<span><i class="miss"></i>none nearby</span><span><i class="ok ln" style="border-color:var(--axis)"></i>mirror axis / rotation spokes</span>'
+           '<span><i class="ln" style="border-color:var(--near)"></i>touching</span><span><i class="ln" style="border-color:var(--miss);border-top-width:3px"></i>stacked (dashed ring = piece on top)</span></div>')
+    return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
+            '<title>Pizza Arrangement Report</title><style>%s</style></head><body><div class="wrap">'
+            '<h1>Pizza arrangement: symmetry and contact</h1>'
+            '<p class="muted">Each ring marks where a topping would have to be for the pizza to be perfectly symmetric: reflected across the best mirror axis, '
+            'or turned by the best rotation. The ring\'s colour says whether a piece of the same topping is actually there. The score is the average distance '
+            'from each ring to the nearest matching piece, divided by the same distance for random pizzas with the same toppings: 0 is perfect symmetry, 1 is no '
+            'more symmetric than chance. The contact panel joins pieces whose outlines touch or overlap; faded pieces touch nothing, and a number gives the '
+            'height of a pile of three or more. A negative gap means pieces overlap. Groups come from the <code>%s</code> column.</p>'
+            '%s<h2>Across the sample</h2>%s<h2>Each pizza, most mirror-symmetric first</h2><div class="cards">%s</div></div></body></html>'
+            % (REPORT_CSS, esc(group_label), key, plots, ''.join(cards)))
 
 
 # ------------------------------------------------------------------ main
@@ -438,9 +694,9 @@ def r4(v):
     return round(v, 4) if isinstance(v, float) else v
 
 
-def analyse(rows, builds, out_dir, seed):
+def analyse(rows, builds, out_dir, seed, group_col=None):
     rnd = random.Random(seed)
-    people, ing_long, ev_long, svgs = [], [], [], []
+    people, ing_long, ev_long, svgs, arrangement = [], [], [], [], []
     for row in rows:
         pid = row['_pid']
         follow = loads(field(row, 'pzf_data'), {}) or {}
@@ -453,7 +709,9 @@ def analyse(rows, builds, out_dir, seed):
                 continue
             summary = loads(field(row, prefix + 'summary'), {}) or {}
             events = loads(field(row, prefix + 'events'), []) or []
-            pieces = [{'id': f[0], 'ing': f[1], 'x': f[2], 'y': f[3], 'rot': f[4], 's': f[5]} for f in final]
+            # 's' is the drawn size: the small random variation times how much the participant grew the piece (hold to grow)
+            pieces = [{'id': f[0], 'ing': f[1], 'x': f[2], 'y': f[3], 'rot': f[4], 'g': (f[8] if len(f) > 8 else 1),
+                       's': f[5] * (f[8] if len(f) > 8 else 1)} for f in final]
             counts = Counter(p['ing'] for p in pieces)
             tray = summary.get('tray') or list(CATS)
             cvec = [counts.get(k, 0) for k in tray]
@@ -474,11 +732,16 @@ def analyse(rows, builds, out_dir, seed):
             rec['prop_unusual_distinct'] = rec['n_distinct_unusual'] / len(inc) if inc else None
             rec['prop_unusual_pieces'] = sum(counts[k] for k in inc if TIER.get(k) == 'unusual') / n if n else None
             per = [k for k in tray if k in PERISHABLE]
+            gs = [p['g'] for p in pieces]
+            rec['n_grown'] = sum(g > 1.01 for g in gs)
+            rec['size_mean'] = statistics.mean(gs) if gs else None
+            rec['size_max'] = max(gs) if gs else None
+            rec['topping_area_cm2'] = sum(area_cm2(p) for p in pieces)
             rec['n_perishable_included'] = sum(counts.get(k, 0) > 0 for k in per)
             rec['n_never_picked'] = sum(k not in picked for k in tray)
             rec['n_picked_not_kept'] = sum(k in picked and counts.get(k, 0) == 0 for k in tray)
             nev = Counter(e[1] for e in events)
-            for k in ('pick', 'add', 'reject', 'tap', 'move', 'remove', 'undo', 'clear', 'hover'):
+            for k in ('pick', 'add', 'reject', 'tap', 'move', 'remove', 'grow', 'undo', 'clear', 'hover'):
                 rec['n_ev_' + k] = nev.get(k, 0)
             rec.update(spatial(pieces, rnd))
             rec.update(order_measures(events))
@@ -502,7 +765,7 @@ def analyse(rows, builds, out_dir, seed):
             rec['flag_tab_away'] = int((summary.get('hiddenMs') or 0) > 30000)
             rec['flag_fast'] = int(rec['t_finish'] is not None and rec['t_finish'] < 15000)
             rec['flag_empty'] = int(n == 0)
-            ings = ingredient_rows(pid, prefix, summary, events, counts, follow, diet)
+            ings = ingredient_rows(pid, prefix, summary, events, counts, follow, diet, pieces)
             if follow.get('items'):
                 inc = [r['included'] for r in ings]
                 norm = [r['norm'] for r in ings]
@@ -529,6 +792,8 @@ def analyse(rows, builds, out_dir, seed):
                                 'x': e[4] if len(e) > 4 else None, 'y': e[5] if len(e) > 5 else None,
                                 'drag_ms': e[6] if len(e) > 6 else None, 'snapped': e[7] if len(e) > 7 else None})
             svgs.append((pid, prefix, pizza_svg(pieces, summary, '%s %s (%d)' % (pid, prefix.rstrip('_'), n))))
+            rec['group'] = (row.get(group_col) if group_col else None) or None
+            arrangement.append((rec, pieces))
 
     # deviation from what the rest of the sample actually did (leave-one-out inclusion rates)
     own = [p for p in people if p['build'] == builds[0].rstrip('_')]
@@ -572,6 +837,12 @@ def analyse(rows, builds, out_dir, seed):
         with open(os.path.join(out_dir, 'pizzas', name + '.svg'), 'w', encoding='utf-8') as f:
             f.write(svg)
         cells.append(svg)
+    for rec, _ in arrangement:
+        rec['_group'] = rec.get('group') or rec.get('condition') or 'all'
+    with open(os.path.join(out_dir, 'arrangement.html'), 'w', encoding='utf-8') as f:
+        f.write(arrangement_report(arrangement, group_col or 'condition'))
+    for rec, _ in arrangement:
+        rec.pop('_group', None)
     with open(os.path.join(out_dir, 'gallery.html'), 'w', encoding='utf-8') as f:
         f.write('<!doctype html><meta charset="utf-8"><title>Pizza gallery</title>'
                 '<body style="font-family:sans-serif;display:flex;flex-wrap:wrap;gap:8px">' + ''.join(cells) + '</body>')
@@ -598,9 +869,10 @@ def main():
     ap.add_argument('--id', default='PROLIFIC_PID', help='column identifying participants (default PROLIFIC_PID, then ResponseId)')
     ap.add_argument('--builds', default='pz_,pzt_', help='field prefixes of the builds; the first is the participant\'s own pizza')
     ap.add_argument('--seed', type=int, default=1, help='seed for the random layouts behind the symmetry ratios')
+    ap.add_argument('--group', default=None, help='column to compare groups by in arrangement.html (e.g. your ASD/NT column); default: condition')
     a = ap.parse_args()
     rows = read_inputs(a.inputs, a.id)
-    people = analyse(rows, [b if b.endswith('_') else b + '_' for b in a.builds.split(',') if b], a.out, a.seed)
+    people = analyse(rows, [b if b.endswith('_') else b + '_' for b in a.builds.split(',') if b], a.out, a.seed, a.group)
     print('%d responses, %d pizzas scored -> %s/' % (len(rows), len(people), a.out))
     if not people:
         print('No pizza fields found. Check that pz_final / __js_pz_final are declared in the survey flow.', file=sys.stderr)
