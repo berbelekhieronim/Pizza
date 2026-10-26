@@ -406,8 +406,11 @@
     tapHint: 'Hold and drag the topping onto the pizza', full: 'There is no room for more toppings',
     waitNote: 'You can finish in {s} s', minNote: 'Add at least {n} toppings to finish',
     baked: 'Your pizza is ready! Please continue to the next page.',
-    steps: ['Drag a tomato slice into the dashed circle', 'Add two more slices anywhere on the pizza', 'Drag one slice to a new spot', 'Drag one slice off the pizza to remove it'],
-    tryAgain: 'Nearly - drop it inside the dashed circle', practiceReady: 'Well done! Press Continue to make your own pizza.',
+    steps: ['Drag a tomato slice into the dashed circle', 'Add two more slices anywhere on the pizza',
+      'Move a slice that is already on the pizza: press it and drag it somewhere else', 'Remove a slice: drag it from the pizza off the edge'],
+    tryAgain: 'Nearly - drop it inside the dashed circle',
+    moveHint: 'This time, press a slice that is already on the pizza and drag it to a new place',
+    removeHint: 'This time, press a slice on the pizza and drag it off the edge', practiceReady: 'Well done! Press Continue to make your own pizza.',
     // follow-up
     next: 'Next', finish: 'Finish',
     pizzaTitle: 'About your pizza',
@@ -812,7 +815,9 @@
       this.tries.push(r3(err));
       if (err <= this.o.targetTol || this.tries.length >= 3) this._nextStep();
       else this.toast(this.T.tryAgain);
-    } else if (this.step === 1 && ++this.stepAdds >= 2) this._nextStep();
+    } else if (this.step === 1) { if (++this.stepAdds >= 2) this._nextStep(); }
+    else if (this.step === 2) this.toast(this.T.moveHint);
+    else if (this.step === 3) this.toast(this.T.removeHint);
   };
   Builder.prototype._nextStep = function () {
     this.stepT.push(Math.round(now() - this.t0));
@@ -936,7 +941,7 @@
   // ---- small UI
   Builder.prototype.toast = function (msg) {
     var t = this.toastEl; t.textContent = msg; t.classList.add('pzb-show');
-    clearTimeout(this.toastT); this.toastT = setTimeout(function () { t.classList.remove('pzb-show'); }, 1800);
+    clearTimeout(this.toastT); this.toastT = setTimeout(function () { t.classList.remove('pzb-show'); }, 2600);
   };
   Builder.prototype.modal = modal;
 
