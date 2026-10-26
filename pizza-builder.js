@@ -247,6 +247,7 @@
   var CHEESE = { light: -4.5, normal: -3.55, extra: -2.6 };   // alpha = 9 * noise + k: where melted cheese covers the sauce
   var DEFS = '<svg class="pzb-defs" aria-hidden="true" focusable="false" style="position:absolute;width:0;height:0;overflow:hidden"><defs>' +
     grad('pzb-g-crust', 'radial', [[0, '#e7c07c'], [0.8, '#e2b46a'], [0.87, '#dba055'], [0.93, '#cf8e44'], [0.975, '#b8752f'], [1, '#94592a']]) +
+    grad('pzb-g-dough', 'radial', [[0, '#f0dbae'], [0.85, '#ebcf98'], [1, '#e3bd7c']]) +
     grad('pzb-g-sauce-tomato', 'radial', [[0, '#c63a22'], [1, '#a32c19']]) +
     grad('pzb-g-sauce-white', 'radial', [[0, '#f4eddd'], [1, '#e2d5bb']]) +
     grad('pzb-g-sauce-bbq', 'radial', [[0, '#7c2e17'], [1, '#5a1e0d']]) +
@@ -280,8 +281,9 @@
       a = r() * 6.283; d = 87 + r() * 12;
       s += circ(Math.cos(a) * d, Math.sin(a) * d, 0.3 + r() * 0.4, '#fff', ' opacity=".35"');
     }
-    return s + '<circle class="pzb-sauce" r="86" fill="url(#pzb-g-sauce-tomato)" filter="url(#pzb-f-rough)"/>' +
-      '<circle r="85" fill="#000" filter="url(#pzb-f-sauce)" opacity=".28"/>' +
+    return s + '<circle r="86" fill="url(#pzb-g-dough)"/>' +     // bare dough, seen when there is no sauce
+      '<circle class="pzb-sauce" r="86" fill="url(#pzb-g-sauce-tomato)" filter="url(#pzb-f-rough)"/>' +
+      '<circle class="pzb-sauce-tex" r="85" fill="#000" filter="url(#pzb-f-sauce)" opacity=".28"/>' +
       '<g clip-path="url(#pzb-cp-pie)"><rect class="pzb-cheese" x="-86" y="-86" width="172" height="172" filter="url(#pzb-f-cheese-normal)"/>' +
       '<rect class="pzb-brown" x="-86" y="-86" width="172" height="172" filter="url(#pzb-f-brown)"/></g>';
   }
@@ -397,7 +399,7 @@
     promptBuild: 'Make the pizza you would like to eat. Drag toppings onto the pizza. To remove a topping, drag it off the pizza.',
     promptPractice: 'Practice round: learn how to place, move and remove toppings. Nothing you do here counts as your choice.',
     toppings: 'Toppings', sauce: 'Sauce', cheese: 'Cheese',
-    sauceNames: { tomato: 'Tomato', white: 'White', bbq: 'BBQ' },
+    sauceNames: { none: 'None', tomato: 'Tomato', white: 'White', bbq: 'BBQ' },
     cheeseNames: { none: 'None', light: 'Light', normal: 'Normal', extra: 'Extra' },
     undo: 'Undo', clear: 'Start over', done: "I'm done", practiceDone: 'Continue',
     confirmTitle: 'Is your pizza finished?', confirmBody: 'You will not be able to change it after this.',
@@ -456,7 +458,7 @@
   var BUILD_DEFAULTS = {
     mode: 'build', prefix: null, condition: '', prompt: null,
     ingredients: DEFAULT_INGREDIENTS, shuffle: true,
-    sauces: ['tomato', 'white', 'bbq'], cheeses: ['none', 'light', 'normal', 'extra'],
+    sauces: ['none', 'tomato', 'white', 'bbq'], cheeses: ['none', 'light', 'normal', 'extra'],
     sauce: 'tomato', cheese: 'normal', baseChoices: true,
     minSeconds: 0, minPieces: 0, maxPieces: 250, showCounts: false,
     touchLift: 44, logHover: true, confirm: true, bake: true, autoScroll: true,
@@ -571,7 +573,9 @@
 
   Builder.prototype._applyBase = function () {
     var s = this.baseSvg.querySelector('.pzb-sauce'), c = this.baseSvg.querySelector('.pzb-cheese');
-    s.setAttribute('fill', 'url(#pzb-g-sauce-' + this.sauce + ')');
+    var t = this.baseSvg.querySelector('.pzb-sauce-tex');
+    if (this.sauce === 'none') { s.setAttribute('display', 'none'); t.setAttribute('display', 'none'); }
+    else { s.removeAttribute('display'); t.removeAttribute('display'); s.setAttribute('fill', 'url(#pzb-g-sauce-' + this.sauce + ')'); }
     if (this.cheese === 'none') c.setAttribute('display', 'none');
     else { c.removeAttribute('display'); c.setAttribute('filter', 'url(#pzb-f-cheese-' + this.cheese + ')'); }
   };

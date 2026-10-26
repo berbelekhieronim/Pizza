@@ -20,7 +20,7 @@ the toppings are drawn in SVG by the script itself.
 1. **Practice** (`practice.js`, ~30 s). Four guided steps with a practice-only tomato slice: drop one into a target
    circle, add two more, move one, drag one off. This teaches the controls before the real choice and
    records each person's **motor baseline** (drag speed, targeting error) on their own device.
-2. **Build** (`build.js`). Choose sauce (tomato / white / BBQ) and cheese (none / light / normal / extra), then drag
+2. **Build** (`build.js`). Choose sauce (none / tomato / white / BBQ) and cheese (none / light / normal / extra), then drag
    toppings onto the pizza, one piece at a time. The default tray has 18 toppings in three a-priori tiers of conventionality:
    - *common*: pepperoni, ham, chicken, mushrooms, green pepper, red onion, black olives, sweetcorn, jalapeños, basil
    - *mid*: anchovies, pineapple, shrimp, egg, blue cheese

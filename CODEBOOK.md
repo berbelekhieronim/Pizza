@@ -53,7 +53,7 @@ A JSON array of `[t, type, ...]`:
 | `abort` | code, id | drag interrupted by the browser (e.g. a system gesture) |
 | `undo` | undone action (`add`/`move`/`remove`/`clear`), id or count | |
 | `clear` | number of pieces removed | "Start over" confirmed |
-| `sauce`, `cheese` | new value | |
+| `sauce`, `cheese` | new value | sauce: `none`/`tomato`/`white`/`bbq`; cheese: `none`/`light`/`normal`/`extra` |
 | `hover` | code, ms | mouse rested ≥150 ms on a tray item (desktop only) |
 | `hide`, `show` | | tab hidden or visible again |
 | `done`, `cancel`, `finish` | | "I'm done" pressed, confirmation declined, task finished |

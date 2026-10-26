@@ -408,7 +408,7 @@ def corr(a, b):
 
 COLORS = {'pep': '#a8281e', 'ham': '#e59a94', 'chk': '#e6cc9c', 'anc': '#5d3d2f', 'mus': '#d9c3a1', 'grp': '#3f8a2e',
           'oni': '#93357a', 'oli': '#25231f', 'crn': '#f2c63a', 'pin': '#f3cf55', 'jal': '#6ea548', 'bas': '#2f7d32', 'tom': '#d8432c'}
-SAUCE = {'tomato': '#b8321f', 'white': '#ece2cc', 'bbq': '#6b2614'}
+SAUCE = {'none': '#ecd3a0', 'tomato': '#b8321f', 'white': '#ece2cc', 'bbq': '#6b2614'}
 CHEESE = {'none': 0, 'light': 0.35, 'normal': 0.65, 'extra': 0.9}
 LONG = {'anc': (1, 0.22), 'grp': (0.95, 0.3), 'oni': (0.9, 0.25), 'bas': (0.9, 0.45), 'mus': (0.9, 0.8)}
 
@@ -416,7 +416,7 @@ LONG = {'anc': (1, 0.22), 'grp': (0.95, 0.3), 'oni': (0.9, 0.25), 'bas': (0.9, 0
 def pizza_svg(pieces, summary, label=''):
     s = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="-105 -118 210 225" width="210" height="225" font-family="sans-serif">',
          '<circle r="100" fill="#d9a35a"/>',
-         '<circle r="86" fill="%s"/>' % SAUCE.get((summary or {}).get('sauce') or 'tomato', '#b8321f'),
+         '<circle r="86" fill="%s"/>' % SAUCE.get((summary or {}).get('sauce') or 'none', '#ecd3a0'),
          '<circle r="84" fill="#f6dc8a" opacity="%s"/>' % CHEESE.get((summary or {}).get('cheese') or 'normal', 0.65)]
     for p in pieces:
         size = SIZE.get(p['ing'], 8) * p['s']
