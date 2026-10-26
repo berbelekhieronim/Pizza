@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Pizza study server: run the pizza task for real participants without Qualtrics, e.g. from a GitHub Codespace.
 
-    python3 pizza-builder/server/server.py            # then share the participant link it prints
+    python3 server/server.py            # then share the participant link it prints
+    python3 server/server.py --links    # print the links again (e.g. in a new terminal)
 
 Participants open the link, read the intro, consent, and do practice -> build -> ratings. Everything they do is
 saved as they go into data/<participant>.json (the same format the demo downloads), so analysis/analyse.py reads it
@@ -13,7 +14,8 @@ Participant links can carry:  ?pid=<id>  (e.g. a Prolific ID; otherwise a random
                               &cond=<condition>  (otherwise conditions from study.json are assigned in turn)
 
 Edit study.json (next to this file) for the title, intro text, consent sentence, completion message or redirect
-(e.g. a Prolific completion URL), conditions, and whether to add the "typical participant" build.
+(e.g. a Prolific completion URL), conditions, groups (a ready-made link per group on the researcher page), and whether
+to add the "typical participant" build.
 Standard library only.
 """
 import argparse
@@ -34,7 +36,7 @@ import zipfile
 from html import escape
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)                          # pizza-builder/
+ROOT = os.path.dirname(HERE)                          # the repository root
 PID_RE = re.compile(r'^[A-Za-z0-9_-]{4,64}$')
 MAX_BODY = 2_000_000
 LOCK = threading.Lock()
@@ -222,6 +224,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(200, self.admin_page(msg or 'Reports built.'))
         self.send(404, 'Not found', 'text/plain')
 
+    def base_url(self):
+        if os.environ.get('CODESPACE_NAME'):             # the codespace's public address, whatever the proxy sends
+            return public_url(self.server.server_address[1])
+        host = self.headers.get('X-Forwarded-Host') or self.headers.get('Host') or 'localhost'
+        proto = self.headers.get('X-Forwarded-Proto') or ('https' if host.endswith('.app.github.dev') else 'http')
+        return '%s://%s' % (proto, host)
+
+    def links_card(self):
+        base = self.base_url() + '/'
+        groups = load_study().get('groups') or []
+        items = [('Participant link', base)] + [('Group %s' % g, base + '?' + urllib.parse.urlencode({'group': g})) for g in groups]
+        rows = ''.join('<div class="link"><span>%s</span><input readonly value="%s" aria-label="%s"><button type="button" class="copy">Copy</button></div>'
+                       % (escape(label), escape(url, quote=True), escape(label, quote=True)) for label, url in items)
+        return ('<div class="card"><h2>Links to send</h2>%s<p class="muted">The link stays the same every time you start this server in this '
+                'codespace. It only works while the server is running and the port is public. To use your own IDs, add <code>&amp;pid=...</code> '
+                '(or Prolific\'s <code>PROLIFIC_PID</code>). Add groups in <code>server/study.json</code> to get a link for each.</p></div>' % rows)
+
     def admin_page(self, message=''):
         rows = self.study.sessions()
         done = sum(r['done'] for r in rows)
@@ -242,18 +261,47 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-app
 .wrap{max-width:1000px;margin:0 auto;padding:20px 16px}h1{font-size:1.4rem;margin:0 0 4px}.muted{color:var(--muted)}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0;overflow-x:auto}
 table{border-collapse:collapse;width:100%%;font-size:.9rem}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+h2{font-size:1.05rem;margin:0 0 8px}.link{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}
+.link span{min-width:130px;color:var(--muted)}.link input{flex:1;min-width:220px;font:inherit;font-size:.9rem;padding:7px 9px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 button,.btn{font:inherit;padding:8px 14px;border-radius:9px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;text-decoration:none;display:inline-block}
 .btn.alt{background:transparent;color:var(--fg);border-color:var(--line)}a{color:var(--accent)}pre{white-space:pre-wrap;font-size:.8rem}
 </style></head><body><div class="wrap"><h1>Pizza study</h1><p class="muted">%d sessions, %d finished. Reload to refresh.</p>
+%s
 <div class="card"><form method="post" action="/admin/reports" style="display:inline"><button>Build reports from all sessions</button></form>
 <a class="btn alt" href="/admin/data.zip">Download all data (.zip)</a><p>Reports: %s</p>%s</div>
 <div class="card"><table><tr><th>Participant</th><th>Group</th><th>Condition</th><th>Stage</th><th>Pieces</th><th>Started (UTC)</th><th>Last saved</th></tr>%s</table></div>
-</div></body></html>""" % (len(rows), done, links, ('<pre>%s</pre>' % escape(message)) if message else '', trs or '<tr><td colspan="7" class="muted">No sessions yet.</td></tr>')
+</div><script>
+document.querySelectorAll('.copy').forEach(function (b) {
+  b.onclick = function () {
+    var i = b.previousElementSibling; i.select();
+    function ok() { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1500); }
+    if (navigator.clipboard) navigator.clipboard.writeText(i.value).then(ok, function () { document.execCommand('copy'); ok(); }); else { document.execCommand('copy'); ok(); }
+  };
+});
+</script></body></html>""" % (len(rows), done, self.links_card(), links, ('<pre>%s</pre>' % escape(message)) if message else '', trs or '<tr><td colspan="7" class="muted">No sessions yet.</td></tr>')
 
 
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+
+def stored_key(data_dir):
+    """The researcher password: made once, then kept in the data folder so the researcher link never changes."""
+    path = os.path.join(data_dir, '.admin_key')
+    try:
+        with open(path, encoding='utf-8') as f:
+            key = f.read().strip()
+        if key:
+            return key
+    except OSError:
+        pass
+    os.makedirs(data_dir, exist_ok=True)
+    key = secrets.token_urlsafe(9)
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(key)
+    os.chmod(path, 0o600)
+    return key
 
 
 def public_url(port):
@@ -280,9 +328,16 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--port', type=int, default=int(os.environ.get('PORT', 8000)))
     ap.add_argument('--data', default=os.path.join(HERE, 'data'), help='where sessions are saved (default: server/data)')
-    ap.add_argument('--key', default=os.environ.get('PIZZA_ADMIN_KEY'), help='researcher password (default: a new random one each start)')
+    ap.add_argument('--key', default=os.environ.get('PIZZA_ADMIN_KEY'), help='researcher password (default: made once and kept in the data folder)')
+    ap.add_argument('--links', action='store_true', help='print the participant and researcher links, then exit')
     a = ap.parse_args()
-    key = a.key or secrets.token_urlsafe(9)
+    if sys.version_info < (3, 10):
+        sys.exit('The study server and analysis need Python 3.10 or newer (this is %d.%d).' % sys.version_info[:2])
+    if a.links:
+        url = public_url(a.port)
+        print('\n  Participant link:  %s/\n  Researcher page:   %s/admin?key=%s\n' % (url, url, a.key or stored_key(a.data)))
+        return
+    key = a.key or stored_key(a.data)
     Handler.study = Study(a.data, key)
     srv = Server(('0.0.0.0', a.port), Handler)
     url = public_url(a.port)
@@ -291,6 +346,8 @@ def main():
           '  Researcher page:   %s/admin?key=%s\n'
           '  Data folder:       %s\n'
           '  Stop with Ctrl-C. Sessions already saved stay in the data folder.\n' % (url, url, key, os.path.abspath(a.data)), flush=True)
+    if os.environ.get('CODESPACE_NAME'):
+        print('  The researcher page lists ready-to-send links. Print these again any time: python3 server/server.py --links\n', flush=True)
     threading.Thread(target=make_port_public, args=(a.port,), daemon=True).start()
     try:
         srv.serve_forever()

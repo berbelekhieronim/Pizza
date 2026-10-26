@@ -1,0 +1,12 @@
+# participant sessions collected by the study server: never in the repository
+server/data/
+
+# outputs you make by running the examples or the analysis
+examples/sample/
+examples/reference/
+examples/results/
+pizza_results/
+
+__pycache__/
+*.pyc
+.DS_Store

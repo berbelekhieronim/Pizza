@@ -1,6 +1,9 @@
 # Pizza Builder
 
-A drag-and-drop virtual pizza task for Qualtrics studies run through Prolific. No food is eaten.
+[![check](https://github.com/berbelekhieronim/pizza-builder/actions/workflows/check.yml/badge.svg)](https://github.com/berbelekhieronim/pizza-builder/actions/workflows/check.yml)
+
+A drag-and-drop virtual pizza task for food-choice research, run in Qualtrics (e.g. with Prolific) or from its own
+small study server. No food is eaten.
 Participants practise briefly, then make a pizza by dragging toppings onto it, then rate each topping.
 Everything they do is recorded: which toppings, how many, where, in what order, and how long each decision took.
 
@@ -17,6 +20,29 @@ the toppings are drawn in SVG by the script itself.
 | `preview.js` | the demo's readable preview of one participant's captured data, with symmetry, border and face pictures |
 | `server/` | a small study server for running participants without Qualtrics, e.g. from a GitHub Codespace (below) |
 | `examples/` | the reports built from simulated data, and the script that simulates it |
+| `tests/smoke_test.py` | checks everything end to end; GitHub runs it on every push |
+
+## Quick start: a link to send to participants
+
+1. **[Open this repository in a Codespace](https://codespaces.new/berbelekhieronim/pizza-builder?quickstart=1)**
+   (or on GitHub: **Code → Codespaces → Create codespace on main**). It takes a minute the first time.
+2. The study server starts by itself, and the terminal shows two links: the **participant link** to send, and your
+   **researcher page** (with its password in the link; keep that one to yourself).
+3. On the researcher page, **Links to send** has a ready link for each group (e.g. `?group=ASD`, `?group=NT`) with a Copy
+   button. The link stays the same every time you open this codespace, and works whenever the server is on.
+
+Details, settings and limits are under [Running participants without Qualtrics](#running-participants-without-qualtrics-github-codespace).
+
+## Requirements
+
+Nothing to install. The task is plain JavaScript with no libraries; the analysis, the study server and the tests use only
+the Python standard library (Python 3.10 or newer). A Codespace comes with everything. To run it on your own computer:
+
+```
+python3 server/server.py              # the study server: open the participant link it prints
+python3 analysis/analyse.py data.json # the analysis
+python3 tests/smoke_test.py           # check that everything works on this machine
+```
 
 ## The procedure
 
@@ -110,27 +136,31 @@ embedded data holds, but confirm this with your own pilot data.
 For a pilot with a few participants you can skip Qualtrics: `server/server.py` serves the whole study (intro and consent,
 practice, build, ratings, completion code) and saves each participant as they go.
 
-1. On GitHub: **Code → Codespaces → ⋯ → New with options**, choose the dev container configuration
-   **Pizza study server**, and create the codespace. When it opens, the server starts by itself in the terminal and prints
-   the **participant link** and the **researcher page** link with its password. To start it by hand:
-   `python3 pizza-builder/server/server.py`.
-2. The server tries to make port 8000 public so participants can open the link. If the terminal says it is still private:
+1. Open a codespace on this repository (see Quick start). The server starts by itself whenever the codespace starts, and
+   the terminal prints the **participant link** and the **researcher page** link. Print them again any time with
+   `python3 server/server.py --links`. The server's own output is in `server/data/server.log`.
+2. The server tries to make port 8000 public so participants can open the link. If the log says it is still private:
    open the **Ports** tab, right-click port 8000 → **Port Visibility → Public**.
-3. Send participants the link. Add `?group=ASD` (or `NT`, etc.) to record their group, and `&pid=...` to use your own IDs;
-   Prolific's `PROLIFIC_PID` is picked up too. Conditions listed in `server/study.json` are assigned in turn.
+3. Send participants a link from **Links to send** on the researcher page. A link can carry `?group=ASD` (or `NT`, etc.)
+   to record their group, and `&pid=...` to use your own IDs; Prolific's `PROLIFIC_PID` is picked up too. Conditions
+   listed in `server/study.json` are assigned in turn.
 4. Watch sessions arrive on the researcher page. **Build reports** runs the analysis on everyone so far (dashboard,
    profiles and clusters, symmetry and contact); **Download all data** gives a zip of every session.
 
 Edit `server/study.json` for the title, intro text, consent sentence, completion message or a redirect URL (e.g. a
-Prolific completion link), the conditions, and whether to add the "typical participant" build.
+Prolific completion link), the conditions, the groups that get a ready-made link, and whether to add the "typical
+participant" build.
 
 Things to know:
-- A codespace stops after about 30 minutes without activity in its editor (you can raise this to 4 hours in your GitHub
-  settings under Codespaces → Default idle timeout). Keep its tab open while participants take part. A stopped codespace
-  keeps its data; open it again and the server restarts.
-- Data lives in `pizza-builder/server/data/` inside the codespace, never in the repository (it is git-ignored). Download
-  it from the researcher page when you are done: unused codespaces are deleted after a period set by GitHub.
-- Each start prints a new researcher password unless you set `PIZZA_ADMIN_KEY` in the codespace's environment.
+- **The link works only while the server is on.** A codespace stops after about 30 minutes without activity in its editor
+  (raise this to 4 hours in your GitHub settings under Codespaces → Default idle timeout), and then participants get a
+  GitHub error page. Keep the codespace's tab open while participants take part. Opening it again restarts the server
+  with the same links and all data so far.
+- The participant link belongs to this codespace. A *new* codespace gets a new address (and starts with no data), so
+  keep using the same one for a study.
+- Data lives in `server/data/` inside the codespace, never in the repository (it is git-ignored). Download it from the
+  researcher page when you are done: unused codespaces are deleted after a period set by GitHub.
+- The researcher password is made on first start and kept in `server/data/.admin_key`; set `PIZZA_ADMIN_KEY` to choose your own.
 - Your organisation may not allow public ports; then use Qualtrics, or ask for that setting to be changed.
 
 ### Where the script comes from
@@ -138,8 +168,8 @@ Things to know:
 The paste-in files load `pizza-builder.js` from this repository through jsDelivr, pinned to a specific commit
 (`@<commit>` in `SRC`), so the task cannot change under a running study.
 
-The files are currently pinned to commit `524a926`. The demo at that commit is
-<https://raw.githack.com/berbelekhieronim/eye-tracking-library/524a92610f0b858fb617e1e0de82582e4b1f982f/pizza-builder/index.html>, which you can open on any phone. To change the task: edit
+The files are currently pinned to commit `COMMIT7`. To try the task on its own, open `index.html` in a browser (it works
+offline), or run the study server. To change the task: edit
 `pizza-builder.js`, push, and put the new commit hash in `SRC`. The repository must stay public for jsDelivr to serve it.
 If you would rather not depend on a CDN, paste the whole of `pizza-builder.js` above the paste-in code in each question; the
 loader then skips the download.

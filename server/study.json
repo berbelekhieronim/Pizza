@@ -8,5 +8,6 @@
   "completion_message": "Thank you, you are done. Your completion code is below.",
   "completion_redirect": "",
   "conditions": [],
+  "groups": ["ASD", "NT"],
   "typical_build": false
 }

@@ -1850,6 +1850,8 @@ def write_csv(path, rows):
 
 
 def main():
+    if sys.version_info < (3, 10):
+        sys.exit('The analysis needs Python 3.10 or newer (this is %d.%d).' % sys.version_info[:2])
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('inputs', nargs='+', help='Qualtrics CSV export(s) and/or demo JSON files')
     ap.add_argument('--out', default='pizza_results')
