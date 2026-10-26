@@ -14,6 +14,8 @@ the toppings are drawn in SVG by the script itself.
 | `qualtrics/*.js` | paste-in code, one per survey page |
 | `analysis/analyse.py` | scores a Qualtrics export: variety, avoidance, symmetry/clustering, order, timing, norm deviation |
 | `CODEBOOK.md` | every recorded field and every computed measure |
+| `preview.js` | the demo's readable preview of one participant's captured data |
+| `examples/` | the reports built from simulated data, and the script that simulates it |
 
 ## The procedure
 
