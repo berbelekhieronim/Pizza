@@ -1,6 +1,6 @@
 # Pizza Builder
 
-[![check](https://github.com/berbelekhieronim/pizza-builder/actions/workflows/check.yml/badge.svg)](https://github.com/berbelekhieronim/pizza-builder/actions/workflows/check.yml)
+[![check](https://github.com/berbelekhieronim/pizza/actions/workflows/check.yml/badge.svg)](https://github.com/berbelekhieronim/pizza/actions/workflows/check.yml)
 
 A drag-and-drop virtual pizza task for food-choice research, run in Qualtrics (e.g. with Prolific) or from its own
 small study server. No food is eaten.
@@ -24,7 +24,7 @@ the toppings are drawn in SVG by the script itself.
 
 ## Quick start: a link to send to participants
 
-1. **[Open this repository in a Codespace](https://codespaces.new/berbelekhieronim/pizza-builder?quickstart=1)**
+1. **[Open this repository in a Codespace](https://codespaces.new/berbelekhieronim/pizza?quickstart=1)**
    (or on GitHub: **Code → Codespaces → Create codespace on main**). It takes a minute the first time.
 2. The study server starts by itself, and the terminal shows two links: the **participant link** to send, and your
    **researcher page** (with its password in the link; keep that one to yourself).
