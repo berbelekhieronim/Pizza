@@ -14,6 +14,24 @@
   ],
   "typical_build": false,
   "about_you": true,
+  "nutrition_panel": false,
+  "nutrition_show": [
+    "kcal",
+    "protein",
+    "carbs",
+    "sugars",
+    "fat",
+    "satfat",
+    "fibre",
+    "salt",
+    "vitA",
+    "vitC",
+    "vitD",
+    "calcium",
+    "iron"
+  ],
+  "nutrition_base": true,
+  "condition_settings": {},
   "studies": {
     "pilot-asd": {
       "description": "Pilot: autistic adults (ASD), recruited through community organisations",

@@ -248,6 +248,77 @@ What a pilot gives for the larger study (in `explore.html`):
 - To compare the pilot with a non-autistic sample, run a second study (e.g. `general`, recruited the same way, or
   via Prolific) on the same server and look at *All studies*.
 
+### Nutrition panel (a study setting)
+
+Researchers can show participants a live **nutrition panel** under the pizza. It shows the whole pizza's energy (and
+per slice, with where the energy comes from), protein, carbohydrate and sugars, fat and saturates, fibre, salt, and
+vitamins and minerals as a share of the daily reference intake. It updates with every piece added, moved off, resized,
+or a sauce / cheese change. It is off by default. Turn it on:
+
+- **study server:** `server/study.json` (or one study under `"studies"`): `"nutrition_panel": true`;
+  `"nutrition_show"` lists what to show (any of `kcal protein carbs sugars fat satfat fibre salt vitA vitC vitD vitB12
+  folate calcium iron potassium`); `"nutrition_base": false` counts the toppings only. To test the panel's effect,
+  give it to one condition only:
+  `"conditions": ["label", "nolabel"], "condition_settings": {"label": {"nutrition_panel": true}}`.
+- **Qualtrics:** `nutrition: true` in `build.js` (also `nutritionShow`, `nutritionBase`).
+- **demo:** the *Nutrition panel* switch.
+
+Every pizza records whether the panel was shown (`nutrition_panel`). The analysis computes the nutrients of every
+pizza either way (`nut_*`, `top_kcal`, `top_grams`, …), so nutritional quality is an outcome even without the panel.
+
+**How the amounts are counted.**
+- **Data:** nutrients per 100 g come from the USDA National Nutrient Database for Standard Reference, Release 28
+  (public domain), via `tools/build_nutrition.py` → `analysis/nutrition.json`. The task embeds the same table.
+- **Piece size:** a piece of standard size weighs the grams in the table below. Pieces are flat slices, so weight follows
+  area: grams = standard grams × s², where s is the drawn size (the small random variation × the hold-to-resize
+  factor). A tomato slice (12 g at standard size) weighs 3 g at half size, 12 g at standard size and 48 g at double
+  size, with 0.5, 2.2 and 8.6 kcal.
+- **The pizza:** amount = Σ grams / 100 × amount per 100 g, plus the base of a 30 cm pizza (dough 250 g; sauce: tomato
+  80 g, white 80 g, BBQ 60 g; mozzarella: light 60 g, normal 100 g, extra 150 g).
+- **Salt and reference intakes:** salt = sodium × 2.5. Reference intakes follow EU Regulation 1169/2011; fibre uses
+  EFSA's 25 g.
+
+Where SR28 has no entry, an equivalent stands in (noted below). Piece weights are estimates of a typical piece of that
+size and can be changed in `tools/build_nutrition.py`. Two cautions:
+- US bread is fortified with folic acid, so folate is high.
+- A nutrient USDA did not measure counts as 0.
+
+The Methods page shows the calculation for a small, a standard and a big tomato.
+
+| topping | USDA SR28 food (NDB no.) | g per standard piece | kcal / 100 g | note |
+|---|---|---|---|---|
+| Pepperoni | Pepperoni,Bf & Pork,Sliced (07057) | 3 | 504 |  |
+| Ham | Ham,Sliced,Reg (Approx 11% Fat) (07029) | 3 | 163 |  |
+| Chicken | Chicken,Broilers Or Fryers,Breast,Meat Only,Ckd,Rstd (05064) | 5 | 165 |  |
+| Tuna | Fish,Tuna,Lt,Cnd In H2O,Drnd Sol (15121) | 3 | 86 |  |
+| Anchovies | Anchovy,European,Cnd In Oil,Drnd Sol (15002) | 3 | 210 |  |
+| Mushrooms | Mushrooms,White,Raw (11260) | 3 | 22 |  |
+| Green pepper | Peppers,Swt,Grn,Raw (11333) | 3 | 20 |  |
+| Red onion | Onions,Raw (11282) | 2 | 40 | SR28 has onions, raw (no separate red onion) |
+| Black olives | Olives,Ripe,Cnd (Small-Extra Lrg) (09193) | 1 | 115 |  |
+| Sweetcorn | Corn,Swt,Yel,Cnd,Whl Kernel,Drnd Sol (11172) | 1 | 67 | a pinch of 3 kernels |
+| Pineapple | Pineapple,Raw,All Var (09266) | 6 | 50 |  |
+| Jalapeños | Peppers,Jalapeno,Cnd,Sol&Liquids (11632) | 1.5 | 27 |  |
+| Basil | Basil,Fresh (02044) | 0.5 | 23 |  |
+| Shrimp | Crustaceans,Shrimp,Ckd (Not Previously Frozen) (15271) | 6 | 99 |  |
+| Egg | Egg,Whl,Ckd,Hard-Boiled (01129) | 8 | 155 | one slice of a hard-boiled egg |
+| Blue cheese | Cheese,Blue (01004) | 2 | 353 |  |
+| Nori | Seaweed,Laver,Raw (11446) | 0.5 | 35 | nori = laver; SR28 lists it raw |
+| Kimchi | Cabbage,Kimchi (11118) | 5 | 15 |  |
+| Kangaroo | Game Meat,Deer,Ckd,Rstd (17165) | 6 | 158 | stand-in: SR28 has no kangaroo; venison (deer, roasted) is the closest lean red game meat |
+| Fig | Figs,Raw (09089) | 10 | 74 | half a fig |
+| Pear | Pears,Raw (09252) | 6 | 57 |  |
+| Banana | Bananas,Raw (09040) | 5 | 89 |  |
+| Walnuts | Walnuts,English (12155) | 2 | 654 | half a walnut |
+| Tomato slice | Tomatoes,Red,Ripe,Raw,Year Rnd Average (11529) | 12 | 18 | practice only |
+| *dough* | Bread,Italian (18033) | 250 per pizza | 271 | stand-in: SR28 has no pizza crust; Italian bread is the same baked dough |
+| *sauce: tomato* | Sauce,Pizza,Cnd,Rts (06152) | 80 per pizza | 54 |  |
+| *sauce: white* | Sauce,White,Thin,Prepared-From-Recipe,W/ Butter (06264) | 80 per pizza | 72 | white sauce (bechamel) |
+| *sauce: bbq* | Sauce,Barbecue (06150) | 60 per pizza | 172 |  |
+| *cheese: light* | Cheese,Mozzarella,Part Skim Milk (01028) | 60 per pizza | 254 | mozzarella, part-skim |
+| *cheese: normal* | Cheese,Mozzarella,Part Skim Milk (01028) | 100 per pizza | 254 | mozzarella, part-skim |
+| *cheese: extra* | Cheese,Mozzarella,Part Skim Milk (01028) | 150 per pizza | 254 | mozzarella, part-skim |
+
 ### Where the script comes from
 
 The paste-in files load `pizza-builder.js` from this repository through jsDelivr, pinned to a specific commit
@@ -300,11 +371,12 @@ rest of the sample) and `--clusters <k>` fixes the number of clusters. It writes
 | `events_long.csv` | every interaction, for sequence analyses |
 | `pieces_long.csv` | one row per piece: position, size, order, zone, contacts, symmetry partner |
 | `removals_long.csv` | one row per piece taken off the pizza: topping, how, when, time on the pizza (changes of mind) |
+| `adjustments_long.csv` | one row per piece moved or resized after placing: what it did (symmetry, grouping, spacing, …) |
 | `variables.csv`, `load_pizza.R` | data dictionary and R loader (below) |
 | `profiles.csv` | each participant's standardised profile and cluster |
 | **`dashboard.html`** | the data at a glance, for proposals and for checking data as it comes in: diet breakdown, stated diet against the pizza, the normality distribution with the most unusual pizzas, space / size / time by group, a sortable table of every participant with a thumbnail |
 | **`explore.html`** | for discovering patterns: every measure, and every topping (used / named with strong feelings), compared between the groups of every grouping, largest effects first with the data drawn, Cliff's δ with bootstrap intervals, p and false-discovery-rate q; each measure's correlation with each self-rating and covariate; how all the measures correlate with each other; and the profile clusters against every grouping. `explore.csv` holds every comparison |
-| **`profiles.html`** | every participant as a profile of 32 measures; compare any two side by side (with each person's most similar participants); hierarchical clusters with plain-language descriptions, how the groups spread across them (χ²), a map of all profiles, and a heatmap ordered by the clustering tree |
+| **`profiles.html`** | every participant as a profile of 33 measures; compare any two side by side (with each person's most similar participants); hierarchical clusters with plain-language descriptions, how the groups spread across them (χ²), a map of all profiles, and a heatmap ordered by the clustering tree |
 | **`arrangement.html`** | symmetry and contact drawn on every pizza: the best mirror axis, the best rotation (rings mark where each topping's symmetric partner would have to be: green = a matching topping is there, red = none nearby), and touching and stacked pieces, with group comparisons |
 | `pizzas/`, `gallery.html` | every pizza redrawn from its coordinates |
 | **`methods.html`** | how every column and test is counted: one formula per measure with the function that computes it (and its line number), and worked examples computed by that code and checked against the hand calculation. The researcher page has it under **Methods** |
@@ -392,7 +464,14 @@ The measures are defined in `CODEBOOK.md`. In short:
   edits after the first *I'm done*, sauce or cheese changed after toppings were placed, and toppings the mouse rested
   on (≥ 0.5 s) but never picked (`considered_list`), plus tray toppings dropped off the pizza (`rejected_list`).
   Per topping in `ingredients_long`: added, removed, dropped, moved, resized, considered.
-- **Profiles and clusters:** 32 measures across composition, normality, space, size, order, time, faces, strong feelings, movement and changes of mind, each
+- **Adjustments (why pieces were moved):** every move or in-place resize of a placed piece is replayed against the
+  pizza as it was then, and classed: **symmetry** if the piece now has more pieces with a symmetric partner at the
+  finished pizza's best mirror axis or rotation (compared with 12 random moves of the same length, which gives the
+  chance of that by accident), or else grouping with or spreading from the same topping, evening the spacing,
+  unstacking, moving inward or outward, or a nudge under 1.2 cm. Resizes that match another piece's size count as
+  size matching. `adjustments_long.csv` has one row per adjustment. `adj_symmetry_excess` = symmetry-making moves
+  beyond chance, per move.
+- **Profiles and clusters:** 33 measures across composition, normality, space, size, order, time, faces, strong feelings, movement, changes of mind and adjustments, each
   standardised in the sample and signed so that higher means more of the named trait. Participants are compared by the
   distance between their profiles and grouped by Ward clustering, with the number of clusters chosen by silhouette.
 - **Norm deviation:**

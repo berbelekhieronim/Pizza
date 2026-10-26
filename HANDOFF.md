@@ -4,7 +4,7 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-10-26, task version 0.9.0)
+## Snapshot (2026-10-26, task version 0.10.0)
 
 - **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally (78) and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
@@ -43,6 +43,7 @@ preview.js: the demo's live summary; re-implements face detection, symmetry and 
 | `pizza-builder.js` | the task. Toppings (`ING`, `TIER`, `DEFAULT_INGREDIENTS`), `Builder` (practice/build), `Followup` (strong feelings, ratings, About you), desktop gate, logging |
 | `analysis/analyse.py` | all measures and reports. Entry point `analyse()`; one function per measure family (see the Methods page for which) |
 | `analysis/methods.py` | the Methods page: `SECTIONS` (one entry per column) and the worked examples |
+| `analysis/nutrition.json`, `tools/build_nutrition.py` | nutrients per 100 g (USDA SR28) and grams per piece; the script rebuilds the JSON from SR28's ABBREV.txt and copies it into `pizza-builder.js` |
 | `analysis/r_export.py`, `analysis/load_pizza.R` | data dictionary and R loader |
 | `server/server.py`, `server/participate.html`, `server/study.json` | study server, participant page, study settings (incl. `"studies"`) |
 | `preview.js`, `index.html` | demo page and its captured-data preview |
@@ -78,6 +79,13 @@ push, check the GitHub Actions run, and republish the demo artifact.
   relevant to ASD, ADHD and AuDHD per ingredient tapped.
 - **A personal invite link is the participant id.** Reopening resumes the session, the links spreadsheet shows status,
   and no separate login is needed. Unknown study or invite links are refused, so no unlabelled data comes in.
+- **Nutrition from USDA SR28, frozen in the repository.** The study must not depend on a live API. SR28 (2015) is
+  public domain and complete for these foods. The USDA hosts were blocked from the build environment, so the table was
+  taken from SR28's ABBREV.txt as redistributed in the npm package `fda-nutrient-database` 1.0.2. Weight follows the
+  area of a piece (size²); piece weights are estimates, listed in README.
+- **Adjustments are judged against the finished pizza's own symmetry.** That is the arrangement the person was working
+  towards, and judging every move against one fixed axis makes moves comparable and cheap to test against chance
+  (12 random moves of the same length).
 - **R-ready output.** Tables use `NA` and 1/0, and `variables.csv` gives every column's type and levels. Descriptions
   come from the Methods page, so there is one source of truth.
 - **Standard library only** (Python 3.10+, base R, no JS dependencies). The repository must run in a fresh Codespace,
@@ -99,6 +107,13 @@ push, check the GitHub Actions run, and republish the demo artifact.
   `study` and `source` in the survey flow; `analyse.py` reads them as columns.
 - **Older data.** Logs from before 0.9.0 have no ids for *Start over*. The replay then treats a cleared pizza as a whole,
   which still works.
+- **Nutrition.**
+  - Piece weights (grams per standard piece) are estimates; weigh real toppings if the nutrition outcomes matter.
+  - SR28 values are US foods; for example, US bread is folate-fortified.
+  - The panel is shown only during the build, not in the practice or the typical-participant build, unless
+    `condition_settings` or `nutrition_panel` apply to those.
+- **Adjustment reasons.** The categories are tested against chance for symmetry only; the others (grouping, spacing,
+  ...) are descriptive.
 - **Undecided:**
   - which comparison sample the pilot gets (a second study on the server, or a Prolific general sample);
   - which reference distribution to use for normality (`--reference`);
@@ -117,4 +132,5 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 | date | session | what was done |
 |---|---|---|
+| 2026-10-26 | Claude Code (cloud) | 0.10.0: nutrition panel (study setting / condition), nutrients per pizza, adjustment classification, faster explore |
 | 2026-10-26 | Claude Code (cloud) | Built 0.1–0.9 (see CHANGELOG): task, analysis, study server, Methods page, symmetry rework, desktop-only, R export, pilot studies with invite links, changes-of-mind replay, CI summary and this handoff |

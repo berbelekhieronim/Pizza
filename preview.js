@@ -489,6 +489,14 @@
           stat('Considered, never picked', esc(names(considered) || 'none'), 'mouse rested ≥ 0.5 s on the tray item') +
           stat('Start over', ev.filter(function (e) { return e[1] === 'clear'; }).length + '×', ev.some(function (e) { return e[1] === 'clearno'; }) ? 'also opened and declined' : '') + '</div>';
       })() +
+      (global.PizzaBuilder && PizzaBuilder.nutrition ? (function () {     // the same table and formula as the task's panel and analyse.py
+        var t = PizzaBuilder.nutrition(ps.map(function (p) { return { ing: p.ing, size: p.s }; }), summ.sauce || 'tomato', summ.cheese || 'normal', true);
+        var top = PizzaBuilder.nutrition(ps.map(function (p) { return { ing: p.ing, size: p.s }; }), null, null, false);
+        return '<div class="pv-group"><h4>Nutrition (estimate)</h4>' + stat('Whole pizza', Math.round(t.kcal) + ' kcal', Math.round(t.grams) + ' g · protein ' + t.protein.toFixed(0) +
+          ' g · carbohydrate ' + t.carbs.toFixed(0) + ' g · fat ' + t.fat.toFixed(0) + ' g · salt ' + t.salt.toFixed(1) + ' g') +
+          stat('Toppings', Math.round(top.kcal) + ' kcal', Math.round(top.grams) + ' g · fibre ' + top.fibre.toFixed(1) + ' g · vitamin C ' + top.vitC.toFixed(1) + ' mg') +
+          stat('Panel shown', summ.nutrition ? 'yes' : 'no', 'the nutrition panel is a study setting') + '</div>';
+      })() : '') +
       (mvs.length ? '<div class="pv-group"><h4>Movement</h4>' + stat('Direct drags', (function (v) { return v == null ? '-' : v.toFixed(2); })(fmedian(mvs.map(function (m) { return m[1]; }))), 'straight-line distance / path; 1 = straight') +
         stat('Pauses per drag', (mvs.reduce(function (a, m) { return a + m[2]; }, 0) / mvs.length).toFixed(2), Math.round(100 * mvs.filter(function (m) { return m[2] > 0; }).length / mvs.length) + '% of drags paused (250 ms+)') +
         stat('Dwell before letting go', sec(fmedian(mvs.map(function (m) { return m[4]; }))), 'median') +

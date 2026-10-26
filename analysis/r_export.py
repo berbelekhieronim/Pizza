@@ -20,6 +20,7 @@ TABLES = [('participants', 'one row per pizza (pid + build): every measure'),
           ('ingredients_long', 'one row per participant x build x tray topping'),
           ('pieces_long', 'one row per piece on a finished pizza'),
           ('removals_long', 'one row per piece taken off the pizza (changes of mind)'),
+          ('adjustments_long', 'one row per adjustment: a placed piece moved or resized, and what it did'),
           ('events_long', 'one row per logged event'),
           ('profiles', 'one row per participant: standardised profile scores and cluster'),
           ('explore', 'one row per comparison in explore.html')]
@@ -43,6 +44,8 @@ FACTORS = {
     'tier': (['common', 'mid', 'unusual'], True),
     'zone': (['inside', 'crust', 'over'], True),
     'how': (['dragged off', 'undo', 'start over'], False),
+    'kind': (['move', 'resize'], False),
+    'reason': (['symmetry', 'grouping', 'spreading', 'spacing', 'unstacking', 'inward', 'outward', 'nudge', 'other', 'size match', 'resize'], False),
     'feel': (['cant', 'dislike', 'mixed', 'like', 'love'], True),
     'safe_food': (['no', 'sometimes', 'yes'], True), 'same_way': (['no', 'sometimes', 'yes'], True),
     'crave': (['never', 'sometimes', 'often'], True),
@@ -52,7 +55,7 @@ FACTORS = {
     'face_mouth': (None, False), 'face_eyes': (None, False),
 }
 # the explore table's own 'level' column holds group names of different groupings: left as text
-TEXT_ALWAYS = {'pid', 'a', 'b', 'removed_list', 'dropped_list', 'considered_list', 'rejected_list', 'level', 'vs', 'key', 'label', 'strong_list', 'unusual_elements', 'diet', 'diet_other',
+TEXT_ALWAYS = {'pid', 'a', 'b', 'adj_reasons', 'removed_list', 'dropped_list', 'considered_list', 'rejected_list', 'level', 'vs', 'key', 'label', 'strong_list', 'unusual_elements', 'diet', 'diet_other',
                'health_other', 'why_other_text', 'name'}
 
 
@@ -63,6 +66,10 @@ def unit(col):
         return 'degrees'
     if col.endswith('_mm'):
         return 'mm'
+    if col.startswith(('nut_', 'top_')) or col in ('grams', 'kcal'):
+        for suf, u in (('_ug', 'µg'), ('_mg', 'mg'), ('_g', 'g'), ('grams', 'g'), ('kcal', 'kcal')):
+            if col.endswith(suf):
+                return u
     if col.endswith('_cm2'):
         return 'cm2'
     if col.endswith('_ms') or col.startswith('t_') or col in ('decision_median', 'add_gap_median', 'drag_median', 'hiddenMs', 'mv_dwell',

@@ -58,6 +58,11 @@ FOOT = {'pep': (0, 13), 'ham': (1, 6.4), 'chk': (1.5, 6.5), 'anc': (12, 2.8), 'm
         'gor': (0, 5), 'nor': (1.5, 6.3), 'kim': (2, 5.8), 'par': (8, 4), 'ban': (0, 6.2), 'wal': (0.6, 5.8), 'tom': (0, 10),
         'tun': (1, 6), 'kan': (7, 4.2), 'fig': (0, 9)}
 MM_PER_UNIT = 1.5
+# nutrients per 100 g and grams per standard piece, from USDA SR28 (tools/build_nutrition.py); the task uses the same table
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'nutrition.json'), encoding='utf-8') as _f:
+    NUTRITION = json.load(_f)
+NUTRIENTS = ['kcal', 'protein', 'carbs', 'sugars', 'fat', 'satfat', 'fibre', 'salt', 'vitA', 'vitC', 'vitD', 'vitB12', 'folate', 'calcium', 'iron', 'potassium']
+NUT_COL = {k: 'nut_%s%s' % (k, '' if k == 'kcal' else '_' + {'g': 'g', 'mg': 'mg', 'µg': 'ug'}[NUTRITION['units'][k]]) for k in NUTRIENTS}
 TOUCH_GAP = 1.0      # units: outlines closer than 1.5 mm count as touching
 STACK_DEPTH = 0.5    # outlines overlapping by more than half the thinner piece's half-width count as stacked
 MEATS = {'pep', 'ham', 'chk', 'kan'}
@@ -804,6 +809,36 @@ def movement_measures(events):
 CONSIDER_MS = 500    # a tray topping the mouse rested on this long in total counts as considered
 
 
+def piece_grams(p):
+    """Grams of one piece: the standard piece's grams x (drawn size)^2 (a flat slice: weight follows area)."""
+    t = NUTRITION['toppings'].get(p['ing'])
+    return t['grams'] * p['s'] ** 2 if t else 0.0
+
+
+def nutrition_measures(pieces, summary):
+    """Nutrients of the whole pizza (toppings + dough + sauce + cheese, as the nutrition panel shows them) and of the
+    toppings alone. amount = grams / 100 x the food's amount per 100 g, summed."""
+    def add(tot, food, grams):
+        if food and food.get('per100') and grams:
+            tot['grams'] += grams
+            for k in NUTRIENTS:
+                tot[k] += food['per100'][k] * grams / 100
+    top = dict.fromkeys(NUTRIENTS + ['grams'], 0.0)
+    for p in pieces:
+        add(top, NUTRITION['toppings'].get(p['ing']), piece_grams(p))
+    whole = dict(top)
+    B = NUTRITION['base']
+    sauce, cheese = (summary or {}).get('sauce') or 'tomato', (summary or {}).get('cheese') or 'normal'
+    add(whole, B['dough'], B['dough']['grams'])
+    add(whole, B['sauce'].get(sauce), (B['sauce'].get(sauce) or {}).get('grams', 0))
+    add(whole, B['cheese'].get(cheese), (B['cheese'].get(cheese) or {}).get('grams', 0))
+    out = {NUT_COL[k]: whole[k] for k in NUTRIENTS}
+    out.update({'nut_grams': whole['grams'], 'top_grams': top['grams'], 'top_kcal': top['kcal'],
+                'top_kcal_share': top['kcal'] / whole['kcal'] if whole['kcal'] else None,
+                'nutrition_panel': int(bool((summary or {}).get('nutrition')))})
+    return out
+
+
 def action_history(events):
     """Replays the log to follow every piece: added, moved, removed (dragged off, undone, or wiped by "Start over")
     and restored (undo of a removal or of "Start over"). Returns (pieces still on the pizza {id: piece},
@@ -848,6 +883,149 @@ def action_history(events):
     for r in removals:
         r.pop('_piece', None)
     return on, removals, moves
+
+
+NUDGE = 0.08          # pizza radii (~1.2 cm): a move shorter than this is fine-tuning
+ADJ_NULLS = 12        # random moves per real move, for the chance of a symmetry gain
+ADJ_COLUMNS = ['pid', 'build', 't', 'piece_id', 'ing', 'kind', 'dist', 'nudge', 'sym_gain_mirror', 'sym_gain_rot', 'sym_gain', 'sym_chance',
+               'spacing', 'same_topping_dist_change', 'contacts_change', 'r_before', 'r_after', 'g_before', 'g_after', 'size_match_gain',
+               'after_done', 'reason']
+
+
+def adjustment_measures(events, final, rec, rnd):
+    """What each adjustment (a placed piece moved, or resized in place) did. The log is replayed; every move is judged
+    against the pizza as it was at that moment:
+    - symmetry: change in the number of pieces with a partner (sym_match) at the finished pizza's best mirror axis and
+      best rotation; gain > 0 = the move made the pizza more symmetric. Chance: the same piece moved the same distance
+      in ADJ_NULLS random directions; sym_chance = share of those that also gain.
+    - spacing (+1 if the piece's nearest-neighbour distance moved towards the pizza's median nearest-neighbour
+      distance, -1 if away), grouping (change in distance to the nearest piece of the same topping), contacts (change
+      in pieces touching it), distance from the centre, and nudge (moved less than NUDGE).
+    - resize in place: size_match_gain = 1 if the piece is now within 10% of the size of another piece of the same
+      topping and was not before.
+    reason = the first that applies: symmetry, grouping, spreading, spacing, unstacking, inward, outward, nudge, other
+    (resizes: size match, resize)."""
+    s_rand = {f[0]: f[5] for f in final}
+    on, rows, gone, cleared, prev = {}, [], {}, [], {}      # prev: piece id -> stack of (x, y, g) before each move / resize
+    first_done = next((e[0] for e in events if e[1] == 'done'), None)
+    T_m = T_r = None
+    if rec.get('mirror_axis_deg') is not None:
+        T_m = mirror_about(rec['mirror_cx'], rec['mirror_cy'], math.radians(rec['mirror_axis_deg']))
+        T_r = rotate_about(rec['rot_cx'], rec['rot_cy'], 2 * math.pi / rec['rot_k'])
+    def plist(state):
+        return [{'ing': v['ing'], 'x': v['x'], 'y': v['y'], 's': s_rand.get(k, 1.0) * v['g'], 'rot': 0, 'g': v['g'], '_id': k} for k, v in state.items()]
+    def matched(state, T):
+        return sym_match(plist(state), T)[0] if T and len(state) > 1 else 0
+    def nn(state, pid):
+        me = state[pid]
+        return min((math.hypot(me['x'] - v['x'], me['y'] - v['y']) for k, v in state.items() if k != pid), default=None)
+    def nn_same(state, pid):
+        me = state[pid]
+        return min((math.hypot(me['x'] - v['x'], me['y'] - v['y']) for k, v in state.items() if k != pid and v['ing'] == me['ing']), default=None)
+    def contacts_of(state, pid):
+        ps = plist(state)
+        me = [p for p in ps if p['_id'] == pid][0]
+        a1, b1, w1 = capsule(me)
+        n_ = 0
+        for p in ps:
+            if p is not me:
+                a2, b2, w2 = capsule(p)
+                n_ += (seg_dist(a1, b1, a2, b2) - w1 - w2) * 100 <= TOUCH_GAP
+        return n_
+    for e in events:
+        typ = e[1]
+        if typ == 'add' and len(e) > 5:
+            on[e[3]] = {'ing': e[2], 'x': e[4], 'y': e[5], 'g': e[8] if len(e) > 8 and e[8] else 1}
+        elif typ == 'remove' and len(e) > 3 and e[3] in on:
+            gone[e[3]] = on.pop(e[3])
+        elif typ == 'clear':
+            cleared.append(on)
+            on = {}
+        elif typ == 'undo' and len(e) > 3:
+            act, ref = e[2], e[3]
+            if act == 'add':
+                on.pop(ref, None)
+            elif act == 'remove' and ref in gone:
+                on[ref] = gone.pop(ref)
+            elif act == 'clear' and cleared:
+                on.update(cleared.pop())
+            elif act in ('move', 'resize') and ref in on and prev.get(ref):
+                x, y, g = prev[ref].pop()
+                on[ref].update(x=x, y=y, g=g)
+        elif typ == 'resize' and len(e) > 4 and e[3] in on:
+            pc, g_new = on[e[3]], e[4]
+            same = [v['g'] for k, v in on.items() if k != e[3] and v['ing'] == pc['ing']]
+            hit = lambda g: any(abs(g - h) <= 0.1 * max(g, h) for h in same)
+            gain = int(hit(g_new) and not hit(pc['g']))
+            rows.append({'t': e[0], 'piece_id': e[3], 'ing': pc['ing'], 'kind': 'resize', 'g_before': pc['g'], 'g_after': g_new, 'size_match_gain': gain,
+                         'after_done': int(first_done is not None and e[0] > first_done), 'reason': 'size match' if gain else 'resize'})
+            prev.setdefault(e[3], []).append((pc['x'], pc['y'], pc['g']))
+            pc['g'] = g_new
+        elif typ == 'move' and len(e) > 5 and e[3] in on:
+            pid, pc = e[3], on[e[3]]
+            before = {k: dict(v) for k, v in on.items()}
+            after = {k: dict(v) for k, v in on.items()}
+            after[pid].update(x=e[4], y=e[5], g=e[8] if len(e) > 8 and e[8] else pc['g'])
+            dist = math.hypot(e[4] - pc['x'], e[5] - pc['y'])
+            m0, r0 = matched(before, T_m), matched(before, T_r)
+            gm = matched(after, T_m) - m0
+            gr = matched(after, T_r) - r0
+            gain = max(gm, gr)
+            hits = 0
+            if T_m and len(on) > 1:
+                for _ in range(ADJ_NULLS):
+                    for _try in range(20):
+                        a = rnd.random() * 2 * math.pi
+                        x, y = pc['x'] + dist * math.cos(a), pc['y'] + dist * math.sin(a)
+                        if math.hypot(x, y) <= R_VALID:
+                            break
+                    fake = {k: dict(v) for k, v in before.items()}
+                    fake[pid].update(x=x, y=y)
+                    hits += matched(fake, T_m) > m0 or matched(fake, T_r) > r0
+            others = [nn(before, k) for k in before if k != pid] if len(before) > 2 else []
+            med = statistics.median([v for v in others if v is not None]) if others else None
+            nb, na = nn(before, pid), nn(after, pid)
+            spacing = 0 if med is None or nb is None else (1 if abs(na - med) < abs(nb - med) - 0.01 else -1 if abs(na - med) > abs(nb - med) + 0.01 else 0)
+            sb, sa = nn_same(before, pid), nn_same(after, pid)
+            dsame = (sa - sb) if sb is not None else None
+            dcon = contacts_of(after, pid) - contacts_of(before, pid) if len(before) > 1 else 0
+            rb, ra = math.hypot(pc['x'], pc['y']), math.hypot(e[4], e[5])
+            if gain > 0:
+                reason = 'symmetry'
+            elif dsame is not None and dsame < -0.05:
+                reason = 'grouping'
+            elif dsame is not None and dsame > 0.05:
+                reason = 'spreading'
+            elif spacing > 0:
+                reason = 'spacing'
+            elif dcon < 0:
+                reason = 'unstacking'
+            elif ra < rb - 0.05:
+                reason = 'inward'
+            elif ra > rb + 0.05:
+                reason = 'outward'
+            elif dist < NUDGE:
+                reason = 'nudge'
+            else:
+                reason = 'other'
+            rows.append({'t': e[0], 'piece_id': pid, 'ing': pc['ing'], 'kind': 'move', 'dist': dist, 'nudge': int(dist < NUDGE),
+                         'sym_gain_mirror': gm, 'sym_gain_rot': gr, 'sym_gain': gain, 'sym_chance': hits / ADJ_NULLS if T_m and len(on) > 1 else None,
+                         'spacing': spacing, 'same_topping_dist_change': dsame, 'contacts_change': dcon, 'r_before': rb, 'r_after': ra,
+                         'g_before': pc['g'], 'g_after': after[pid]['g'], 'after_done': int(first_done is not None and e[0] > first_done), 'reason': reason})
+            prev.setdefault(pid, []).append((pc['x'], pc['y'], pc['g']))
+            on[pid] = after[pid]
+    moves = [r for r in rows if r['kind'] == 'move']
+    sym = [r for r in moves if r['sym_gain'] > 0]
+    expected = sum(r['sym_chance'] or 0 for r in moves)
+    reasons = Counter(r['reason'] for r in rows)
+    out = {'n_adjustments': len(rows), 'n_adj_moves': len(moves), 'n_adj_resizes': len(rows) - len(moves),
+           'n_adj_nudges': sum(r['nudge'] for r in moves), 'n_adj_symmetry': len(sym), 'n_adj_symmetry_loss': sum(r['sym_gain'] < 0 for r in moves),
+           'adj_symmetry_expected': expected if moves else None, 'adj_symmetry_excess': (len(sym) - expected) / len(moves) if moves else None,
+           'n_adj_after_done': sum(r['after_done'] for r in rows)}
+    for k in ('grouping', 'spreading', 'spacing', 'unstacking', 'inward', 'outward', 'size match'):
+        out['n_adj_' + k.replace(' ', '_')] = reasons.get(k, 0)
+    out['adj_reasons'] = ' '.join('%s:%d' % kv for kv in sorted(reasons.items())) or None
+    return out, rows
 
 
 def action_measures(events, final):
@@ -1618,7 +1796,7 @@ PROFILE_FEATURES = [
     ('Figurative', 'face_score', 'Face-like', None, 1),
     ('Feelings', 'n_strong', 'Strong feelings about toppings', None, 1), ('Feelings', 'n_sensory_reasons', 'Sensory reasons given', None, 1),
     ('Movement', 'mv_straight', 'Direct drags', None, 1), ('Movement', 'mv_pauses', 'Pauses while dragging', None, 1),
-    ('Process', 'revision_rate', 'Changes of mind', None, 1),
+    ('Process', 'revision_rate', 'Changes of mind', None, 1), ('Process', 'adj_symmetry_excess', 'Moves for symmetry (beyond chance)', None, 1),
 ]
 
 
@@ -2037,8 +2215,17 @@ EXPLORE_EXTRA = [
     ('Process', 't_after_done', "Time between I'm done and submitting"),
     ('Process', 'n_removed_pieces', 'Pieces removed (not restored)'), ('Process', 'n_dropped_toppings', 'Toppings added, then left off'),
     ('Process', 'n_start_over', 'Start overs'), ('Process', 'n_start_over_declined', 'Start over opened, then declined'),
+    ('Adjustments', 'n_adjustments', 'Adjustments (moves and resizes of placed pieces)'), ('Adjustments', 'n_adj_symmetry', 'Moves that made the pizza more symmetric'),
+    ('Adjustments', 'adj_symmetry_excess', 'Symmetry-making moves beyond chance (per move)'), ('Adjustments', 'n_adj_nudges', 'Nudges (moves under 1.2 cm)'),
+    ('Adjustments', 'n_adj_grouping', 'Moves towards the same topping'), ('Adjustments', 'n_adj_spacing', 'Moves that evened the spacing'),
+    ('Adjustments', 'n_adj_unstacking', 'Moves that separated pieces'), ('Adjustments', 'n_adj_size_match', 'Resizes that matched another piece'),
+    ('Adjustments', 'n_adj_after_done', "Adjustments after the first I'm done"),
     ('Process', 'n_moved_pieces', 'Pieces moved'), ('Process', 'move_dist_total', 'Distance pieces were moved'),
     ('Process', 'n_edits_after_done', "Edits after the first I'm done"), ('Process', 'base_changed_after_toppings', 'Sauce or cheese changed after toppings'),
+    ('Nutrition', 'nut_kcal', 'Energy, whole pizza'), ('Nutrition', 'top_kcal', 'Energy from toppings'), ('Nutrition', 'top_grams', 'Weight of toppings'),
+    ('Nutrition', 'top_kcal_share', 'Share of energy from toppings'), ('Nutrition', 'nut_protein_g', 'Protein'), ('Nutrition', 'nut_satfat_g', 'Saturated fat'),
+    ('Nutrition', 'nut_sugars_g', 'Sugars'), ('Nutrition', 'nut_fibre_g', 'Fibre'), ('Nutrition', 'nut_salt_g', 'Salt'),
+    ('Nutrition', 'nut_vitC_mg', 'Vitamin C'), ('Nutrition', 'nut_vitA_ug', 'Vitamin A'),
     ('Process', 'n_considered_not_picked', 'Toppings considered (hovered), never picked'), ('Process', 'hover_total_ms', 'Time resting on tray toppings'),
     ('Movement', 'mv_straight', 'Direct drags'), ('Movement', 'mv_pauses', 'Pauses per drag'), ('Movement', 'mv_paused_share', 'Drags with a pause'),
     ('Movement', 'mv_dwell', 'Dwell before letting go'), ('Movement', 'mv_hold', 'Hold before moving'),
@@ -2054,7 +2241,7 @@ EXPLORE_GROUPINGS = [
     ('neurotype', 'Neurotype (self-described)'), ('nd_autistic', 'Autistic, incl. AuDHD (yes / no)'), ('nd_adhd', 'ADHD, incl. AuDHD (yes / no)'),
     ('nd_identified', 'Autism / ADHD: formally diagnosed or not'), ('eat_any', 'Any eating difficulty, allergy or intolerance (yes / no)'),
     ('eat_picky', 'Picky eating since childhood (yes / no)'), ('gender', 'Gender'), ('age_band', 'Age'), ('pointer', 'Device (touch / mouse)'),
-    ('group', 'Recruitment group (study link)'), ('source', 'Recruitment source'), ('study', 'Study'), ('condition', 'Condition'),
+    ('nutrition_panel', 'Nutrition panel shown (yes / no)'), ('group', 'Recruitment group (study link)'), ('source', 'Recruitment source'), ('study', 'Study'), ('condition', 'Condition'),
 ]
 EXPLORE_COVARIATES = [('self_picky', '"I am a picky eater" (1-7)'), ('self_sensory_food', '"Food textures, smells or looks bother me" (1-7)')]
 
@@ -2083,6 +2270,9 @@ def cliff_delta(x, y):
     return sum(bisect.bisect_left(ys, v) - (m - bisect.bisect_right(ys, v)) for v in x) / (len(x) * m)
 
 
+_PERM_CACHE, _SUBSETS = {}, {}
+
+
 def mw_p(r1, all_ranks, n1, tie_term, rnd):
     """Two-sided p for the rank sum of n1 values out of n (Mann-Whitney): a permutation test (4000 draws) when a group
     is small, otherwise the normal approximation with the tie correction."""
@@ -2090,8 +2280,20 @@ def mw_p(r1, all_ranks, n1, tie_term, rnd):
     n2 = n - n1
     mu = n1 * (n + 1) / 2
     if min(n1, n2) < 8:
-        obs = abs(r1 - mu) - 1e-9
-        hits = sum(abs(sum(rnd.sample(all_ranks, n1)) - mu) >= obs for _ in range(4000))
+        # the null distribution of the rank sum depends only on n1 and the ranks (without ties: 1..n), so it is drawn
+        # once per (n1, ranks) and reused by every test that shares them
+        # (|R - mu| is the same for a group and its complement, so the smaller side is summed; the random index subsets
+        # are drawn once per (n, size) and shared by every measure)
+        k = min(n1, n2)
+        key = (k, tuple(sorted(all_ranks)))
+        null = _PERM_CACHE.get(key)
+        if null is None:
+            subs = _SUBSETS.get((n, k))
+            if subs is None:
+                subs = _SUBSETS[(n, k)] = [rnd.sample(range(n), k) for _ in range(4000)]
+            mu_k = k * (n + 1) / 2
+            null = _PERM_CACHE[key] = sorted(abs(sum(all_ranks[i] for i in sub) - mu_k) for sub in subs)
+        hits = len(null) - bisect.bisect_left(null, abs(r1 - mu) - 1e-9)
         return (hits + 1) / 4001
     var = n1 * n2 / 12 * ((n + 1) - tie_term / (n * (n - 1)))
     if var <= 0:
@@ -2212,7 +2414,7 @@ def explore_measures(recs, tray):
 
 def grouping_levels(recs, key, min_n=3):
     raw = [r.get(key) for r in recs]
-    if key in ('nd_autistic', 'nd_adhd', 'eat_any', 'eat_picky'):
+    if key in ('nd_autistic', 'nd_adhd', 'eat_any', 'eat_picky', 'nutrition_panel'):
         raw = [None if v is None else ('yes' if v else 'no') for v in raw]
     raw = [None if v in (None, '') else str(v) for v in raw]
     cnt = Counter(v for v in raw if v is not None)
@@ -2350,7 +2552,10 @@ def chance_test(x, c, rnd, draws=4000):
     if not d:
         return dom, 1.0
     obs = abs(sum(d)) - 1e-12
-    hits = sum(abs(sum(v if rnd.random() < 0.5 else -v for v in d)) >= obs for _ in range(draws))
+    hits = 0
+    for _ in range(draws):                     # one random bit per difference decides its sign
+        bits = rnd.getrandbits(len(d))
+        hits += abs(sum(v if (bits >> i) & 1 else -v for i, v in enumerate(d))) >= obs
     return dom, (hits + 1) / (draws + 1)
 
 
@@ -2526,7 +2731,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
 
 def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force=None, covariates=None):
     rnd = random.Random(seed)
-    people, ing_long, ev_long, svgs, arrangement, piece_long, rem_long = [], [], [], [], [], [], []
+    people, ing_long, ev_long, svgs, arrangement, piece_long, rem_long, adj_long = [], [], [], [], [], [], [], []
     for row in rows:
         pid = row['_pid']
         follow = loads(field(row, 'pzf_data'), {}) or {}
@@ -2592,8 +2797,13 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             rec.update(order_measures(events))
             rec.update(timing(events, summary))
             rec.update(movement_measures(events))
+            rec.update(nutrition_measures(pieces, summary))
             acts, act_per, removals = action_measures(events, final)
             rec.update(acts)
+            adj, adj_rows = adjustment_measures(events, final, rec, rnd)
+            rec.update(adj)
+            for r in adj_rows:
+                adj_long.append(dict({'pid': pid, 'build': prefix.rstrip('_')}, **r))
             for r in removals:
                 rem_long.append(dict({'pid': pid, 'build': prefix.rstrip('_')}, **r))
             rec.update(practice_measures(p_sum, p_ev))
@@ -2637,6 +2847,10 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             ings = ingredient_rows(pid, prefix, summary, events, counts, follow, diet, pieces)
             for r in ings:
                 k = r['ing']
+                grams = sum(piece_grams(p) for p in pieces if p['ing'] == k)
+                food = NUTRITION['toppings'].get(k) or {}
+                r['grams'] = grams
+                r['kcal'] = grams * (food.get('per100') or {}).get('kcal', 0) / 100
                 r.update({'added_pieces': act_per['added'][k], 'removed_pieces': act_per['removed'][k], 'dropped': int(k in act_per['dropped']),
                           'moves': act_per['moves'][k], 'resizes': act_per['resizes'][k], 'considered_not_picked': int(k in act_per['considered'])})
             if follow.get('items') and follow.get('style') != 'strong':
@@ -2735,6 +2949,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
     write_csv(os.path.join(out_dir, 'ingredients_long.csv'), ing_long)
     write_csv(os.path.join(out_dir, 'events_long.csv'), ev_long)
     write_csv(os.path.join(out_dir, 'pieces_long.csv'), piece_long, PIECE_COLUMNS)
+    write_csv(os.path.join(out_dir, 'adjustments_long.csv'), adj_long, ADJ_COLUMNS)
     write_csv(os.path.join(out_dir, 'removals_long.csv'), rem_long, ['pid', 'build', 'piece_id', 'ing', 'how', 't_added', 't_removed', 'ms_on_pizza', 'x', 'y', 'restored'])
     cells = []
     for pid, prefix, svg in svgs:

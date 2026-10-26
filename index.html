@@ -29,6 +29,7 @@
       <button data-step="practice">1 Practice</button>
       <button data-step="build">2 Build</button>
       <button data-step="followup">3 Questions</button>
+      <label class="muted" style="margin-left:8px"><input type="checkbox" id="nutriBox"> Nutrition panel</label>
     </nav>
   </header>
   <div class="stage" id="stage"></div>
@@ -85,8 +86,11 @@
     }
     if (step === 'followup') opts.counts = store.pz_counts || null;
     if (params.get('minSeconds')) opts.minSeconds = +params.get('minSeconds');
+    opts.nutrition = document.getElementById('nutriBox').checked;     // the researcher setting, to see what participants would see
     widget = PizzaBuilder.mount(box, opts);
   }
+  document.getElementById('nutriBox').checked = params.get('nutrition') === '1';
+  document.getElementById('nutriBox').onchange = function () { if (current === 'build') go('build'); };
   function finished() {
     var i = steps.indexOf(current);
     if (i < steps.length - 1) {          // the task's own button (Continue / I'm done) moves on: no second Next button

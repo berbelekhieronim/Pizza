@@ -24,6 +24,7 @@ Qualtrics.SurveyEngine.addOnReady(function () {
       prefix: 'pzt_',
       condition: '${e://Field/condition}',
       prompt: 'Now make the pizza you think a typical participant in this study would choose. Drag toppings onto the pizza; drag a topping off to remove it.',
+      // nutrition: true,                      // optional: live nutrition panel under the pizza (see README, Nutrition panel)
       onSave: save,
       onFinish: function () { q.showNextButton(); q.clickNextButton(); }   // the task's own button moves on
     });

@@ -80,7 +80,13 @@ def person(style, pid):
         pauses = sum(R.random() < (.35 if style == 'A' else .15) for _ in range(3))
         mv = [round(R.uniform(.6, 1.4), 2), round(min(1, R.betavariate(9, 2) if style == 'B' else R.betavariate(6, 2)), 2), pauses,
               int(R.lognormvariate(5.9, .4)) if pauses else 0, int(R.lognormvariate(5.3, .6)), int(R.random() < .08), int(R.lognormvariate(4.8, .5))]
-        t += drag; ev.append([t, 'add', k, i + 1, x, y, drag, 0, g, mv])
+        if R.random() < (.25 if style == 'A' else .1):                # dropped a little off, then moved into place
+            ox, oy = round(x + R.uniform(-.15, .15), 3), round(y + R.uniform(-.15, .15), 3)
+            t += drag; ev.append([t, 'add', k, i + 1, ox, oy, drag, 0, g, mv])
+            t += int(R.lognormvariate(7.2, .5)); ev.append([t, 'grab', k, i + 1])
+            t += int(R.lognormvariate(6.0, .3)); ev.append([t, 'move', k, i + 1, x, y, 400, 0, g, mv])
+        else:
+            t += drag; ev.append([t, 'add', k, i + 1, x, y, drag, 0, g, mv])
         final.append([i + 1, k, x, y, R.randrange(360), round(R.uniform(.9, 1.1), 2), R.randrange(3), i + 1, g])
     if R.random() < .05:                                           # Start over, then undone
         t += 2000; ev.append([t, 'clear', len(final), ' '.join(str(f[0]) for f in final)])

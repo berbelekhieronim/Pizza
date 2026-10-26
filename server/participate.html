@@ -83,6 +83,14 @@
       opts.prompt = 'Now make the pizza you think a typical person taking part in this study would choose. Drag toppings onto the pizza; drag a topping off to remove it.';
     }
     if (name === 'followup') { opts.counts = S.fields.pz_counts || null; opts.askAbout = S.study.about_you !== false; }
+    if (name === 'build' || name === 'typical') {
+      // study settings for what people see while building; condition_settings can vary them by condition (an experiment)
+      var cs = (S.study.condition_settings || {})[S.cond] || {};
+      opts.nutrition = cs.nutrition_panel != null ? !!cs.nutrition_panel : !!S.study.nutrition_panel;
+      var show = cs.nutrition_show || S.study.nutrition_show;
+      if (show) opts.nutritionShow = show;
+      if ((cs.nutrition_base != null ? cs.nutrition_base : S.study.nutrition_base) === false) opts.nutritionBase = false;
+    }
     widget = PizzaBuilder.mount(box, opts);
   }
   function intro() {

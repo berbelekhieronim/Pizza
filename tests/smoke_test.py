@@ -9,6 +9,7 @@ import glob
 import io
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -84,18 +85,19 @@ def main():
                   '--reference', *sorted(glob.glob(os.path.join(tmp, 'ref', '*.json'))), '--out', out), 'analyse.py runs')
         for f in ('participants.csv', 'ingredients_long.csv', 'events_long.csv', 'profiles.csv',
                   'dashboard.html', 'profiles.html', 'arrangement.html', 'gallery.html', 'explore.html', 'explore.csv', 'methods.html',
-                  'pieces_long.csv', 'removals_long.csv', 'variables.csv', 'load_pizza.R'):
+                  'pieces_long.csv', 'removals_long.csv', 'adjustments_long.csv', 'variables.csv', 'load_pizza.R'):
             check(os.path.getsize(os.path.join(out, f)) > 0 if os.path.exists(os.path.join(out, f)) else False, 'writes ' + f)
         rows = list(csv.DictReader(open(os.path.join(out, 'participants.csv'), encoding='utf-8')))
         check(len(rows) == 24, 'one row per participant')
         for col in ('diet_class', 'atypicality_pct', 'mirror_match', 'mirror_score', 'rot_score', 'n_on_crust', 'face_detected', 'size_match_same', 't_submit', 'cluster',
                     'n_strong', 'n_safe_foods', 'n_sensory_reasons', 'neurotype', 'nd_identified', 'eat_any', 'self_picky', 'age_band',
-                    'mv_straight', 'mv_pauses', 'mv_dwell', 'group'):
+                    'mv_straight', 'mv_pauses', 'mv_dwell', 'group', 'nut_kcal', 'nut_salt_g', 'top_kcal', 'nutrition_panel', 'n_adjustments',
+                    'n_adj_symmetry', 'adj_symmetry_excess', 'revision_rate'):
             check(col in rows[0], 'column ' + col)
         # every output column must be described on the Methods page (analysis/methods.py)
         sys.path[:0] = [os.path.join(ROOT, 'analysis')]
         import methods
-        for f in ('participants', 'ingredients_long', 'events_long', 'profiles', 'explore', 'pieces_long', 'removals_long'):
+        for f in ('participants', 'ingredients_long', 'events_long', 'profiles', 'explore', 'pieces_long', 'removals_long', 'adjustments_long'):
             missing = methods.undocumented(next(csv.reader(open(os.path.join(out, f + '.csv'), encoding='utf-8'))))
             check(not missing, 'Methods page describes every column of %s.csv%s' % (f, (' - missing: ' + ', '.join(missing)) if missing else ''))
         var = list(csv.DictReader(open(os.path.join(out, 'variables.csv'), encoding='utf-8')))
@@ -223,6 +225,28 @@ def main():
             out_ = subprocess.run(['node', '-e', js], input=json.dumps(cases), capture_output=True, text=True)
             check(out_.returncode == 0 and json.loads(out_.stdout) == [c['py'] for c in cases],
                   'symmetry (matches, axis, rotation) agrees between preview.js and analyse.py (%d pizzas)' % len(cases))
+            # nutrition: the task's panel (PizzaBuilder.nutrition) and analyse.py give the same numbers
+            ncases = []
+            for path in sorted(glob.glob(os.path.join(tmp, 'sample', '*.json'))):
+                d = json.load(open(path, encoding='utf-8'))
+                summ = json.loads(d['pz_summary'])
+                ps = [{'ing': f[1], 'x': f[2], 'y': f[3], 'rot': f[4], 's': f[5] * f[8], 'g': f[8]} for f in json.loads(d['pz_final'])]
+                py = FB.A.nutrition_measures(ps, summ)
+                ncases.append({'ps': [{'ing': p_['ing'], 'size': p_['s']} for p_ in ps], 'sauce': summ.get('sauce') or 'tomato', 'cheese': summ.get('cheese') or 'normal',
+                               'py': [round(py[FB.A.NUT_COL[k]], 6) for k in FB.A.NUTRIENTS]})
+            js = ("global.window = global; global.document = undefined; require(%s); const cs = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
+                  "const K = %s; console.log(JSON.stringify(cs.map(c => { const t = PizzaBuilder.nutrition(c.ps, c.sauce, c.cheese, true); return K.map(k => Math.round(t[k] * 1e6) / 1e6); })));"
+                  % (json.dumps(os.path.join(ROOT, 'pizza-builder.js')), json.dumps(FB.A.NUTRIENTS)))
+            out_ = subprocess.run(['node', '-e', js], input=json.dumps(ncases), capture_output=True, text=True)
+            got = json.loads(out_.stdout) if out_.returncode == 0 else []
+            same = len(got) == len(ncases) and all(abs(a - b) < 1e-4 for c, g in zip(ncases, got) for a, b in zip(c['py'], g))
+            check(same, 'nutrition agrees between the task (pizza-builder.js) and analyse.py (%d pizzas)%s' % (len(ncases), '' if out_.returncode == 0 else ' - ' + out_.stderr[-200:]))
+            nut = json.load(open(os.path.join(ROOT, 'analysis', 'nutrition.json'), encoding='utf-8'))
+            embedded = re.search(r'var NUTRITION = (\{.*?\});\n', open(os.path.join(ROOT, 'pizza-builder.js'), encoding='utf-8').read())
+            check(embedded and json.loads(embedded.group(1)) == nut, 'the task embeds the same nutrition table as analysis/nutrition.json')
+            g1 = FB.A.piece_grams({'ing': 'tom', 's': 1.0})
+            check(abs(FB.A.piece_grams({'ing': 'tom', 's': 2.0}) - 4 * g1) < 1e-9 and abs(FB.A.piece_grams({'ing': 'tom', 's': 0.5}) - g1 / 4) < 1e-9,
+                  'a piece twice as big weighs 4x (grams follow area)')
 
         heading('face benchmark')
         sys.path[:0] = [os.path.join(ROOT, 'tests'), os.path.join(ROOT, 'analysis')]

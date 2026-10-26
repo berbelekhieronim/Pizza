@@ -24,6 +24,7 @@ Qualtrics.SurveyEngine.addOnReady(function () {
       condition: '${e://Field/condition}',   // optional: any condition label set earlier in the Survey Flow
       // minSeconds: 20,                       // optional: earliest moment "I'm done" becomes available
       // prompt: 'Make the pizza you would like to eat. ...',
+      // nutrition: true,                      // optional: live nutrition panel under the pizza (see README, Nutrition panel)
       onSave: save,
       onFinish: function () { q.showNextButton(); q.clickNextButton(); }   // the task's own button moves on
     });

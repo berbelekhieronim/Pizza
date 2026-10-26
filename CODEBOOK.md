@@ -237,6 +237,23 @@ Scales run 1-7:
 | `typical_jaccard`, `typical_count_dev`, `typical_d_*` | own pizza vs their "typical participant" pizza (if built) |
 | `flag_tab_away`, `flag_fast`, `flag_empty` | >30 s on another tab; finished in <15 s; no toppings |
 
+### `adjustments_long.csv` (one row per adjustment: a placed piece moved, or resized in place)
+
+`pid`, `build`, `t` (ms), `piece_id`, `ing`, `kind` (move / resize), `dist`, `nudge` (moved < 1.2 cm), `sym_gain_mirror`,
+`sym_gain_rot`, `sym_gain` (change in pieces with a symmetric partner at the finished pizza's best axis / rotation),
+`sym_chance` (share of 12 random moves of the same length that also gain), `spacing` (+1 evener / −1 less even),
+`same_topping_dist_change`, `contacts_change`, `r_before`, `r_after`, `g_before`, `g_after`, `size_match_gain`, `after_done`,
+`reason` (symmetry, grouping, spreading, spacing, unstacking, inward, outward, nudge, other; size match, resize).
+Per pizza: `n_adjustments`, `n_adj_*`, `adj_symmetry_expected`, `adj_symmetry_excess`, `adj_reasons` (Methods page).
+
+### Nutrition columns
+
+Per pizza: `nut_kcal`, `nut_<nutrient>_<unit>` (whole pizza with its base: protein, carbs, sugars, fat, satfat, fibre,
+salt in g; vitC, calcium, iron, potassium in mg; vitA, vitD, vitB12, folate in µg as `ug`), `nut_grams`, `top_grams`,
+`top_kcal` (toppings only), `top_kcal_share`, `nutrition_panel` (1 = the participant saw the panel). Per topping in
+`ingredients_long`: `grams`, `kcal`. Sources and the size rule: README → *Nutrition panel*; formulas: Methods page.
+`pz_summary.nutrition` is `{show: [...], base: true}` when the panel was shown, else `null`.
+
 ### `removals_long.csv` (one row per piece taken off the pizza)
 
 `pid`, `build`, `piece_id`, `ing`, `how` (`dragged off` / `undo` = the adding was undone / `start over`), `t_added`,
@@ -273,7 +290,7 @@ the centre), `angle_deg` (anticlockwise from 3 o'clock), `rot` (drawing rotation
 
 ### `profiles.csv`
 
-`pid`, `group` (the primary grouping), `cluster`, then `z_<measure>` for each of the 32 profile measures: the measure standardised across the
+`pid`, `group` (the primary grouping), `cluster`, then `z_<measure>` for each of the 33 profile measures: the measure standardised across the
 sample (mean 0, SD 1, capped at ±3; missing values take the sample median), signed so that higher means *more* of the
 named trait. Measures marked log are log(1 + x) first. In order:
 - **Composition:** pieces (log), different toppings, variety (Shannon), unusual toppings share, animal products (0 vegan … 3 meat)

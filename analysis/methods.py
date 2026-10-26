@@ -25,7 +25,7 @@ import analyse as A  # noqa: E402
 SLOTS = {'ing': '|'.join(sorted(set(A.CATS) | {'tom'})), 'reason': '|'.join(A.REASONS), 'about': '|'.join(A.ABOUT),
          'health': '|'.join(A.HEALTH), 'item': '|'.join(A.PIZZA_ITEMS), 'scale': '|'.join(A.SCALES),
          'nd': '|'.join(A.AB_NEURO), 'eat': '|'.join(A.AB_EATING), 'ev': 'pick|add|reject|tap|grab|move|remove|resize|abort|undo|clear|hover',
-         'class': 'vegan|vegetarian|seafood|meat', 'tier': 'common|mid|unusual', 'feature': '[a-z_0-9]+'}
+         'class': 'vegan|vegetarian|seafood|meat', 'nut': '|'.join(A.NUT_COL.values()), 'tier': 'common|mid|unusual', 'feature': '[a-z_0-9]+'}
 
 # (section, intro, [(columns, how it is counted, function in analyse.py)]). Notation: n = pieces on the pizza; each piece
 # has a topping, a centre (x, y) in pizza radii (crust edge = 1 = 15 cm, y up) and a size factor s (random 0.9-1.1 times
@@ -125,6 +125,13 @@ SECTIONS = [
         ('practice_drag_median, practice_target_err, practice_target_tries, practice_ms, practice_pointer, drag_vs_practice', 'Practice trial: median drag; first distance from the target; tries; duration; pointer; drag_median / practice_drag_median.', 'practice_measures'),
         ('first_pick_ms, first_add_ms, hover_ms, decision_ms_mean, picks, rejects, removes, picked_not_kept, tray_pos', '<b>ingredients_long</b>: per topping: first pick and add time; total mouse rest on its tray item; mean decision time before picking it; counts; lifted but not kept (0/1); position in the shuffled tray.', 'ingredient_rows'),
     ]),
+    ('Nutrition', 'Nutrients per 100 g from USDA SR28 (analysis/nutrition.json, made by tools/build_nutrition.py; stand-ins where SR28 has no entry are listed there and in the README). The task\'s nutrition panel uses the same table and formula. Base of a 30 cm pizza: dough 250 g; sauce tomato 80 g, white 80 g, BBQ 60 g; mozzarella light 60 g, normal 100 g, extra 150 g.', [
+        ('grams', '<b>ingredients_long</b>: Σ over this topping\'s pieces of grams<sub>piece</sub> = grams of a standard piece × s², s = drawn size (random 0.9-1.1 × hold-to-resize g). A slice is flat, so its weight follows its area: twice as wide = 4 × the grams.', 'piece_grams'),
+        ('kcal', '<b>ingredients_long</b>: grams × kcal per 100 g / 100.', 'analyse'),
+        ('{nut}', 'Whole pizza (toppings + dough + sauce + cheese): Σ grams / 100 × amount per 100 g. Salt = sodium × 2.5. Units in the name (g, mg, ug).', 'nutrition_measures'),
+        ('nut_grams, top_grams, top_kcal, top_kcal_share', 'Weight of the whole pizza; weight and energy of the toppings alone; top_kcal / nut_kcal.', 'nutrition_measures'),
+        ('nutrition_panel', '1 if the participant saw the live nutrition panel while building (a study setting or condition).', 'nutrition_measures'),
+    ]),
     ('Changes of mind and other actions', 'The log is replayed piece by piece: added, moved, removed (dragged off, undone, or wiped by "Start over"), restored (undo). The replay must end with exactly the pieces on the finished pizza (replay_matches_final).', [
         ('n_added_pieces, n_removed_pieces', 'Pieces ever added; pieces removed and not restored.', 'action_measures'),
         ('n_removed_dragged, n_removed_undo, n_removed_start_over, n_restored', 'Removed pieces by how (dragged off the pizza; Undo of their adding; "Start over"); removals undone again.', 'action_history'),
@@ -139,6 +146,17 @@ SECTIONS = [
         ('rejected_list, replay_matches_final', 'Toppings lifted from the tray and dropped off the pizza (code:count); 1 if the replay ends with the finished pizza.', 'action_measures'),
         ('added_pieces, removed_pieces, dropped, moves, resizes, considered_not_picked', '<b>ingredients_long</b>: the same per topping.', 'action_measures'),
         ('piece_id, how, t_added, t_removed, ms_on_pizza, restored', '<b>removals_long</b>: one row per removed piece: how (dragged off / undo / start over), when added and removed (ms), time on the pizza, position when removed, restored later (0/1).', 'action_history'),
+    ]),
+    ('Adjustments: why pieces were moved', 'An adjustment is a placed piece moved, or resized in place. The log is replayed (undos included) and each adjustment is judged against the pizza as it was at that moment. Symmetry is measured against the finished pizza\'s own best mirror axis and best rotation: the symmetry the person ended up with.', [
+        ('n_adjustments, n_adj_moves, n_adj_resizes, n_adj_after_done', 'Adjustments; of which moves, resizes in place; adjustments after the first "I\'m done".', 'adjustment_measures'),
+        ('sym_gain_mirror, sym_gain_rot, sym_gain', '<b>adjustments_long</b>: matched pieces (sym_match) at the final best mirror axis / rotation after the move − before; sym_gain = the larger. > 0 = the move made the pizza more symmetric.', 'adjustment_measures'),
+        ('sym_chance', '<b>adjustments_long</b>: the same piece moved the same distance in 12 random directions (staying on the pizza): share of those that also gain symmetry.', 'adjustment_measures'),
+        ('n_adj_symmetry, n_adj_symmetry_loss, adj_symmetry_expected, adj_symmetry_excess', 'Moves with sym_gain > 0 / < 0; Σ sym_chance (symmetry-making moves expected by chance); (n_adj_symmetry − expected) / moves: symmetry-seeking beyond chance.', 'adjustment_measures'),
+        ('spacing, same_topping_dist_change, contacts_change, r_before, r_after, dist, nudge', '<b>adjustments_long</b>: +1 if the piece\'s nearest-neighbour distance moved towards the median nearest-neighbour distance of the other pieces (evener spacing), −1 away; change in distance to the nearest piece of the same topping; change in pieces it touches; distance from the centre before / after; distance moved; nudge = moved &lt; 0.08 (1.2 cm).', 'adjustment_measures'),
+        ('t, kind, g_before, g_after, size_match_gain, after_done', '<b>adjustments_long</b>: time (ms), move or resize, size factor before / after; size_match_gain = 1 if a resize brought the piece within 10% of another piece of the same topping (and it was not before).', 'adjustment_measures'),
+        ('reason, adj_reasons', 'The first that applies: symmetry (sym_gain > 0), grouping (nearest same topping > 0.05 closer), spreading (> 0.05 further), spacing (+1), unstacking (fewer contacts), inward / outward (> 0.05 nearer / further from the centre), nudge, other; resizes: size match or resize. adj_reasons counts them per pizza (reason:count).', 'adjustment_measures'),
+        ('n_adj_grouping, n_adj_spreading, n_adj_spacing, n_adj_unstacking, n_adj_inward, n_adj_outward, n_adj_size_match, n_adj_nudges', 'Adjustments by reason; n_adj_nudges = moves under 0.08 (1.2 cm), whatever their reason.', 'adjustment_measures'),
+        ('pid, build, piece_id, ing', '<b>adjustments_long</b>: participant, build, the piece and its topping.', 'adjustment_measures'),
     ]),
     ('Movement of each drag', 'Recorded per drag in the task (event field 10): path, straightness, pauses, longest pause, dwell, crossings, hold.', [
         ('mv_path', 'Pointer path length / pizza diameter; median over drags.', 'movement_measures'),
@@ -356,6 +374,27 @@ def small_examples():
     rows.append(('changes of mind', 'add pepperoni, mushroom, olive; drag the mushroom off; Start over; Undo (pepperoni and olive return); drag the olive off',
                  'removed and not restored: mushroom, olive = <b>%d</b> of %d added (Start over undone: %d restored); dropped: %s; revision_rate = <b>%.2f</b>'
                  % (acts['n_removed_pieces'], acts['n_added_pieces'], acts['n_restored'], acts['dropped_list'], acts['revision_rate'])))
+    tom = A.NUTRITION['toppings']['tom']
+    sizes = [(0.5, 'small (half size)'), (1.0, 'standard'), (2.0, 'big (double size)')]
+    calc = []
+    for sz, word in sizes:
+        g = A.piece_grams({'ing': 'tom', 's': sz})
+        assert abs(g - tom['grams'] * sz * sz) < 1e-12
+        calc.append('%s: %g g × %g² = <b>%g g</b> → %.1f kcal, %.1f mg vitamin C' % (word, tom['grams'], sz, g, g * tom['per100']['kcal'] / 100, g * tom['per100']['vitC'] / 100))
+    rows.append(('grams (size)', 'one tomato slice (USDA %s, %g kcal and %g mg vitamin C per 100 g; standard slice %g g)' % (tom['ndb'], tom['per100']['kcal'], tom['per100']['vitC'], tom['grams']),
+                 '<br>'.join(calc)))
+    # adjustments: three pairs mirrored about the vertical axis; one piece is first dropped off its mirror spot, then moved onto it
+    ev = [[0, 'start', ''], [10, 'add', 'pep', 1, -.4, .3, 0, 0, 1], [20, 'add', 'pep', 2, .4, .3, 0, 0, 1], [30, 'add', 'mus', 3, -.3, -.3, 0, 0, 1],
+          [40, 'add', 'mus', 4, .5, -.1, 0, 0, 1], [50, 'add', 'oli', 5, 0, 0, 0, 0, 1], [60, 'move', 'mus', 4, .3, -.3, 300, 0, 1], [70, 'done'], [80, 'finish']]
+    final = [[1, 'pep', -.4, .3, 0, 1, 0, 1, 1], [2, 'pep', .4, .3, 0, 1, 0, 2, 1], [3, 'mus', -.3, -.3, 0, 1, 0, 3, 1], [4, 'mus', .3, -.3, 0, 1, 0, 4, 1], [5, 'oli', 0, 0, 0, 1, 0, 5, 1]]
+    pcs = [{'ing': f[1], 'x': f[2], 'y': f[3], 'rot': 0, 's': 1, 'g': 1} for f in final]
+    rec = A.symmetry(pcs, random.Random(1))
+    adj, arows = A.adjustment_measures(ev, final, rec, random.Random(2))
+    mv = arows[0]
+    assert mv['reason'] == 'symmetry' and mv['sym_gain_mirror'] == 2 and adj['n_adj_symmetry'] == 1
+    rows.append(('adjustment reason', 'pepperoni and olive placed symmetrically; mushrooms at (−0.3, −0.3) and (0.5, −0.1); the second mushroom moved to (0.3, −0.3)',
+                 'final best axis %.0f°: matched pieces before %d → after %d, sym_gain = <b>%+d</b> → reason <b>%s</b>; by chance %d of 12 random moves of that length gain (sym_chance %.2f)'
+                 % (rec['mirror_axis_deg'], round(rec['mirror_match'] * 5) - mv['sym_gain_mirror'], round(rec['mirror_match'] * 5), mv['sym_gain'], mv['reason'], round(mv['sym_chance'] * 12), mv['sym_chance'])))
     rows.append(('q (BH)', 'p = 0.001, 0.02, 0.03, 0.2', 'q = ' + ', '.join('%.3g' % v for v in q)))
     ref = [frozenset('a'), frozenset('ab'), frozenset('b'), frozenset('a')]
     bits, _ = A.atypicality(frozenset('b'), ref, ['a', 'b'])

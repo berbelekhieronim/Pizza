@@ -3,6 +3,30 @@
 What changed, newest first. The task stores its version with every pizza (`summary.v` in `pz_summary`), so data can be
 matched to the format below. Add an entry for every change that reaches participants or the analysis.
 
+## 0.10.0 (2026-10-26)
+
+**Nutrition panel, nutrients of every pizza, why pieces were moved**
+- **Nutrition panel.** A study setting, off by default: `nutrition_panel` in study.json, or per condition through
+  `condition_settings`; `nutrition: true` in Qualtrics; a switch in the demo. It shows live energy, macros, sugars,
+  saturates, fibre, salt, vitamins and minerals for the whole pizza, against reference intakes.
+  - Data: USDA SR28, public domain, via `tools/build_nutrition.py` → `analysis/nutrition.json`, which the task embeds.
+    Stand-ins: kangaroo → venison, pizza crust → Italian bread, red onion → onion, nori → laver.
+  - Size rule: grams = standard piece grams × (drawn size)², so a tomato slice at double size weighs 4×.
+  - Every pizza stores whether the panel was shown (`summary.nutrition`).
+- **Nutrients of every pizza** (shown or not): `nut_*` for the whole pizza with its base, `top_kcal`, `top_grams`,
+  `top_kcal_share`, `nutrition_panel`. Per topping: `grams`, `kcal`. explore.html screens them and groups by panel
+  shown or not.
+- **Adjustments.** Every move or in-place resize of a placed piece is replayed (undos included) and classed by what it
+  did:
+  - symmetry: more pieces with a partner at the finished pizza's best axis or rotation, compared with 12 random moves
+    of the same length;
+  - otherwise grouping, spreading, spacing, unstacking, inward or outward moves, nudges, or size matching.
+
+  New table `adjustments_long.csv`; per pizza `n_adj_*`, `adj_symmetry_excess` (a profile measure: 33 in all) and
+  `adj_reasons`.
+- **Faster explore.** The permutation null distributions are shared between tests (same results); 40 pizzas went from
+  36 s to ~10 s.
+
 ## 0.9.0 (2026-10-26)
 
 **Pilot studies, changes of mind, data for R**
