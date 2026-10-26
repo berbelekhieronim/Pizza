@@ -185,7 +185,7 @@ Things to know:
 The paste-in files load `pizza-builder.js` from this repository through jsDelivr, pinned to a specific commit
 (`@<commit>` in `SRC`), so the task cannot change under a running study.
 
-The files are currently pinned to commit `2134f4a`. To try the task on its own, open `index.html` in a browser (it works
+The files are currently pinned to commit `87d8f68`. To try the task on its own, open `index.html` in a browser (it works
 offline), or run the study server. To change the task: edit
 `pizza-builder.js`, push, and put the new commit hash in `SRC`. The repository must stay public for jsDelivr to serve it.
 If you would rather not depend on a CDN, paste the whole of `pizza-builder.js` above the paste-in code in each question; the
