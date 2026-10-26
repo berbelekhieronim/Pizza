@@ -107,8 +107,8 @@ embedded data holds, but confirm this with your own pilot data.
 The paste-in files load `pizza-builder.js` from this repository through jsDelivr, pinned to a specific commit
 (`@<commit>` in `SRC`), so the task cannot change under a running study.
 
-The files are currently pinned to commit `78287d6`. The demo at that commit is
-<https://raw.githack.com/berbelekhieronim/eye-tracking-library/78287d64a4ad7ceda4d35e2152f18cfd4ffe1663/pizza-builder/index.html>, which you can open on any phone. To change the task: edit
+The files are currently pinned to commit `52a9f13`. The demo at that commit is
+<https://raw.githack.com/berbelekhieronim/eye-tracking-library/52a9f1324242f95d4a7f249b0f12afc04d3904aa/pizza-builder/index.html>, which you can open on any phone. To change the task: edit
 `pizza-builder.js`, push, and put the new commit hash in `SRC`. The repository must stay public for jsDelivr to serve it.
 If you would rather not depend on a CDN, paste the whole of `pizza-builder.js` above the paste-in code in each question; the
 loader then skips the download.
