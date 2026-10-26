@@ -35,14 +35,19 @@
   </header>
   <div class="stage" id="stage"></div>
   <div class="next" id="next"><button type="button">Next page &rarr;</button></div>
-  <details id="dataBox">
-    <summary>Recorded data (what Qualtrics would store)</summary>
-    <p class="muted">Every change is written to these embedded-data fields as it happens. Nothing leaves this page.</p>
-    <div class="tools"><button id="dl" type="button">Download JSON</button><button id="reset" type="button">Start again</button></div>
-    <pre id="out">Nothing recorded yet.</pre>
+  <details id="dataBox" open>
+    <summary>Captured data preview</summary>
+    <p class="muted">Updated with every action. Nothing leaves this page.</p>
+    <div id="preview"></div>
+    <details>
+      <summary>Raw embedded-data fields (what Qualtrics stores)</summary>
+      <div class="tools"><button id="dl" type="button">Download JSON</button><button id="reset" type="button">Start again</button></div>
+      <pre id="out">Nothing recorded yet.</pre>
+    </details>
   </details>
 </div>
 <script src="pizza-builder.js"></script>
+<script src="preview.js"></script>
 <script>
   // Stands in for Qualtrics: the fields each page saves, in one object.
   var store = {};
@@ -64,6 +69,8 @@
       pretty[k] = v;
     });
     document.getElementById('out').textContent = Object.keys(pretty).length ? JSON.stringify(pretty, null, 1) : 'Nothing recorded yet.';
+    clearTimeout(showData.t);      // the preview runs a little geometry, so redraw it at most a few times a second
+    showData.t = setTimeout(function () { PizzaPreview.render(document.getElementById('preview'), store); }, 250);
   }
   function go(step) {
     current = step;

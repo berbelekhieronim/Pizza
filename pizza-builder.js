@@ -396,7 +396,7 @@
   // ---------------------------------------------------------------- text
 
   var TEXT = {
-    promptBuild: 'Make the pizza you would like to eat. Drag toppings onto the pizza. Hold a topping still to make it bigger. To remove a topping, drag it off the pizza.',
+    promptBuild: 'Make the pizza you would like to eat. Drag toppings onto the pizza. Hold a topping still to change its size: it grows and shrinks until you let go. To remove a topping, drag it off the pizza.',
     promptPractice: 'Practice round: learn how to place, move and remove toppings. Nothing you do here counts as your choice.',
     toppings: 'Toppings', sauce: 'Sauce', cheese: 'Cheese',
     sauceNames: { none: 'None', tomato: 'Tomato', white: 'White', bbq: 'BBQ' },
@@ -410,8 +410,8 @@
     baked: 'Your pizza is ready! Please continue to the next page.',
     steps: ['Drag a tomato slice into the dashed circle', 'Add two more slices anywhere on the pizza',
       'Move a slice that is already on the pizza: press it and drag it somewhere else',
-      'Make a slice bigger: press it and hold still until it grows', 'Remove a slice: drag it from the pizza off the edge'],
-    growHint: 'This time, press a slice on the pizza and keep holding still: it will grow',
+      'Change a slice\'s size: press it and hold still, then let go when it is the size you want', 'Remove a slice: drag it from the pizza off the edge'],
+    growHint: 'This time, press a slice on the pizza and keep holding still: it will grow and shrink',
     tryAgain: 'Nearly - drop it inside the dashed circle',
     moveHint: 'This time, press a slice that is already on the pizza and drag it to a new place',
     removeHint: 'This time, press a slice on the pizza and drag it off the edge', practiceReady: 'Well done! Press Continue to make your own pizza.',
@@ -464,7 +464,7 @@
     sauce: 'tomato', cheese: 'normal', baseChoices: true,
     minSeconds: 0, minPieces: 0, maxPieces: 250, showCounts: false,
     touchLift: 44, logHover: true, confirm: true, bake: true, autoScroll: true,
-    grow: true, growDelay: 500, growRate: 0.8, growMax: 2.5, stillPx: 8,
+    grow: true, growDelay: 500, growMin: 0.5, growMax: 2.5, growPeriod: 3000, stillPx: 8,
     target: [0.42, 0.3], targetTol: 0.12, maxEventChars: 60000,
     names: null, text: null, onSave: null, onFinish: null, onEvent: null
   };
@@ -706,14 +706,20 @@
     this._frame();
   };
 
-  // Runs every frame while dragging: grows the piece while the pointer stays still, then repaints.
+  // Runs every frame while dragging. While the pointer stays still the piece pulses smoothly between growMin and
+  // growMax, starting from its current size and growing first; letting go keeps the size of that moment.
   Builder.prototype._frame = function () {
     var d = this.drag, o = this.o, self = this;
     if (!d) return;
     var t = now();
     if (o.grow) {
-      if (Math.abs(d.lx - d.hx) + Math.abs(d.ly - d.hy) > o.stillPx) { d.hx = d.lx; d.hy = d.ly; d.ht = t; }
-      else if (t - d.ht > o.growDelay && d.g < o.growMax) d.g = Math.min(o.growMax, d.g + o.growRate * (t - d.lt) / 1000);
+      if (Math.abs(d.lx - d.hx) + Math.abs(d.ly - d.hy) > o.stillPx) { d.hx = d.lx; d.hy = d.ly; d.ht = t; d.ph = null; }
+      else if (t - d.ht > o.growDelay) {
+        var mid = (o.growMax + o.growMin) / 2, amp = (o.growMax - o.growMin) / 2;
+        if (d.ph == null) d.ph = Math.asin(Math.max(-1, Math.min(1, (d.g - mid) / amp)));
+        d.ph += 2 * Math.PI * (t - d.lt) / o.growPeriod;
+        d.g = mid + amp * Math.sin(d.ph);
+      }
     }
     d.lt = t;
     this._paint();
@@ -744,7 +750,7 @@
     if (d.raf) cancelAnimationFrame(d.raf);
     this.w.classList.remove('pzb-over');
     if (d.tray) d.tray.classList.remove('pzb-active');
-    var p = d.p, ms = Math.round(now() - d.t0), gNew = Math.round(d.g * 100) / 100, grew = gNew > (p.g || 1) + 0.01;
+    var p = d.p, ms = Math.round(now() - d.t0), gNew = Math.round(d.g * 100) / 100, grew = Math.abs(gNew - (p.g || 1)) > 0.01;
     var g = this._geom(), q = this._toPizza(e.clientX + d.offX, e.clientY + d.offY, g);
     var r = Math.sqrt(q.x * q.x + q.y * q.y), snap = 0;
     if (r > R_SNAP && r <= R_OFF) { q.x *= R_SNAP / r; q.y *= R_SNAP / r; snap = 1; }
@@ -752,10 +758,10 @@
     this._dropGhost(d, on && !cancelled);
 
     if (cancelled) { this.log('abort', p.ing, p.id); if (!d.tray) this._render(); return; }
-    if (!d.moved && grew && !d.tray) {  // pressed and held in place: the topping grew where it lies
-      this.stack.push({ a: 'grow', p: p, g: p.g });
+    if (!d.moved && grew && !d.tray) {  // pressed and held in place: the topping changed size where it lies
+      this.stack.push({ a: 'resize', p: p, g: p.g });
       p.g = gNew;
-      this.log('grow', p.ing, p.id, gNew, ms);
+      this.log('resize', p.ing, p.id, gNew, ms);
       if (this.practice && this.step === 3) this._nextStep();
       this._render();
       return;
@@ -819,7 +825,7 @@
     var a = this.stack.pop(); if (!a) return;
     if (a.a === 'add') this.pieces.splice(this.pieces.indexOf(a.p), 1);
     else if (a.a === 'move') { a.p.x = a.x; a.p.y = a.y; a.p.g = a.g; }
-    else if (a.a === 'grow') a.p.g = a.g;
+    else if (a.a === 'resize') a.p.g = a.g;
     else if (a.a === 'remove') this.pieces.splice(a.i, 0, a.p);
     else if (a.a === 'clear') this.pieces = a.ps;
     this.log('undo', a.a, a.p ? a.p.id : a.ps.length);
@@ -939,8 +945,9 @@
       tFinish: fin, tFirstPick: first.pick == null ? null : first.pick, tFirstAdd: first.add == null ? null : first.add, tLast: last,
       nPieces: this.pieces.length, nDistinct: Object.keys(counts).filter(function (k) { return counts[k] > 0; }).length,
       counts: counts, sauce: o.baseChoices ? this.sauce : null, cheese: o.baseChoices ? this.cheese : null, tray: this.tray,
-      n: { pick: n.pick || 0, add: n.add || 0, reject: n.reject || 0, tap: n.tap || 0, move: n.move || 0, remove: n.remove || 0, grow: n.grow || 0, undo: n.undo || 0, clear: n.clear || 0, hover: n.hover || 0 },
+      n: { pick: n.pick || 0, add: n.add || 0, reject: n.reject || 0, tap: n.tap || 0, move: n.move || 0, remove: n.remove || 0, resize: n.resize || 0, undo: n.undo || 0, clear: n.clear || 0, hover: n.hover || 0 },
       nGrown: this.pieces.filter(function (p) { return (p.g || 1) > 1.01; }).length,
+      nShrunk: this.pieces.filter(function (p) { return (p.g || 1) < 0.99; }).length,
       dragMsMedian: median(drags), addGapMsMedian: median(gaps),
       hiddenMs: Math.round(this.hiddenMs + (this.hiddenAt != null ? now() - this.hiddenAt : 0)), hides: n.hide || 0,
       pointer: this.pointer, coarse: mq('(pointer: coarse)'), hover: mq('(hover: hover)'),

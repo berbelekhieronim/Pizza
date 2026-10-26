@@ -18,7 +18,7 @@ the toppings are drawn in SVG by the script itself.
 ## The procedure
 
 1. **Practice** (`practice.js`, ~40 s). Five guided steps with a practice-only tomato slice: drop one into a target
-   circle, add two more, move one, make one bigger, drag one off. This teaches the controls before the real choice and
+   circle, add two more, move one, change one's size, drag one off. This teaches the controls before the real choice and
    records each person's **motor baseline** (drag speed, targeting error) on their own device.
 2. **Build** (`build.js`). Choose sauce (none / tomato / white / BBQ) and cheese (none / light / normal / extra), then drag
    toppings onto the pizza, one piece at a time. The default tray has 18 toppings in three a-priori tiers of conventionality:
@@ -28,8 +28,9 @@ the toppings are drawn in SVG by the script itself.
 
    Shrimp, egg, blue cheese, the meats and anchovies spoil quickly, so they also vary in perceived food safety.
    The tray order is shuffled for each participant and recorded.
-   Holding a topping still for half a second, while dragging it or by pressing one already on the pizza, makes it grow
-   steadily, up to 2.5 times its size; letting go keeps that size. Every piece's size is recorded.
+   Holding a topping still for half a second, while dragging it or by pressing one already on the pizza, makes its size
+   pulse smoothly between half and 2.5 times normal (one full cycle every 3 s) for as long as it is held; letting go
+   keeps the size of that moment. Every piece's size is recorded.
    Pieces can be moved, dragged off to remove, undone, or cleared. "I'm done" asks for confirmation, then the pizza
    "bakes" (a short visual) and the Next button appears.
 3. **Optional perceived-norm build** (`build-typical.js`): the same task, "make the pizza a typical participant would choose".
@@ -128,7 +129,7 @@ Set in the `PizzaBuilder.mount(box, { ... })` call:
 | `showCounts` | `false` | count badges on the tray (off by default: numbers invite counting) |
 | `confirm`, `bake` | `true` | confirmation dialog, bake animation |
 | `autoScroll` | `true` | on phones, scroll once so the pizza and the whole tray are on screen together |
-| `grow`, `growDelay`, `growRate`, `growMax` | `true`, `500`, `0.8`, `2.5` | hold to grow: on/off, ms of stillness before growing starts, size added per second, largest size |
+| `grow`, `growDelay`, `growMin`, `growMax`, `growPeriod` | `true`, `500`, `0.5`, `2.5`, `3000` | hold to resize: on/off, ms of stillness before the pulse starts, smallest and largest size, ms per full pulse |
 | `touchLift` | `44` | on touch screens the dragged topping floats this many px above the finger so it stays visible |
 | `names`, `text` | | rename toppings or translate any wording, e.g. `text: { done: 'Gotowe' }` |
 | `prefix` | `pz_` / `pzp_` / `pzf_` | embedded-data field prefix; use a new one for each extra build |
@@ -146,7 +147,13 @@ in the arrangement report. It writes `participants.csv` (one row per pizza),
 redrawn as SVG plus a `gallery.html` contact sheet, and **`arrangement.html`**. That is the visual analysis of
 symmetry and contact: every pizza drawn three times, with its best mirror axis, its best rotational symmetry
 (rings mark where each topping's symmetric partner would have to be: green = a matching topping is there,
-red = none nearby), and its touching and stacked pieces. Sample-wide dot plots compare the groups at the top. The measures are defined in `CODEBOOK.md`. In short:
+red = none nearby), and its touching and stacked pieces. Sample-wide dot plots compare the groups at the top.
+**`dashboard.html`** is the data at a glance, for proposals and for checking data as it comes in. It shows:
+- the diet breakdown, overall and by group
+- stated diet against the pizza each person made
+- the normality distribution, with the most unusual pizzas
+- space, size and time compared across groups
+- a sortable table of every participant, with a thumbnail of each pizza The measures are defined in `CODEBOOK.md`. In short:
 
 - **Variety and distinctiveness:** number of pieces and distinct toppings, Shannon diversity and evenness, Simpson index, categories,
   unusual-tier toppings, and how rare the person's toppings and topping pairs are in the sample.
@@ -162,7 +169,16 @@ red = none nearby), and its touching and stacked pieces. Sample-wide dot plots c
   - the tallest pile
   - whether piles are made of the same topping or of different ones
   - the median edge-to-edge gap in mm
-- **Size and amount:** pieces enlarged, mean and largest size, and total topping area in cm², which is the truer quantity once pieces can grow.
+- **Size and amount:** pieces enlarged and shrunk, mean / smallest / largest size, and total topping area in cm², which is the truer quantity once pieces can change size.
+- **Diet class:** each pizza is classed vegan / vegetarian / pescatarian / contains meat by the strictest diet it fits
+  (cheese and white sauce count as dairy), with piece counts and area shares per class, and checked against the stated diet.
+- **Normality:** each pizza against a reference distribution of pizzas: `--reference` files (e.g. a pilot or a norming
+  sample), or by default every other pizza in the sample. It is scored two ways, each as a percentile of the reference:
+  - *which toppings*: how surprising the set is, in bits, given each topping's inclusion rate
+  - *how many*: how extreme the number of different toppings is, in either direction
+
+  The band (typical < 75th, uncommon 75-95th, unusual > 95th) uses the more extreme of the two, and the report names
+  the choices that contribute most.
 - **Order:** first topping, blockiness (grouping by topping vs alternating), a steady sweep round the pizza, meat before vegetables.
 - **Timing:** decision time (end of one action to picking up the next, excluding the drag itself), gaps between
   placements, drag time, time to finish, time away from the tab.

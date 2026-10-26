@@ -11,6 +11,8 @@ Writes into --out (default: pizza_results/):
     events_long.csv      every logged interaction, for sequence analyses
     pizzas/<id>.svg      each final pizza redrawn from its coordinates; gallery.html shows them all
     arrangement.html     symmetry and contact, drawn on every pizza, and compared across groups (--group)
+    dashboard.html       the data at a glance: diet breakdown, normality against a reference distribution (--reference),
+                         space / size / time by group, and a sortable table of every participant
 
 Standard library only. Measure definitions are in ../CODEBOOK.md.
 """
@@ -53,6 +55,29 @@ DIET_EXCLUDES = {
     'nopork': {'pep', 'ham'}, 'halal': {'pep', 'ham'}, 'kosher': {'pep', 'ham', 'shr'}, 'nobeef': {'pep'},
     'dairyfree': {'gor'},
 }
+# what each topping means for a diet. Kimchi is counted as vegan, as many shop brands are; traditional kimchi contains
+# fish sauce, so change it to 'seafood' if that matches your stimulus.
+DIET_CLASS = {'pep': 'meat', 'ham': 'meat', 'chk': 'meat', 'anc': 'seafood', 'shr': 'seafood', 'egg': 'vegetarian', 'gor': 'vegetarian'}
+PIZZA_CLASSES = [('vegan', 'Vegan'), ('vegetarian', 'Vegetarian'), ('pescatarian', 'Pescatarian'), ('meat', 'Contains meat')]
+
+
+def topping_diet(ing):
+    return DIET_CLASS.get(ing, 'vegan')
+
+
+def pizza_diet_class(pieces, summary):
+    """Strictest diet the whole pizza fits: cheese and white sauce count as dairy."""
+    kinds = {topping_diet(p['ing']) for p in pieces}
+    if 'meat' in kinds:
+        return 'meat'
+    if 'seafood' in kinds:
+        return 'pescatarian'
+    cheese, sauce = (summary or {}).get('cheese'), (summary or {}).get('sauce')
+    if 'vegetarian' in kinds or (cheese not in (None, 'none')) or sauce == 'white':
+        return 'vegetarian'
+    return 'vegan'
+
+
 PIZZA_ITEMS = ['express', 'distinct', 'auton', 'control', 'system', 'safety']
 HEALTH = ['allergy', 'intolerance', 'digestive', 'badexp', 'sensory']
 R_VALID = 0.9          # topping centres lie within this radius (pizza radius = 1)
@@ -405,7 +430,7 @@ def timing(events, summary):
     for e in events:
         if e[1] == 'pick' and last_end is not None:
             decisions.append(e[0] - last_end)
-        if e[1] in ('add', 'reject', 'move', 'remove', 'tap', 'grow', 'undo', 'sauce', 'cheese'):
+        if e[1] in ('add', 'reject', 'move', 'remove', 'tap', 'resize', 'grow', 'undo', 'sauce', 'cheese'):
             last_end = e[0]
     fin = next((e[0] for e in events if e[1] == 'finish'), None)
     out['t_first_pick'] = next((e[0] for e in events if e[1] == 'pick'), None)
@@ -433,7 +458,7 @@ def ingredient_rows(pid, prefix, summary, events, counts, follow, diet, pieces=(
     decide, last_end = {}, None
     for e in events:
         k = e[2] if len(e) > 2 else None
-        if e[1] in ('add', 'reject', 'move', 'remove', 'tap', 'grow', 'undo', 'sauce', 'cheese'):
+        if e[1] in ('add', 'reject', 'move', 'remove', 'tap', 'resize', 'grow', 'undo', 'sauce', 'cheese'):
             last_end = e[0]
         if e[1] == 'pick':
             picks[k] += 1
@@ -584,14 +609,21 @@ def dot_plot(title, values, ref=None, ref_label='', lo=0.0, hi=None, fmt='%.2f')
     if not groups:
         return ''
     allv = [v for g in groups for v in values[g]]
-    hi = hi if hi is not None else max(allv + ([ref] if ref is not None else [])) * 1.08 or 1
+    step = None
+    if hi is None:                      # round the top of the axis up to a tidy step so the ticks land on round numbers
+        top = max(allv + ([ref] if ref is not None else [])) * 1.05
+        raw = max((top - lo) / 5, 1e-9)
+        mag = 10 ** math.floor(math.log10(raw))
+        step = next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw)
+        hi = lo + step * math.ceil((top - lo) / step - 1e-9)
     W, right, row = 640, 20, 34
     left = min(300, 24 + 7 * max(len(str(g)) + 5 for g in groups))
     H = 44 + row * len(groups)
     X = lambda v: left + (min(max(v, lo), hi) - lo) / (hi - lo) * (W - left - right)
     s = ['<svg viewBox="0 0 %d %d" class="dots" role="img" aria-label="%s">' % (W, H, esc(title))]
-    for t in range(6):
-        v = lo + (hi - lo) * t / 5
+    n_ticks = round((hi - lo) / step) if step else 5
+    for t in range(n_ticks + 1):
+        v = lo + (hi - lo) * t / n_ticks
         s.append('<line class="grid" x1="%.1f" x2="%.1f" y1="18" y2="%d"/><text class="tick" x="%.1f" y="%d">%s</text>' % (X(v), X(v), H - 20, X(v), H - 6, fmt % v))
     if ref is not None:
         s.append('<line class="ref" x1="%.1f" x2="%.1f" y1="14" y2="%d"/><text class="reflabel" x="%.1f" y="12">%s</text>' % (X(ref), X(ref), H - 20, X(ref), esc(ref_label)))
@@ -647,6 +679,250 @@ figcaption { font-weight: 600; margin-bottom: 4px; }
 """
 
 
+DASH_CSS = """
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0 6px; }
+.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.kpi b { display: block; font-size: 1.5rem; font-variant-numeric: tabular-nums; } .kpi span { color: var(--muted); font-size: .85rem; }
+.vegan { fill: var(--d-vegan); background: var(--d-vegan); } .vegetarian { fill: var(--d-veg); background: var(--d-veg); }
+.pescatarian, .seafood { fill: var(--d-fish); background: var(--d-fish); } .meat { fill: var(--d-meat); background: var(--d-meat); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .86rem; color: var(--muted); margin: 4px 0 8px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+svg text.lab { fill: var(--fg); font-size: 12px; } svg text.val { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+svg text.inbar { fill: #fff; font-size: 11px; font-weight: 600; }
+.hist rect.refbar { fill: var(--line); } .band { fill: var(--miss); opacity: .07; } .band.mid { fill: var(--near); opacity: .09; }
+.cross { border-collapse: collapse; font-size: .9rem; } .cross th, .cross td { border-bottom: 1px solid var(--line); padding: 4px 10px; text-align: right; }
+.cross th:first-child, .cross td:first-child { text-align: left; } .flag { color: var(--miss); font-weight: 600; }
+.tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+table.people { border-collapse: collapse; font-size: .85rem; width: 100%; min-width: 1100px; font-variant-numeric: tabular-nums; }
+table.people th { position: sticky; top: 0; background: var(--panel); text-align: right; padding: 8px 8px; border-bottom: 2px solid var(--line); cursor: pointer; white-space: nowrap; user-select: none; }
+table.people th:first-child, table.people td:first-child, table.people th.l, table.people td.l { text-align: left; }
+table.people th[aria-sort=ascending]:after { content: " \\25B2"; } table.people th[aria-sort=descending]:after { content: " \\25BC"; }
+table.people td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+table.people td svg { width: 54px; height: 54px; display: block; }
+table.people th .grp { display: block; font-weight: 400; color: var(--muted); font-size: .72rem; }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 999px; color: #fff; font-size: .78rem; white-space: nowrap; }
+.chip.typical { background: var(--ok); } .chip.uncommon { background: var(--near); } .chip.unusual { background: var(--miss); }
+.note { font-size: .85rem; color: var(--muted); }
+"""
+DASH_TOKENS = """
+:root { --d-vegan:#3f8f4a; --d-veg:#c99a12; --d-fish:#2f78b5; --d-meat:#b8432a; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --d-vegan:#64b56f; --d-veg:#e2b93b; --d-fish:#5ea3dd; --d-meat:#e0715a; } }
+:root[data-theme="dark"] { --d-vegan:#64b56f; --d-veg:#e2b93b; --d-fish:#5ea3dd; --d-meat:#e0715a; }
+"""
+
+
+def stacked_bars(title, rows, classes):
+    """rows: [(label, Counter of class -> n)]. Horizontal 100% bars, one per row."""
+    W, left, right, rowh = 680, 170, 16, 30
+    H = 10 + rowh * len(rows)
+    s = ['<svg viewBox="0 0 %d %d" class="dots" role="img" aria-label="%s">' % (W, H, esc(title))]
+    for i, (label, cnt) in enumerate(rows):
+        y, n = 6 + i * rowh, sum(cnt.values())
+        s.append('<text class="lab" x="%d" y="%d" text-anchor="end">%s <tspan class="val">n=%d</tspan></text>' % (left - 8, y + 15, esc(label), n))
+        x = left
+        for k, _ in classes:
+            w = (W - left - right) * cnt.get(k, 0) / n if n else 0
+            if w <= 0:
+                continue
+            s.append('<rect class="%s" x="%.1f" y="%d" width="%.1f" height="20" rx="2"/>' % (k, x, y, w))
+            if w > 34:
+                s.append('<text class="inbar" x="%.1f" y="%d" text-anchor="middle">%d%%</text>' % (x + w / 2, y + 14, round(100 * cnt[k] / n)))
+            x += w
+    return '<figure><figcaption>%s</figcaption>%s</svg></figure>' % (esc(title), ''.join(s))
+
+
+def topping_rates(recs, groups, toppings):
+    """Share of pizzas in each group that include each topping, coloured by the topping's diet class."""
+    W, left, right, rowh = 680, 130, 50, 14 * max(1, len(groups)) + 8
+    order = sorted(toppings, key=lambda k: -sum(r['n_' + k] > 0 for r in recs))
+    H = 30 + rowh * len(order)
+    s = ['<svg viewBox="0 0 %d %d" class="dots" role="img" aria-label="Topping popularity">' % (W, H)]
+    for t in range(6):
+        x = left + (W - left - right) * t / 5
+        s.append('<line class="grid" x1="%.1f" x2="%.1f" y1="16" y2="%d"/><text class="tick" x="%.1f" y="12">%d%%</text>' % (x, x, H, x, t * 20))
+    for i, k in enumerate(order):
+        y = 22 + i * rowh
+        s.append('<text class="lab" x="%d" y="%d" text-anchor="end">%s</text>' % (left - 8, y + rowh / 2 + 2, esc(NAMES.get(k, k))))
+        for gi, g in enumerate(groups):
+            rs = [r for r in recs if r['_group'] == g]
+            rate = sum(r['n_' + k] > 0 for r in rs) / len(rs) if rs else 0
+            w = (W - left - right) * rate
+            s.append('<rect class="%s" x="%d" y="%.1f" width="%.1f" height="11" rx="2" opacity="%s"/>' % (topping_diet(k), left, y + gi * 14, w, '1' if gi == 0 else '.55'))
+            s.append('<text class="val" x="%.1f" y="%.1f">%d%%%s</text>' % (left + w + 4, y + gi * 14 + 9.5, round(rate * 100), (' ' + esc(g)) if len(groups) > 1 and i == 0 else ''))
+    return ''.join(s) + '</svg>'
+
+
+def normality_hist(ref_scores, recs, groups):
+    """Histogram of the reference distribution, with every sample pizza as a dot under it, by group."""
+    if not ref_scores:
+        return ''
+    allv = ref_scores + [r['atypicality_bits'] for r in recs if r.get('atypicality_bits') is not None]
+    lo, hi = min(allv), max(allv)
+    hi = hi if hi > lo else lo + 1
+    W, left, right, bins = 680, 130, 16, 24
+    X = lambda v: left + (v - lo) / (hi - lo) * (W - left - right)
+    cnt = [0] * bins
+    for v in ref_scores:
+        cnt[min(bins - 1, int((v - lo) / (hi - lo) * bins))] += 1
+    top, hh = max(cnt), 110
+    H = hh + 36 + 30 * len(groups)
+    srt = sorted(ref_scores)
+    q = lambda f: srt[min(len(srt) - 1, int(f * len(srt)))]
+    s = ['<svg viewBox="0 0 %d %d" class="dots hist" role="img" aria-label="Normality distribution">' % (W, H)]
+    s.append('<rect class="band mid" x="%.1f" y="0" width="%.1f" height="%d"/>' % (X(q(.75)), X(q(.95)) - X(q(.75)), H - 22))
+    s.append('<rect class="band" x="%.1f" y="0" width="%.1f" height="%d"/>' % (X(q(.95)), W - right - X(q(.95)), H - 22))
+    bw = (W - left - right) / bins
+    for i, c in enumerate(cnt):
+        h = hh * c / top if top else 0
+        s.append('<rect class="refbar" x="%.1f" y="%.1f" width="%.1f" height="%.1f"/>' % (left + i * bw + 1, 10 + hh - h, bw - 2, h))
+    s.append('<text class="lab" x="%d" y="%d" text-anchor="end">reference</text>' % (left - 8, 10 + hh - 4))
+    s.append('<text class="val" x="%.1f" y="10">uncommon</text><text class="val" x="%.1f" y="10">unusual</text>' % (X(q(.75)) + 4, X(q(.95)) + 4))
+    rnd = random.Random(3)
+    for gi, g in enumerate(groups):
+        y = hh + 30 + gi * 30
+        vals = [r['atypicality_bits'] for r in recs if r['_group'] == g and r.get('atypicality_bits') is not None]
+        s.append('<text class="lab" x="%d" y="%d" text-anchor="end">%s</text>' % (left - 8, y + 4, esc(g)))
+        for v in vals:
+            s.append('<circle class="dot g%d" cx="%.1f" cy="%.1f" r="4"/>' % (gi % 4, X(v), y + rnd.uniform(-6, 6)))
+        if vals:
+            m = statistics.median(vals)
+            s.append('<line class="median" x1="%.1f" x2="%.1f" y1="%d" y2="%d"/>' % (X(m), X(m), y - 11, y + 11))
+    for t in range(6):
+        v = lo + (hi - lo) * t / 5
+        s.append('<text class="tick" x="%.1f" y="%d">%.0f</text>' % (X(v), H - 6, v))
+    return ''.join(s) + '</svg>'
+
+
+def thumb(pieces, summary):
+    return ('<svg viewBox="-102 -102 204 204" aria-hidden="true">%s%s</svg>' % (base_svg(summary), ''.join(glyph(p) for p in pieces)))
+
+
+DASH_COLS = [  # (key, heading, group, format)
+    ('diet_class', 'Diet', 'composition', None), ('n_pieces', 'Pieces', 'composition', '%d'), ('n_distinct', 'Toppings', 'composition', '%d'),
+    ('n_distinct_unusual', 'Unusual', 'composition', '%d'), ('composition_pct', 'Which %ile', 'normality', '%.0f'), ('count_pct', 'How many %ile', 'normality', '%.0f'),
+    ('normality_band', 'Band', 'normality', None),
+    ('sym_mirror', 'Mirror sym.', 'space', '%.2f'), ('sym_rot_best', 'Rotation sym.', 'space', '%.2f'), ('clark_evans', 'Spread (CE)', 'space', '%.2f'),
+    ('coverage', 'Coverage', 'space', '%.2f'), ('prop_touching', 'Touching', 'space', '%.2f'), ('max_stack_depth', 'Pile', 'space', '%d'),
+    ('topping_area_cm2', 'Area cm²', 'size', '%.0f'), ('n_grown', 'Enlarged', 'size', '%d'), ('n_shrunk', 'Shrunk', 'size', '%d'), ('size_max', 'Max size', 'size', '%.1f'),
+    ('t_first_pick', 'First pick s', 'time', 's'), ('decision_median', 'Decision s', 'time', 's'), ('t_active', 'Total s', 'time', 's'),
+]
+
+
+def dashboard_report(entries, ref_info, group_label):
+    recs = [r for r, _ in entries]
+    if not recs:
+        return '<!doctype html><title>Pizza Data Preview</title><p>No pizzas to show.</p>'
+    groups = []
+    for r in recs:
+        if r['_group'] not in groups:
+            groups.append(r['_group'])
+    med = lambda k: statistics.median([r[k] for r in recs if isinstance(r.get(k), (int, float))] or [0])
+    kpis = ''.join('<div class="kpi"><b>%s</b><span>%s</span></div>' % (v, esc(l)) for v, l in [
+        (len(recs), 'pizzas'), (len(groups), 'groups' if len(groups) > 1 else 'group'), ('%.0f' % med('n_pieces'), 'median pieces'),
+        ('%.0f' % med('n_distinct'), 'median toppings'), ('%.0f s' % (med('t_active') / 1000), 'median build time'),
+        ('%d' % ref_info['n'], 'pizzas in the reference')])
+    legend = '<div class="legend">%s</div>' % ''.join('<span><i class="%s"></i>%s</span>' % (k, esc(l)) for k, l in PIZZA_CLASSES)
+    diet_rows = [('All', Counter(r['diet_class'] for r in recs))] + ([(g, Counter(r['diet_class'] for r in recs if r['_group'] == g)) for g in groups] if len(groups) > 1 else [])
+    diet = stacked_bars('What diet does the finished pizza fit?', diet_rows, PIZZA_CLASSES)
+    pieces_rows = [(g, Counter({'vegan': sum(r['n_vegan_pieces'] for r in recs if r['_group'] == g), 'vegetarian': sum(r['n_vegetarian_pieces'] for r in recs if r['_group'] == g),
+                                'pescatarian': sum(r['n_seafood_pieces'] for r in recs if r['_group'] == g), 'meat': sum(r['n_meat_pieces'] for r in recs if r['_group'] == g)})) for g in groups]
+    pieces = stacked_bars('Share of all topping pieces by diet class', pieces_rows, [('vegan', ''), ('vegetarian', ''), ('pescatarian', ''), ('meat', '')])
+    stated = [r for r in recs if r.get('diet')]
+    cross = ''
+    if stated:
+        cats = [('vegan', 'vegan'), ('vegetarian', 'vegetarian'), ('pescatarian', 'pescatarian'), ('none', 'no diet / other')]
+        def said(r):
+            d = (r.get('diet') or '').split()
+            return next((k for k, _ in cats[:3] if k in d), 'none')
+        allowed = {'vegan': {'vegan'}, 'vegetarian': {'vegan', 'vegetarian'}, 'pescatarian': {'vegan', 'vegetarian', 'pescatarian'}}
+        rows_html = ''
+        for k, label in cats:
+            rs = [r for r in stated if said(r) == k]
+            if not rs:
+                continue
+            c = Counter(r['diet_class'] for r in rs)
+            bad = sum(1 for r in rs if k in allowed and r['diet_class'] not in allowed[k])
+            rows_html += '<tr><td>Says %s</td>%s<td class="%s">%s</td></tr>' % (esc(label), ''.join('<td>%d</td>' % c.get(pk, 0) for pk, _ in PIZZA_CLASSES),
+                                                                             'flag' if bad else '', bad if k in allowed else '-')
+        cross = ('<figure><figcaption>Stated diet × the pizza they made</figcaption><table class="cross"><tr><th>Stated diet</th>%s<th>Breaks own diet</th></tr>%s</table>'
+                 '<p class="note">A pizza that breaks the stated diet is worth checking: a misclick, an unclear topping, or a diet held loosely.</p></figure>'
+                 % (''.join('<th>%s</th>' % esc(l) for _, l in PIZZA_CLASSES), rows_html))
+    ref_txt = ('%d pizzas from a separate reference set' % ref_info['n']) if ref_info['external'] else ('the other %d pizzas in this sample (each pizza is left out of its own reference)' % (ref_info['n'] - 1))
+    hist = normality_hist(ref_info['scores'], recs, groups)
+    bands = '<div class="legend">%s</div>' % ''.join(
+        '<span>%s %s</span>' % ('<span class="chip %s">%s</span>' % (b, b), ' '.join('%s: %d' % (esc(g), sum(1 for r in recs if r['_group'] == g and r.get('normality_band') == b)) for g in groups))
+        for b in ('typical', 'uncommon', 'unusual'))
+    unusual = sorted([e for e in entries if e[0].get('atypicality_pct') is not None], key=lambda e: -e[0]['atypicality_bits'])[:6]
+    examples = ''.join('<div class="card" style="display:flex;gap:12px;align-items:center"><div style="width:90px;flex:none">%s</div><div><b>%s</b> <span class="chip %s">%s · %.0fth percentile</span><div class="note">%s</div></div></div>'
+                       % (thumb(p, {}), esc(r['pid']), r['normality_band'], r['normality_band'], r['atypicality_pct'], esc(r.get('unusual_elements') or 'common toppings only'))
+                       for r, p in unusual)
+    vals = lambda k, scale=1: {g: [r[k] / scale for r in recs if r['_group'] == g and isinstance(r.get(k), (int, float))] for g in groups}
+    space = (dot_plot('Mirror symmetry vs random (lower = more symmetric)', vals('sym_mirror'), 1.0, 'random', hi=1.5) +
+             dot_plot('Spread: Clark-Evans ratio (<1 clustered, >1 evenly spaced)', vals('clark_evans'), 1.0, 'random') +
+             dot_plot('Share of the pizza covered by toppings', vals('coverage'), lo=0.0, hi=1.0) +
+             dot_plot('Share of pieces touching another piece', vals('prop_touching'), lo=0.0, hi=1.0))
+    size = (dot_plot('Total topping area (cm² on a 30 cm pizza)', vals('topping_area_cm2'), lo=0.0, fmt='%.0f') +
+            dot_plot('Number of pieces', vals('n_pieces'), lo=0.0, fmt='%.0f') +
+            dot_plot('Mean piece size (1 = normal; holding a topping pulses it between 0.5 and 2.5)', vals('size_mean'), lo=0.5, hi=2.5, fmt='%.1f'))
+    time_ = (dot_plot('Median decision time, seconds (end of one action to picking up the next topping)', vals('decision_median', 1000), lo=0.0, fmt='%.1f') +
+             dot_plot('Total build time, seconds (time on other tabs removed)', vals('t_active', 1000), lo=0.0, fmt='%.0f') +
+             dot_plot('Time to first topping, seconds', vals('t_first_pick', 1000), lo=0.0, fmt='%.1f'))
+    head = '<tr><th class="l">Pizza</th><th class="l">Participant</th><th class="l">Group</th>%s</tr>' % ''.join(
+        '<th%s>%s<span class="grp">%s</span></th>' % (' class="l"' if f is None else '', esc(h), g) for _, h, g, f in DASH_COLS)
+    body = []
+    for r, p in sorted(entries, key=lambda e: str(e[0]['pid'])):
+        cells = []
+        for k, _, _, f in DASH_COLS:
+            v = r.get(k)
+            if v is None:
+                cells.append('<td data-v="">-</td>')
+            elif f is None:
+                cls = {'diet_class': 'chip ' + str(v), 'normality_band': 'chip ' + str(v)}.get(k, '')
+                cells.append('<td class="l" data-v="%s"><span class="%s">%s</span></td>' % (esc(v), cls, esc(v)))
+            elif f == 's':
+                cells.append('<td data-v="%s">%.1f</td>' % (v, v / 1000))
+            else:
+                cells.append('<td data-v="%s">%s</td>' % (v, f % v))
+        body.append('<tr><td>%s</td><td class="l" data-v="%s">%s</td><td class="l" data-v="%s">%s</td>%s</tr>' % (thumb(p, {}), esc(r['pid']), esc(r['pid']), esc(r['_group']), esc(r['_group']), ''.join(cells)))
+    sort_js = """<script>
+document.querySelectorAll('table.people th').forEach(function (th, i) {
+  if (i === 0) return;
+  th.tabIndex = 0;
+  function sortBy() {
+    var tb = th.closest('table').tBodies[0], rows = [].slice.call(tb.rows), asc = th.getAttribute('aria-sort') !== 'ascending';
+    th.closest('tr').querySelectorAll('th').forEach(function (h) { h.removeAttribute('aria-sort'); });
+    th.setAttribute('aria-sort', asc ? 'ascending' : 'descending');
+    rows.sort(function (a, b) {
+      var x = a.cells[i].dataset.v, y = b.cells[i].dataset.v, nx = parseFloat(x), ny = parseFloat(y);
+      if (x === '' || y === '') return x === '' ? 1 : -1;
+      var c = (!isNaN(nx) && !isNaN(ny)) ? nx - ny : String(x).localeCompare(String(y));
+      return asc ? c : -c;
+    });
+    rows.forEach(function (r) { tb.appendChild(r); });
+  }
+  th.addEventListener('click', sortBy);
+  th.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sortBy(); } });
+});
+</script>"""
+    return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
+            '<title>Pizza Data Preview</title><style>%s%s%s</style></head><body><div class="wrap">'
+            '<h1>Pizza data preview</h1><p class="muted">%d pizzas, compared by <code>%s</code>. Every number comes from the recorded coordinates, sizes and timestamps; '
+            'column definitions are in CODEBOOK.md.</p><div class="kpis">%s</div>'
+            '<h2>Diet: vegan, vegetarian, pescatarian or meat</h2><p class="muted">Each topping has a diet class; cheese and white sauce count as dairy, so a vegan '
+            'pizza needs no cheese. A pizza is classed by the strictest diet it fits.</p>%s%s%s%s'
+            '<h2>How normal is each pizza?</h2><p class="muted">Two things are compared with the reference (%s). <b>Which toppings</b>: how surprising '
+            'the set of toppings is given how often each topping appears; adding a rare topping or leaving off a near-universal one both add surprise (in bits, plotted below). '
+            '<b>How many</b>: how extreme the number of different toppings is, in either direction, so a plain pizza or one with everything stands out. '
+            'Each becomes a percentile of the reference, and the band uses the more extreme of the two: under 75 is <b>typical</b>, 75-95 <b>uncommon</b>, above 95 <b>unusual</b>.</p>'
+            '<figure><figcaption>Which toppings: reference distribution (bars) and this sample (dots; bar = median)</figcaption>%s</figure>%s'
+            '<h3>Most unusual pizzas</h3><div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">%s</div>'
+            '<h2>Space</h2>%s<h2>Size and amount</h2>%s<h2>Time</h2>%s'
+            '<h2>Every participant</h2><p class="muted">Click a column to sort.</p><div class="tablewrap"><table class="people"><thead>%s</thead><tbody>%s</tbody></table></div>'
+            '</div>%s</body></html>'
+            % (REPORT_CSS, DASH_TOKENS, DASH_CSS, len(recs), esc(group_label), kpis, legend, diet, pieces, cross,
+               esc(ref_txt), hist, bands, examples, space, size, time_, head, ''.join(body), sort_js))
+
+
 def fmtv(v, f='%.2f'):
     return '-' if v is None else (f % v if isinstance(v, float) else str(v))
 
@@ -690,11 +966,70 @@ def arrangement_report(entries, group_label):
 
 # ------------------------------------------------------------------ main
 
+def atypicality(own, ref_sets, toppings):
+    """Surprisal (bits) of a pizza's set of toppings under a reference sample: for every topping on offer, how
+    unlikely it is to be on (or off) a pizza, from its inclusion rate in the reference (smoothed by +0.5)."""
+    n = len(ref_sets)
+    total, parts = 0.0, []
+    for k in toppings:
+        rate = (sum(k in r for r in ref_sets) + 0.5) / (n + 1)
+        inc = k in own
+        bits = -math.log2(rate if inc else 1 - rate)
+        total += bits
+        parts.append((bits, k, inc, rate))
+    return total, sorted(parts, reverse=True)
+
+
+def count_extremeness(size, ref_sizes):
+    """How extreme a number of different toppings is in the reference, in both directions (very few or very many):
+    100 × (1 − two-sided tail probability)."""
+    n = len(ref_sizes)
+    if not n:
+        return None, None
+    le, ge = sum(x <= size for x in ref_sizes), sum(x >= size for x in ref_sizes)
+    tail = min(1.0, 2 * min((le + 0.5) / (n + 1), (ge + 0.5) / (n + 1)))
+    return 100 * (1 - tail), sum(x == size for x in ref_sizes) / n
+
+
+def normality(own_recs, ref_sets_external, toppings):
+    """Scores every pizza against the reference distribution. Without an external reference each pizza is scored
+    against all the others (leave one out). Two views: which toppings (composition_pct, from atypicality_bits) and how
+    many different toppings (count_pct). atypicality_pct and normality_band take whichever is more extreme."""
+    sets = [frozenset(k for k in toppings if r['n_' + k] > 0) for r in own_recs]
+    if ref_sets_external:
+        ref = list(ref_sets_external)
+        ref_scores = [atypicality(ref[i], ref[:i] + ref[i + 1:], toppings)[0] for i in range(len(ref))]
+        scored = [atypicality(sset, ref, toppings) for sset in sets]
+    else:
+        ref = sets
+        scored = [atypicality(sets[i], sets[:i] + sets[i + 1:], toppings) for i in range(len(sets))]
+        ref_scores = [x[0] for x in scored]
+    for i, (rec, (bits, parts)) in enumerate(zip(own_recs, scored)):
+        below = sum(x < bits for x in ref_scores) + 0.5 * sum(x == bits for x in ref_scores)
+        comp = 100 * below / len(ref_scores) if ref_scores else None
+        sizes = [len(r) for r in ref] if ref_sets_external else [len(r) for j, r in enumerate(ref) if j != i]
+        cnt, same = count_extremeness(len(sets[i]), sizes)
+        pct = max(v for v in (comp, cnt) if v is not None) if (comp is not None or cnt is not None) else None
+        rec['atypicality_bits'] = bits
+        rec['composition_pct'] = comp
+        rec['count_pct'] = cnt
+        rec['atypicality_pct'] = pct
+        rec['normality_band'] = None if pct is None else 'typical' if pct < 75 else 'uncommon' if pct < 95 else 'unusual'
+        why = []
+        if cnt is not None and cnt >= 75:
+            k = len(sets[i])
+            why.append('%s (like %d%% of reference pizzas)' % ('no toppings' if k == 0 else '1 topping' if k == 1 else '%d different toppings' % k, round(same * 100)))
+        why += ['%s %s (on %d%% of reference pizzas)' % ('added' if inc else 'left off', NAMES.get(k, k).lower(), round(rate * 100))
+                for b, k, inc, rate in parts[:3] if b >= 2]
+        rec['unusual_elements'] = '; '.join(why[:3]) or None
+    return ref_scores, len(ref)
+
+
 def r4(v):
     return round(v, 4) if isinstance(v, float) else v
 
 
-def analyse(rows, builds, out_dir, seed, group_col=None):
+def analyse(rows, builds, out_dir, seed, group_col=None, ref_rows=None):
     rnd = random.Random(seed)
     people, ing_long, ev_long, svgs, arrangement = [], [], [], [], []
     for row in rows:
@@ -732,8 +1067,19 @@ def analyse(rows, builds, out_dir, seed, group_col=None):
             rec['prop_unusual_distinct'] = rec['n_distinct_unusual'] / len(inc) if inc else None
             rec['prop_unusual_pieces'] = sum(counts[k] for k in inc if TIER.get(k) == 'unusual') / n if n else None
             per = [k for k in tray if k in PERISHABLE]
+            rec['diet_class'] = pizza_diet_class(pieces, summary)
+            area_by = Counter()
+            for p in pieces:
+                area_by[topping_diet(p['ing'])] += area_cm2(p)
+            tot_area = sum(area_by.values())
+            for k in ('vegan', 'vegetarian', 'seafood', 'meat'):
+                rec['n_' + k + '_pieces'] = sum(topping_diet(p['ing']) == k for p in pieces)
+                rec['area_share_' + k] = area_by[k] / tot_area if tot_area else None
+            rec['_tray'] = tray
             gs = [p['g'] for p in pieces]
             rec['n_grown'] = sum(g > 1.01 for g in gs)
+            rec['n_shrunk'] = sum(g < 0.99 for g in gs)
+            rec['size_min'] = min(gs) if gs else None
             rec['size_mean'] = statistics.mean(gs) if gs else None
             rec['size_max'] = max(gs) if gs else None
             rec['topping_area_cm2'] = sum(area_cm2(p) for p in pieces)
@@ -741,7 +1087,7 @@ def analyse(rows, builds, out_dir, seed, group_col=None):
             rec['n_never_picked'] = sum(k not in picked for k in tray)
             rec['n_picked_not_kept'] = sum(k in picked and counts.get(k, 0) == 0 for k in tray)
             nev = Counter(e[1] for e in events)
-            for k in ('pick', 'add', 'reject', 'tap', 'move', 'remove', 'grow', 'undo', 'clear', 'hover'):
+            for k in ('pick', 'add', 'reject', 'tap', 'move', 'remove', 'resize', 'undo', 'clear', 'hover'):
                 rec['n_ev_' + k] = nev.get(k, 0)
             rec.update(spatial(pieces, rnd))
             rec.update(order_measures(events))
@@ -813,6 +1159,22 @@ def analyse(rows, builds, out_dir, seed, group_col=None):
         sets = [{k for k in CATS if q['n_' + k] > 0} for q in others]
         jac = [len(set(mine) & t) / len(set(mine) | t) for t in sets if set(mine) | t]
         p['profile_uniqueness'] = 1 - statistics.mean(jac) if jac else None
+    # how normal or unusual each pizza's composition is, against a reference distribution of pizzas
+    toppings = []
+    for p in own:
+        for k in p.get('_tray') or []:
+            if k not in toppings:
+                toppings.append(k)
+    toppings = toppings or list(CATS)
+    ext = None
+    if ref_rows:
+        ext = []
+        for r in ref_rows:
+            fin = loads(field(r, builds[0] + 'final'))
+            if fin is not None:
+                ext.append(frozenset(f[1] for f in fin if f[1] in toppings))
+    ref_scores, ref_n = normality(own, ext, toppings) if own else ([], 0)
+    ref_info = {'scores': ref_scores, 'n': ref_n, 'external': bool(ext), 'toppings': toppings}
     # own pizza versus "a typical participant's" pizza, when both were built
     if len(builds) > 1:
         by = {(p['pid'], p['build']): p for p in people}
@@ -828,6 +1190,7 @@ def analyse(rows, builds, out_dir, seed, group_col=None):
             p['typical_d_distinct'] = p['n_distinct'] - t['n_distinct']
 
     os.makedirs(os.path.join(out_dir, 'pizzas'), exist_ok=True)
+    trays = {id(p): p.pop('_tray', None) for p in people}
     write_csv(os.path.join(out_dir, 'participants.csv'), people)
     write_csv(os.path.join(out_dir, 'ingredients_long.csv'), ing_long)
     write_csv(os.path.join(out_dir, 'events_long.csv'), ev_long)
@@ -841,6 +1204,12 @@ def analyse(rows, builds, out_dir, seed, group_col=None):
         rec['_group'] = rec.get('group') or rec.get('condition') or 'all'
     with open(os.path.join(out_dir, 'arrangement.html'), 'w', encoding='utf-8') as f:
         f.write(arrangement_report(arrangement, group_col or 'condition'))
+    for rec, _ in arrangement:
+        rec.pop('_group', None)
+    for rec, _ in arrangement:
+        rec['_group'] = rec.get('group') or rec.get('condition') or 'all'
+    with open(os.path.join(out_dir, 'dashboard.html'), 'w', encoding='utf-8') as f:
+        f.write(dashboard_report([e for e in arrangement if e[0]['build'] == builds[0].rstrip('_')], ref_info, group_col or 'condition'))
     for rec, _ in arrangement:
         rec.pop('_group', None)
     with open(os.path.join(out_dir, 'gallery.html'), 'w', encoding='utf-8') as f:
@@ -869,10 +1238,13 @@ def main():
     ap.add_argument('--id', default='PROLIFIC_PID', help='column identifying participants (default PROLIFIC_PID, then ResponseId)')
     ap.add_argument('--builds', default='pz_,pzt_', help='field prefixes of the builds; the first is the participant\'s own pizza')
     ap.add_argument('--seed', type=int, default=1, help='seed for the random layouts behind the symmetry ratios')
-    ap.add_argument('--group', default=None, help='column to compare groups by in arrangement.html (e.g. your ASD/NT column); default: condition')
+    ap.add_argument('--group', default=None, help='column to compare groups by in the reports (e.g. your ASD/NT column); default: condition')
+    ap.add_argument('--reference', nargs='+', default=None, help='pizzas that define "normal" (e.g. a pilot export or demo JSON files); '
+                    'default: each pizza is compared with all the others in the sample')
     a = ap.parse_args()
     rows = read_inputs(a.inputs, a.id)
-    people = analyse(rows, [b if b.endswith('_') else b + '_' for b in a.builds.split(',') if b], a.out, a.seed, a.group)
+    ref_rows = read_inputs(a.reference, a.id) if a.reference else None
+    people = analyse(rows, [b if b.endswith('_') else b + '_' for b in a.builds.split(',') if b], a.out, a.seed, a.group, ref_rows)
     print('%d responses, %d pizzas scored -> %s/' % (len(rows), len(people), a.out))
     if not people:
         print('No pizza fields found. Check that pz_final / __js_pz_final are declared in the survey flow.', file=sys.stderr)

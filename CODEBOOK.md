@@ -33,7 +33,7 @@ In the Simple layout, Qualtrics stores them as `__js_<name>`.
 ### `<prefix>final` - the finished pizza
 
 A JSON array with one entry per piece, bottom to top: `[id, code, x, y, rotation_deg, scale, variant, add_order, size]`.
-`size` is how much the participant grew the piece by holding it (1 = normal, up to 2.5). The drawn size is `scale × size`.
+`size` is the size the participant chose by holding the piece (1 = normal; holding pulses it between 0.5 and 2.5). The drawn size is `scale × size`.
 `id` numbers every pick-up, including ones that were rejected. `add_order` is the order of first placement.
 `scale` (0.9-1.1) and `variant` (0-2) are small random differences in appearance, kept so the pizza can be redrawn exactly.
 
@@ -50,10 +50,10 @@ A JSON array of `[t, type, ...]`:
 | `tap` | code, id | touched without dragging (a hint is shown) |
 | `grab` | code, id | placed topping picked up again |
 | `move` | code, id, x, y, drag_ms, snapped, size | placed topping moved |
-| `grow` | code, id, size, hold_ms | placed topping pressed and held in place until it grew |
+| `resize` | code, id, size, hold_ms | placed topping pressed and held in place, released at a new size |
 | `remove` | code, id, x, y, drag_ms | placed topping dragged off the pizza |
 | `abort` | code, id | drag interrupted by the browser (e.g. a system gesture) |
-| `undo` | undone action (`add`/`move`/`grow`/`remove`/`clear`), id or count | |
+| `undo` | undone action (`add`/`move`/`resize`/`remove`/`clear`), id or count | |
 | `clear` | number of pieces removed | "Start over" confirmed |
 | `sauce`, `cheese` | new value | sauce: `none`/`tomato`/`white`/`bbq`; cheese: `none`/`light`/`normal`/`extra` |
 | `hover` | code, ms | mouse rested ≥150 ms on a tray item (desktop only) |
@@ -64,7 +64,7 @@ A JSON array of `[t, type, ...]`:
 
 `v` script version · `mode` · `cond` condition label · `start` ISO time · `finished` ·
 `tFinish`, `tFirstPick`, `tFirstAdd`, `tLast` · `nPieces`, `nDistinct`, `counts` {code: n} · `sauce`, `cheese` · `tray` order ·
-`n` {event type: count} · `nGrown` (pieces enlarged) · `dragMsMedian` · `addGapMsMedian` · `hiddenMs`, `hides` ·
+`n` {event type: count} · `nGrown`, `nShrunk` (pieces made bigger / smaller) · `dragMsMedian` · `addGapMsMedian` · `hiddenMs`, `hides` ·
 `pointer` (first pointer type used) · `coarse` (touch-first device) · `hover` (device can hover) · `vw`, `vh`, `dpr` ·
 `pizzaPx` (pizza diameter on screen in CSS px) · `layout` (`wide` side-by-side or `narrow` stacked) · `trimmed` (hover events dropped to save space).
 Practice only: `targetErr` (distance from the target centre for each attempt, max 3), `stepT` (time each step was completed), `stepsDone`.
@@ -140,7 +140,13 @@ Scales run 1-7:
 | `max_stack_depth` | the tallest pile, in layers (1 = nothing stacked). Drawing order is stacking order: later pieces lie on top |
 | `stack_same_share`, `touch_same_share` | share of stacked / touching pairs that are the same topping (piling one topping vs layering different ones) |
 | `nn_gap_mm` | median edge-to-edge distance from each piece to its nearest neighbour, in mm on a 30 cm pizza (negative = overlapping) |
-| `n_grown`, `size_mean`, `size_max` | pieces enlarged by holding; mean and largest size factor |
+| `n_grown`, `n_shrunk`, `size_mean`, `size_min`, `size_max` | pieces made bigger / smaller by holding; mean, smallest and largest size factor |
+| `diet_class` | the strictest diet the whole pizza fits: `vegan`, `vegetarian` (dairy or egg, including any cheese or white sauce), `pescatarian` (anchovies or shrimp, no meat), `meat` |
+| `n_<vegan/vegetarian/seafood/meat>_pieces`, `area_share_<...>` | pieces, and share of topping area, in each diet class. Kimchi counts as vegan (change `DIET_CLASS` if your kimchi has fish sauce) |
+| `atypicality_bits`, `composition_pct` | *which toppings*: surprisal of the pizza's set of toppings under the reference, Σ over toppings offered of −log₂ P(on or off) with P from the reference inclusion rate (+0.5 smoothing); and its percentile in the reference distribution |
+| `count_pct` | *how many*: how extreme the number of different toppings is in the reference, in both directions, as 100 × (1 − two-sided tail probability). A plain pizza or one with everything scores high |
+| `atypicality_pct`, `normality_band` | the more extreme of the two percentiles; `typical` < 75, `uncommon` 75-95, `unusual` > 95 |
+| `unusual_elements` | up to three choices that make the pizza most surprising (each ≥ 2 bits), e.g. "added nori (on 3% of reference pizzas)" or "0 different toppings (like 1% of reference pizzas)" |
 | `topping_area_cm2` | total area covered by toppings' outlines (overlaps counted twice), on a 30 cm pizza |
 | `coverage` | share of the sauced area under toppings |
 | `sym_mirror`, `sym_axis_deg` | best mirror symmetry: mean distance from each reflected piece to the nearest piece of the same topping, at the best of 18 axes, ÷ the same for 40 random layouts of the same toppings. <1 = more symmetric than chance |
