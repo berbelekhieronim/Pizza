@@ -55,14 +55,20 @@ def main():
         check(run('analysis/analyse.py', *sorted(glob.glob(os.path.join(tmp, 'sample', '*.json'))), '--group', 'group',
                   '--reference', *sorted(glob.glob(os.path.join(tmp, 'ref', '*.json'))), '--out', out), 'analyse.py runs')
         for f in ('participants.csv', 'ingredients_long.csv', 'events_long.csv', 'profiles.csv',
-                  'dashboard.html', 'profiles.html', 'arrangement.html', 'gallery.html', 'explore.html', 'explore.csv'):
+                  'dashboard.html', 'profiles.html', 'arrangement.html', 'gallery.html', 'explore.html', 'explore.csv', 'methods.html'):
             check(os.path.getsize(os.path.join(out, f)) > 0 if os.path.exists(os.path.join(out, f)) else False, 'writes ' + f)
         rows = list(csv.DictReader(open(os.path.join(out, 'participants.csv'), encoding='utf-8')))
         check(len(rows) == 24, 'one row per participant')
-        for col in ('diet_class', 'atypicality_pct', 'sym_mirror', 'n_on_crust', 'face_detected', 'size_match_same', 't_submit', 'cluster',
+        for col in ('diet_class', 'atypicality_pct', 'mirror_match', 'mirror_score', 'rot_score', 'n_on_crust', 'face_detected', 'size_match_same', 't_submit', 'cluster',
                     'n_strong', 'n_safe_foods', 'n_sensory_reasons', 'neurotype', 'nd_identified', 'eat_any', 'self_picky', 'age_band',
                     'mv_straight', 'mv_pauses', 'mv_dwell', 'group'):
             check(col in rows[0], 'column ' + col)
+        # every output column must be described on the Methods page (analysis/methods.py)
+        sys.path[:0] = [os.path.join(ROOT, 'analysis')]
+        import methods
+        for f in ('participants', 'ingredients_long', 'events_long', 'profiles', 'explore'):
+            missing = methods.undocumented(next(csv.reader(open(os.path.join(out, f + '.csv'), encoding='utf-8'))))
+            check(not missing, 'Methods page describes every column of %s.csv%s' % (f, (' - missing: ' + ', '.join(missing)) if missing else ''))
         ex = open(os.path.join(out, 'explore.html'), encoding='utf-8').read()
         tests = list(csv.DictReader(open(os.path.join(out, 'explore.csv'), encoding='utf-8')))
         check('Neurotype (self-described)' in ex and 'Recruitment group' in ex and {'neurotype', 'group'} <= {t['grouping'] for t in tests},
@@ -107,6 +113,8 @@ def main():
             code, page = http('POST', base + '/admin/reports?key=smoke-key')
             check(code == 200 and os.path.exists(os.path.join(data, 'reports', 'dashboard.html')), 'builds the reports')
             check(os.path.exists(os.path.join(data, 'reports', 'explore.html')), 'builds the explore report')
+            code, page = http('GET', base + '/admin/methods?key=smoke-key')
+            check(code == 200 and b'how every number is counted' in page and b'Researcher page' in page, 'serves the Methods page')
             code, z = http('GET', base + '/admin/data.zip?key=smoke-key')
             check(code == 200 and z[:2] == b'PK', 'downloads all data as a zip')
             saved = json.load(open(os.path.join(data, 'participants', 'SMOKE001.json'), encoding='utf-8'))
@@ -133,7 +141,20 @@ def main():
                   " return r && [r.eyes.slice().sort((a, b) => a - b), r.mouth, r.nose, r.deco]; })));" % json.dumps(os.path.join(ROOT, 'preview.js')))
             out = subprocess.run(['node', '-e', js], input=json.dumps(cases), capture_output=True, text=True)
             same = out.returncode == 0 and json.loads(out.stdout) == [c['py'] for c in cases]
+            cases_faces = cases
             check(same, 'face detection agrees between preview.js and analyse.py (%d pizzas)' % len(cases))
+            cases = []
+            for c in cases_faces:
+                if len(c['ps']) >= 2:
+                    m, ax, ctr = FB.A.best_mirror(c['ps'])
+                    r, k, _ = FB.A.best_rotation(c['ps'])
+                    cases.append({'ps': c['ps'], 'py': [m, round(ax, 6), r, k]})
+            js = ("global.window = global; require(%s); const cs = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
+                  "console.log(JSON.stringify(cs.map(c => { const s = PizzaPreview.symmetry(c.ps); return [s.matched, Math.round(s.axis * 1e6) / 1e6, s.rotMatched, s.k]; })));"
+                  % json.dumps(os.path.join(ROOT, 'preview.js')))
+            out_ = subprocess.run(['node', '-e', js], input=json.dumps(cases), capture_output=True, text=True)
+            check(out_.returncode == 0 and json.loads(out_.stdout) == [c['py'] for c in cases],
+                  'symmetry (matches, axis, rotation) agrees between preview.js and analyse.py (%d pizzas)' % len(cases))
 
         print('face benchmark')
         sys.path[:0] = [os.path.join(ROOT, 'tests'), os.path.join(ROOT, 'analysis')]

@@ -107,6 +107,18 @@ class Study:
             write_json(self.path(pid), rec)
         return True
 
+    def methods_page(self):
+        """The Methods page, rebuilt whenever the analysis code is newer than the last copy."""
+        path = os.path.join(self.data, 'methods.html')
+        src = [os.path.join(ROOT, 'analysis', f) for f in ('analyse.py', 'methods.py')]
+        if not os.path.exists(path) or os.path.getmtime(path) < max(os.path.getmtime(f) for f in src):
+            with BUILD_LOCK:
+                r = subprocess.run([sys.executable, src[1], path], capture_output=True, text=True, timeout=300)
+            if r.returncode != 0:
+                return '<!doctype html><body><h1>Methods</h1><pre>%s</pre></body>' % escape((r.stderr or r.stdout)[-3000:])
+        with open(path, encoding='utf-8') as f:
+            return f.read()
+
     def build_reports(self, force=False):
         """Runs the analysis on every session into data/reports. Skipped when nothing changed since the last build.
         Returns (built: bool, message)."""
@@ -258,6 +270,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         if name.endswith('.json'):
                             z.write(os.path.join(folder, name), 'participants/' + name)
                 return self.send(200, buf.getvalue(), 'application/zip', {'Content-Disposition': 'attachment; filename="pizza-data-%s.zip"' % time.strftime('%Y%m%d-%H%M')})
+            if route == '/admin/methods':
+                return self.send(200, self.with_bar(self.study.methods_page()))
             m = re.match(r'^/admin/reports/([A-Za-z0-9_.-]+)$', route)
             if m and not m.group(1).startswith('.'):
                 built, msg = self.study.build_reports()          # brings the reports up to date with the newest sessions
@@ -267,10 +281,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if m.group(1).endswith('.html'):
                     with open(path, encoding='utf-8') as f:
                         html = f.read()
-                    bar = ('<div style="position:sticky;top:0;z-index:50;background:#2a2421;color:#fff;font:14px system-ui,sans-serif;padding:8px 16px">'
-                           '<a href="/admin?key=%s" style="color:#fff">&larr; Researcher page</a></div>' % urllib.parse.quote(self.study.key))
-                    html = re.sub(r'(<body[^>]*>)', lambda mm: mm.group(1) + bar, html, count=1)
-                    return self.send(200, html)
+                    return self.send(200, self.with_bar(html))
                 return self.file(path, 'text/csv; charset=utf-8')
                 self.send(404, 'Not found', 'text/plain')
 
@@ -307,6 +318,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 'codespace. It only works while the server is running and the port is public. To use your own IDs, add <code>&amp;pid=...</code> '
                 '(or Prolific\'s <code>PROLIFIC_PID</code>). Add groups in <code>server/study.json</code> to get a link for each.</p></div>' % rows)
 
+    def with_bar(self, html):
+        bar = ('<div style="position:sticky;top:0;z-index:50;background:#2a2421;color:#fff;font:14px system-ui,sans-serif;padding:8px 16px">'
+               '<a href="/admin?key=%s" style="color:#fff">&larr; Researcher page</a></div>' % urllib.parse.quote(self.study.key))
+        return re.sub(r'(<body[^>]*>)', lambda mm: mm.group(1) + bar, html, count=1)
+
     def admin_page(self, message=''):
         rows = self.study.sessions()
         done = sum(r['done'] for r in rows)
@@ -320,7 +336,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 escape(info[0].replace('T', ' ')[:16]), info[1], '' if info[1] == 1 else 's')
         else:
             status = 'Not built yet. Opening a report builds it.'
-        report_btns = ''.join('<a class="btn" href="/admin/reports/%s?key=%s">%s</a>' % (f, k, label) for f, label in reports)
+        report_btns = ''.join('<a class="btn" href="/admin/reports/%s?key=%s">%s</a>' % (f, k, label) for f, label in reports) + \
+            '<a class="btn alt" href="/admin/methods?key=%s">Methods: how each number is counted</a>' % k
         table_links = ' · '.join('<a href="/admin/reports/%s?key=%s">%s</a>' % (f, k, label) for f, label in tables)
         trs = ''.join('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (
             escape(r['pid']), escape(r['group']), escape(r['about']), escape(r['cond']), escape(r['stage']), '' if r['pieces'] is None else r['pieces'],

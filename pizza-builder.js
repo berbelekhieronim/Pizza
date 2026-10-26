@@ -141,7 +141,31 @@
         '<path d="M-11 0C-6-6.6 5-7 11 0 5 7-6 6.6-11 0Z" fill="url(#pzb-g-bas)"/>' +
         '<path d="M-11 0H10M-5 0L-2-4M0 0L3-4.2M4 0L6.5-3M-5 0L-2 4M0 0L3 4.2M4 0L6.5 3" stroke="#5aa85b" stroke-width=".6" fill="none" opacity=".75"/></g>';
     } },
+    tun: { name: 'Tuna', cat: 'fish', size: 8, draw: function (r) {      // canned tuna: a rosy chunk of flakes
+      var s = '', i, a, d, pts, j, rr;
+      for (i = 0; i < 4; i++) {                                         // overlapping flakes
+        a = i * 1.57 + r() * 0.8; d = i ? 3.2 : 0; pts = [];
+        for (j = 0; j < 7; j++) { var b = j / 7 * 6.283; rr = 3.4 + r() * 1.6; pts.push([Math.cos(a) * d + Math.cos(b) * rr * 1.2, Math.sin(a) * d + Math.sin(b) * rr * 0.8]); }
+        s += '<path d="' + blob(pts) + '" fill="' + (i % 2 ? '#c27f69' : '#b8705b') + '" stroke="#8e4d3c" stroke-width=".55"/>';
+      }
+      for (i = 0; i < 5; i++) { a = r() * 6.283; d = r() * 4; s += '<path d="M' + P(Math.cos(a) * d - 2) + ' ' + P(Math.sin(a) * d) + 'l4 ' + P(r() * 1.6 - 0.8) + '" stroke="#e9c3b0" stroke-width=".8" stroke-linecap="round" opacity=".8"/>'; }
+      return s;
+    } },
     // less conventional toppings
+    kan: { name: 'Kangaroo', cat: 'meat', size: 11, draw: function (r) {   // a seared strip of dark game meat
+      var w = 10 + r() * 1.2, h = 3.6 + r() * 0.6;
+      return '<rect x="' + P(-w) + '" y="' + P(-h) + '" width="' + P(2 * w) + '" height="' + P(2 * h) + '" rx="3" fill="#6e2a22" stroke="#3f140f" stroke-width=".8"/>' +
+        '<rect x="' + P(-w + 1.4) + '" y="' + P(-h + 1.2) + '" width="' + P(2 * w - 2.8) + '" height="' + P(2 * h - 2.4) + '" rx="2" fill="#93392c"/>' +
+        '<path d="M-6 -3L-8 3M-1 -3L-3 3M4 -3L2 3M9 -3L7 3" stroke="#2c0d09" stroke-width="1.3" opacity=".7" stroke-linecap="round"/>';
+    } },
+    fig: { name: 'Fig', cat: 'fruit', size: 10, draw: function (r) {      // half a fig, cut side up
+      var k = P(0.92 + r() * 0.16), s = '<g transform="scale(' + k + ' 1)">' +
+        '<path d="M0 -10C3 -9 4 -6.5 6.4 -3.5C9.4 0 9.6 5 6 8.2C3 10.6-3 10.6-6 8.2C-9.6 5-9.4 0-6.4-3.5C-4-6.5-3-9 0-10Z" fill="#5b2a4f" stroke="#3b1733" stroke-width=".7"/>' +
+        '<path d="M0 -7.6C2.4 -6.8 3 -4.6 4.8 -2.4C7.2 .4 7.4 4.2 4.6 6.6C2.4 8.4-2.4 8.4-4.6 6.6C-7.4 4.2-7.2 .4-4.8-2.4C-3-4.6-2.4-6.8 0-7.6Z" fill="#f1dfc0"/>' +
+        '<ellipse cy="2.4" rx="4.2" ry="4.6" fill="#c8384a"/>', i, a, d;
+      for (i = 0; i < 12; i++) { a = r() * 6.283; d = Math.sqrt(r()) * 3.4; s += circ(Math.cos(a) * d, 2.4 + Math.sin(a) * d * 1.1, 0.35, '#f6d99a'); }
+      return s + '</g>';
+    } },
     nor: { name: 'Nori', cat: 'seaweed', size: 9.5, draw: function (r) {
       var pts = [[-7, -5.5], [7, -6], [6.6, 5.8], [-6.8, 5.2]].map(function (p) { return P(p[0] + (r() - 0.5) * 1.6) + ' ' + P(p[1] + (r() - 0.5) * 1.6); });
       var s = '<path d="M' + pts.join('L') + 'Z" fill="#1d2a1d" stroke="#0f170f" stroke-width=".8" stroke-linejoin="round"/>', i;
@@ -204,11 +228,12 @@
   };
   // a-priori conventionality as a pizza topping; check it against your own sample's norm ratings
   var TIER = { pep: 'common', ham: 'common', chk: 'common', mus: 'common', grp: 'common', oni: 'common', oli: 'common',
-    crn: 'common', jal: 'common', bas: 'common', anc: 'mid', pin: 'mid', shr: 'mid', egg: 'mid', gor: 'mid',
-    nor: 'unusual', kim: 'unusual', par: 'unusual', ban: 'unusual', wal: 'unusual' };
+    crn: 'common', jal: 'common', bas: 'common', tun: 'common', anc: 'mid', pin: 'mid', shr: 'mid', egg: 'mid', gor: 'mid',
+    nor: 'unusual', kim: 'unusual', kan: 'unusual', fig: 'unusual', par: 'unusual', ban: 'unusual', wal: 'unusual' };
   Object.keys(TIER).forEach(function (k) { ING[k].tier = TIER[k]; });
-  var DEFAULT_INGREDIENTS = ['pep', 'ham', 'chk', 'anc', 'mus', 'grp', 'oni', 'oli', 'crn', 'pin', 'jal', 'bas',
-    'shr', 'egg', 'gor', 'nor', 'kim', 'par'];
+  // 20 toppings: pear, banana and walnuts are drawn too and can be added with the ingredients option
+  var DEFAULT_INGREDIENTS = ['pep', 'ham', 'chk', 'tun', 'anc', 'mus', 'grp', 'oni', 'oli', 'crn', 'pin', 'jal', 'bas',
+    'shr', 'egg', 'gor', 'nor', 'kim', 'kan', 'fig'];
 
   var markupCache = {};
   function pieceMarkup(code, v) {
@@ -319,6 +344,12 @@
     '.pzb-label{font-size:.85em;color:var(--pzb-muted);margin:0 0 6px}',
     '.pzb-tray{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}',
     '.pzb-narrow .pzb-tray{grid-template-columns:repeat(6,minmax(0,1fr));gap:4px}',
+    // computers with room: four columns of smaller tiles, so 20 toppings and the base choices fit beside the pizza
+    '.pzb-cols4 .pzb-side{flex-basis:372px;width:372px}',
+    '.pzb-cols4 .pzb-tray{grid-template-columns:repeat(4,1fr);gap:6px}',
+    '.pzb-cols4 .pzb-item{padding:6px 2px 5px;gap:3px}',
+    '.pzb-cols4 .pzb-bowl{width:46px;height:46px}',
+    '.pzb-cols4 .pzb-iname{font-size:11.5px}',
     '.pzb-xs .pzb-iname{font-size:8.5px}',
     '.pzb-item{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 3px 6px;border-radius:12px;background:var(--pzb-card);border:1px solid var(--pzb-line);cursor:grab;touch-action:none;transition:transform .1s,border-color .1s}',
     '.pzb-narrow .pzb-item{padding:5px 0 4px;border-radius:10px;gap:2px}',
@@ -471,6 +502,8 @@
       ['disgust', 'It puts me off / disgusts me'], ['unfamiliar', "I don't know it well"], ['notpizza', "It doesn't belong on a pizza"],
       ['nofit', 'It does not go with my other toppings'], ['noreason', 'No particular reason'], ['other', 'Something else']],
     reasonOtherPh: 'Please describe (optional)',
+    desktopTitle: 'Please use a computer',
+    desktopBody: 'This study only works on a desktop or laptop computer with a mouse or trackpad. Please open the same link on a computer to take part.',
     aboutTitle: 'About you',
     aboutSub: 'This helps us see how different people make their pizzas. Every question has a "Prefer not to say" option.',
     about: {
@@ -620,11 +653,12 @@
   // Size the pizza to the space the survey gives us, not the window: Qualtrics questions are narrower than the page.
   Builder.prototype._layout = function () {
     var W = this.root.clientWidth || this.w.clientWidth || 320;
-    var narrow = W < 680, vh = global.innerHeight || 700;
+    var narrow = W < 680, vh = global.innerHeight || 700, cols4 = !narrow && W >= 860 && this.tray.length > 15;
     this.w.classList.toggle('pzb-narrow', narrow);
+    this.w.classList.toggle('pzb-cols4', cols4);
     this.w.classList.toggle('pzb-xs', W < 330);
     var pad = narrow ? 12 : 24;
-    var size = narrow ? Math.min(W - pad, vh * 0.52, 560) : Math.min(W - 318 - pad, vh * 0.8, 600);
+    var size = narrow ? Math.min(W - pad, vh * 0.52, 560) : Math.min(W - (cols4 ? 390 : 318) - pad, vh * 0.8, 600);
     size = Math.max(220, Math.floor(size));
     this.pizzaEl.style.width = this.pizzaEl.style.height = size + 'px';
     this.layout = narrow ? 'narrow' : 'wide';
@@ -1369,6 +1403,23 @@
     for (var k in f) { try { this.o.onSave(k, f[k]); } catch (e) { /* ignore */ } }
   };
 
+  // ================================================================= desktop only
+  // The study runs on computers only: phones and tablets without a mouse or trackpad get a notice instead of the task
+  // (pass desktopOnly: false to override). A computer = some input with fine pointing, and no phone/tablet browser.
+  function isDesktop() {
+    var mq = function (q) { try { return global.matchMedia(q).matches; } catch (e) { return null; } };
+    var ua = (global.navigator && navigator.userAgent) || '';
+    var touchMac = /Macintosh/.test(ua) && global.navigator && navigator.maxTouchPoints > 1;   // iPadOS reports itself as a Mac
+    return mq('(any-pointer: fine)') !== false && !/Mobi|Android|iPhone|iPad|iPod/i.test(ua) && !touchMac;
+  }
+  function blocked(root, o) {
+    injectOnce();
+    var w = el('div', 'pzb pzb-blocked', '<div class="pzb-card"><h3>' + esc(TEXT.desktopTitle) + '</h3><p>' + esc(TEXT.desktopBody) + '</p></div>');
+    root.appendChild(w);
+    try { if (o.onSave) o.onSave((o.prefix || (o.mode === 'followup' ? 'pzf_' : o.mode === 'practice' ? 'pzp_' : 'pz_')) + 'blocked', 'not-desktop'); } catch (e) { /* ignore */ }
+    return { blocked: true, destroy: function () { if (w.parentNode) w.parentNode.removeChild(w); } };
+  }
+
   // ================================================================= public API
 
   global.PizzaBuilder = {
@@ -1378,8 +1429,10 @@
     text: TEXT,
     mount: function (root, opts) {
       if (typeof root === 'string') root = document.querySelector(root);
+      if (!(opts && opts.desktopOnly === false) && !isDesktop()) return blocked(root, opts || {});
       return (opts && opts.mode === 'followup') ? new Followup(root, opts) : new Builder(root, opts);
     },
+    isDesktop: isDesktop,
     parseCounts: parseCounts,
     // Writes each field to Qualtrics embedded data. Older layouts read setEmbeddedData;
     // the Simple layout reads setJSEmbeddedData, which stores the field as __js_<name>.

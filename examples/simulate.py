@@ -11,11 +11,11 @@ Writes one demo-format JSON file per participant, which analysis/analyse.py read
 import os
 import json, math, random, sys
 R = random.Random(int(sys.argv[2]) if len(sys.argv) > 2 else 5)
-TRAY = ['pep', 'ham', 'chk', 'anc', 'mus', 'grp', 'oni', 'oli', 'crn', 'pin', 'jal', 'bas', 'shr', 'egg', 'gor', 'nor', 'kim', 'par']
+TRAY = ['pep', 'ham', 'chk', 'tun', 'anc', 'mus', 'grp', 'oni', 'oli', 'crn', 'pin', 'jal', 'bas', 'shr', 'egg', 'gor', 'nor', 'kim', 'kan', 'fig']
 BASE = {'pep': .68, 'ham': .3, 'chk': .25, 'anc': .07, 'mus': .5, 'grp': .35, 'oni': .4, 'oli': .35, 'crn': .2, 'pin': .2, 'jal': .2,
-        'bas': .3, 'shr': .1, 'egg': .07, 'gor': .1, 'nor': .03, 'kim': .04, 'par': .04}
-MEAT, FISH, ANIMAL = {'pep', 'ham', 'chk'}, {'anc', 'shr'}, {'egg', 'gor'}
-UNUSUAL = {'nor', 'kim', 'par'}
+        'bas': .3, 'shr': .1, 'egg': .07, 'gor': .1, 'nor': .03, 'kim': .04, 'tun': .22, 'kan': .03, 'fig': .05}
+MEAT, FISH, ANIMAL = {'pep', 'ham', 'chk', 'kan'}, {'anc', 'shr', 'tun'}, {'egg', 'gor'}
+UNUSUAL = {'nor', 'kim', 'kan', 'fig'}
 def person(style, pid):
     diet = R.choices(['none', 'vegetarian', 'vegan', 'pescatarian'], [.76, .14, .05, .05])[0]
     boost = 3.2 if style == 'A' and R.random() < .6 else 1.0

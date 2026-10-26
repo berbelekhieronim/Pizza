@@ -9,7 +9,8 @@ reference of 200 pizzas. No result in these files means anything.
 | `dashboard.html` | the data preview: diet breakdown, normality against the reference, space / size / time by group, every participant |
 | `explore.html` | every measure screened across every grouping (neurotype, diagnosis status, eating history, gender, age, device, link group), self-ratings, measure correlations, clusters × groups |
 | `profiles.html` | every participant as a profile: compare any two, clusters, the profile map and heatmap |
-| `arrangement.html` | symmetry and contact drawn on each pizza (from a smaller set of 16 deliberately varied simulated pizzas) |
+| `arrangement.html` | symmetry and contact drawn on each pizza |
+| `methods.html` | how every number is counted, with worked examples |
 | `simulate.py` | makes the simulated participants |
 
 Open the HTML files in a browser. To rebuild them:

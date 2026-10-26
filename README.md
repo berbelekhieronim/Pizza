@@ -14,13 +14,16 @@ rather than testing one fixed contrast. Many measures are recorded per pizza, pe
 once, and `explore.html` screens every measure across every grouping, ranked by effect size with false-discovery-rate
 control, so leads can be followed up in a new sample.
 
-Works the same with mouse, touch and pen, on phones and desktops. No libraries, no image hosting:
+**Desktop and laptop computers only** (mouse or trackpad): phones and tablets see a "please use a computer" notice
+instead of the task, and no data are recorded for them. In Prolific, also set the study's device compatibility to
+*Desktop*. No libraries, no image hosting:
 the toppings are drawn in SVG by the script itself.
 
 | file | what |
 |---|---|
 | `pizza-builder.js` | the task (all three pages) |
-| `index.html` | demo of the whole flow with the recorded data shown live - open it on a phone and a laptop |
+| `index.html` | demo of the whole flow with the recorded data shown live |
+| `analysis/methods.py` | the **Methods** page: every measure and test written out as a formula, with worked examples computed by the code (also on the researcher page) |
 | `qualtrics/*.js` | paste-in code, one per survey page |
 | `analysis/analyse.py` | scores a Qualtrics export: variety, avoidance, symmetry/clustering, order, timing, norm deviation |
 | `CODEBOOK.md` | every recorded field and every computed measure |
@@ -57,10 +60,11 @@ python3 tests/smoke_test.py           # check that everything works on this mach
    circle, add two more, move one, change one's size, drag one off. This teaches the controls before the real choice and
    records each person's **motor baseline** (drag speed, targeting error) on their own device.
 2. **Build** (`build.js`). Choose sauce (none / tomato / white / BBQ) and cheese (none / light / normal / extra), then drag
-   toppings onto the pizza, one piece at a time. The default tray has 18 toppings in three a-priori tiers of conventionality:
-   - *common*: pepperoni, ham, chicken, mushrooms, green pepper, red onion, black olives, sweetcorn, jalapeños, basil
+   toppings onto the pizza, one piece at a time. The default tray has 20 toppings in three a-priori tiers of conventionality:
+   - *common*: pepperoni, ham, chicken, tuna, mushrooms, green pepper, red onion, black olives, sweetcorn, jalapeños, basil
    - *mid*: anchovies, pineapple, shrimp, egg, blue cheese
-   - *unusual*: nori, kimchi, pear (banana and walnuts are also drawn; add them with `ingredients`)
+   - *unusual*: nori, kimchi, kangaroo (exotic meat), fig (sweet-savoury fruit). Pear, banana and walnuts are also drawn;
+     add them with `ingredients`
 
    Shrimp, egg, blue cheese, the meats and anchovies spoil quickly, so they also vary in perceived food safety.
    The tray order is shuffled for each participant and recorded.
@@ -113,7 +117,7 @@ them. `explore.html` looks at everything; this table says where to look first fo
 | question | measured by (column names from `analysis/analyse.py`) |
 |---|---|
 | **H1a** distinctive / unusual choices | a priori: `n_distinct_unusual`, `prop_unusual_distinct`, `prop_unusual_pieces`. In this sample: `ingredient_rarity` (how few others chose the same toppings), `combo_rarity` (how rarely others combined the same pairs, which catches unusual combinations of familiar toppings), `profile_uniqueness` (1 − mean Jaccard similarity to everyone else). Perceived: `norm_mean_included` (low = toppings the person thinks others find inappropriate), `counter_normative`, `pz_distinct` |
-| **H1b** systematic organisation | symmetry: `sym_mirror`, `sym_rot180`, `sym_rot_best` + `sym_rot_k`. Even spacing: `clark_evans`, `nn_cv`, `angular_regularity`. Repeated pattern: `sector_similarity`, `slice_spread`, `sector_cv`. Rule-like order: `blockiness`, `sweep_consistency`. Size matching: `size_match_same`, `size_match_index`. Figurative: `face_detected`, `face_score`. Staying inside the sauce vs using the crust: `border_share`. Self-report: `pz_system`. Fine-tuning: `n_ev_move`. Overall: the clusters in `profiles.html` |
+| **H1b** systematic organisation | symmetry: `mirror_match` / `mirror_score`, `rot_match` / `rot_score` + `rot_k`. Even spacing: `clark_evans`, `nn_cv`, `angular_regularity`. Repeated pattern: `sector_similarity`, `slice_spread`, `sector_cv`. Rule-like order: `blockiness`, `sweep_consistency`. Size matching: `size_match_same`, `size_match_index`. Figurative: `face_detected`, `face_score`. Staying inside the sauce vs using the crust: `border_share`. Self-report: `pz_system`. Fine-tuning: `n_ev_move`. Overall: the clusters in `profiles.html` |
 | restricted choice / avoidance | `n_pieces`, `n_distinct`, `shannon`, `simpson`, categories, `n_never_picked`, `n_picked_not_kept`, reasons (`why_*`) |
 | **H2a** identity expression | `ident_mean`, `ident_mean_unusual`, per-topping `ident`, `pz_express`, `pz_distinct`; plus your identity-salience manipulation as `condition` |
 | **H2b** agency and control | `pz_auton`, `pz_control`; plus your control manipulation as `condition` |
@@ -162,7 +166,7 @@ from `qualtrics/`.
 **3. Survey options:** turn off the Back button. Set the Prolific completion redirect as usual. Collect
 `PROLIFIC_PID` from the URL as usual (`?PROLIFIC_PID={{%PROLIFIC_PID%}}`).
 
-**4. Preview on a phone and a computer**, then export a test response (Data & Analysis → Export → CSV) and run the
+**4. Preview on a computer**, then export a test response (Data & Analysis → Export → CSV) and run the
 analysis on it. Check that `pz_events` arrives complete. A long build is ~5-15 KB of text, well within what
 embedded data holds, but confirm this with your own pilot data.
 
@@ -181,7 +185,7 @@ practice, build, ratings, completion code) and saves each participant as they go
    the reports use both), and `&pid=...` to use your own IDs; Prolific's `PROLIFIC_PID` is picked up too. Conditions
    listed in `server/study.json` are assigned in turn.
 4. Watch sessions arrive on the researcher page (it shows what each person said they are). The **Dashboard**, **Explore patterns**, **Profiles and clusters** and **Symmetry and contact**
-   buttons open the reports, rebuilt automatically from everyone so far whenever new sessions have arrived (**Rebuild now**
+   buttons open the reports (and **Methods** shows how each number is counted), rebuilt automatically from everyone so far whenever new sessions have arrived (**Rebuild now**
    forces it). **Download all data** gives a zip of every session. Keep the researcher link to yourself: the password is
    part of it, which is what lets the page work even inside the codespace's preview panel.
 
@@ -220,16 +224,15 @@ Set in the `PizzaBuilder.mount(box, { ... })` call:
 |---|---|---|
 | `prompt` | built-in text | instruction shown above the pizza; `''` hides it |
 | `condition` | `''` | any label, stored with the data (e.g. piped from the Survey Flow) |
-| `ingredients` | the 18 above | which toppings to offer, by code (see CODEBOOK). Use the same list in the build and the follow-up |
+| `ingredients` | the 20 above | which toppings to offer, by code (see CODEBOOK). Use the same list in the build and the follow-up |
 | `shuffle` | `true` | randomise the tray order per participant |
 | `sauce`, `cheese` | `'tomato'`, `'normal'` | starting base. These defaults can act as a status-quo anchor, so keep them the same across conditions |
 | `baseChoices` | `true` | show the sauce/cheese choices |
 | `minSeconds`, `minPieces` | `0` | earliest point "I'm done" unlocks |
 | `showCounts` | `false` | count badges on the tray (off by default: numbers invite counting) |
 | `confirm`, `bake` | `true` | confirmation dialog, bake animation |
-| `autoScroll` | `true` | on phones, scroll once so the pizza and the whole tray are on screen together |
 | `grow`, `growDelay`, `growMin`, `growMax`, `growPeriod` | `true`, `500`, `0.5`, `2.5`, `3000` | hold to resize: on/off, ms of stillness before the pulse starts, smallest and largest size, ms per full pulse |
-| `touchLift` | `44` | on touch screens the dragged topping floats this many px above the finger so it stays visible |
+| `desktopOnly` | `true` | phones and tablets get a notice instead of the task (`pzX_blocked = not-desktop` is saved); `false` lets them in, untested |
 | `names`, `text` | | rename toppings or translate any wording, e.g. `text: { done: 'Gotowe' }` |
 | `prefix` | `pz_` / `pzp_` / `pzf_` | embedded-data field prefix; use a new one for each extra build |
 | follow-up only: `askPizza`, `askIdentity`, `askReasons`, `askDiet`, `pizzaItems`, `scales` | all on | turn parts of the follow-up on or off, or reword them |
@@ -258,6 +261,7 @@ rest of the sample) and `--clusters <k>` fixes the number of clusters. It writes
 | **`profiles.html`** | every participant as a profile of 31 measures; compare any two side by side (with each person's most similar participants); hierarchical clusters with plain-language descriptions, how the groups spread across them (χ²), a map of all profiles, and a heatmap ordered by the clustering tree |
 | **`arrangement.html`** | symmetry and contact drawn on every pizza: the best mirror axis, the best rotation (rings mark where each topping's symmetric partner would have to be: green = a matching topping is there, red = none nearby), and touching and stacked pieces, with group comparisons |
 | `pizzas/`, `gallery.html` | every pizza redrawn from its coordinates |
+| **`methods.html`** | how every column and test is counted: one formula per measure with the function that computes it (and its line number), and worked examples computed by that code and checked against the hand calculation. The researcher page has it under **Methods** |
 
 The measures are defined in `CODEBOOK.md`. In short:
 
@@ -267,8 +271,13 @@ The measures are defined in `CODEBOOK.md`. In short:
   stated reasons; whether a stated diet rules a topping out.
 - **Symmetry and clustering:** centroid offset, radial spread, circular uniformity, evenness over 8 slices
   ("does every slice get some"), Clark-Evans nearest-neighbour ratio with edge correction, same-topping segregation,
-  coverage, spacing regularity, the same mix repeating across slices. Mirror, 180° and the best k-fold rotational symmetry are each
-  expressed as a ratio to random layouts of the same toppings (< 1 = more symmetric than chance).
+  coverage, spacing regularity, the same mix repeating across slices.
+- **Symmetry** counts pieces: a piece is matched when its mirror image (best axis, searched to 0.25°, through the pizza's
+  centre or the toppings' centroid) lands on a piece of the same topping. `mirror_match` is the share matched,
+  `mirror_chance` the share the same pieces get at random positions, and `mirror_score` = (match − chance) / (1 − chance)
+  (0 = chance, 1 = every piece matched). The same for the best 2- to 8-fold rotation. This replaced a distance ratio
+  that searched axes only every 10°, so a perfectly mirrored pizza scored poorly unless its axis was a multiple of 10°;
+  the Methods page shows both on worked examples.
 - **Contact and stacking:** each piece's outline is modelled at its real length, width, rotation and size. The measures:
   - pairs of pieces that touch, and pairs where one lies substantially on top of the other
   - the share of pieces in contact
@@ -329,8 +338,8 @@ The measures are defined in `CODEBOOK.md`. In short:
 - **Cultural context.** Topping norms vary by country, for example pineapple, sweetcorn or anchovies. Prolific exports
   country of residence, nationality and similar demographics per `PROLIFIC_PID`; join them in and model country,
   or screen on it when recruiting. `pizza_freq` and the familiarity ratings help separate unfamiliarity from dislike.
-- **Device and motor demands.** Touch dragging on a small screen is slower and less precise than a mouse, and hover
-  is only measurable with a mouse. Every pizza records `pointer`, `coarse`, `layout`, the pizza's size in px and the
+- **Device and motor demands.** The study runs on computers only, but a mouse and a trackpad still differ in speed and
+  precision. Every pizza records `pointer`, `coarse`, `layout`, the pizza's size in px and the
   viewport. The practice gives a per-person motor baseline (`practice_drag_median`, `practice_target_err`). Compare
   timing within device type, or include these as covariates. Use `decision_median`, which excludes drag time, rather than
   raw totals. Positions are stored relative to the pizza, so they compare directly across screen sizes. Pieces are

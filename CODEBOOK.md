@@ -12,12 +12,14 @@
 |---|---|---|---|---|---|---|---|---|---|---|
 | `pep` | Pepperoni | meat | common | ✓ | | `pin` | Pineapple | fruit | mid | |
 | `ham` | Ham | meat | common | ✓ | | `anc` | Anchovies | seafood | mid | ✓ |
+| `tun` | Tuna | seafood | common | ✓ | | `kan` | Kangaroo | meat | unusual | ✓ |
 | `chk` | Chicken | meat | common | ✓ | | `shr` | Shrimp | seafood | mid | ✓ |
 | `mus` | Mushrooms | veg | common | | | `egg` | Egg (boiled slice) | egg | mid | ✓ |
 | `grp` | Green pepper | veg | common | | | `gor` | Blue cheese | dairy | mid | ✓ |
 | `oni` | Red onion | veg | common | | | `nor` | Nori | seaweed | unusual | |
 | `oli` | Black olives | veg | common | | | `kim` | Kimchi | veg | unusual | |
-| `crn` | Sweetcorn (a pinch of 3 kernels) | veg | common | | | `par` | Pear | fruit | unusual | |
+| `crn` | Sweetcorn (a pinch of 3 kernels) | veg | common | | | `fig` | Fig (half) | fruit | unusual | |
+| | | | | | | `par` | Pear *(not in the default tray)* | fruit | unusual | |
 | `jal` | Jalapeños | veg | common | | | `ban` | Banana *(not in the default tray)* | fruit | unusual | |
 | `bas` | Basil | herb | common | | | `wal` | Walnuts *(not in the default tray)* | nut | unusual | |
 | `tom` | Tomato slice (practice only) | | | | | | | | | |
@@ -197,9 +199,8 @@ Scales run 1-7:
 | `strong_pos_on_pizza`, `strong_neg_on_pizza` | share of the loved/liked ingredients that are on their pizza, and of the disliked ones (expected near 1 and 0) |
 | `topping_area_cm2` | total area covered by toppings' outlines (overlaps counted twice), on a 30 cm pizza |
 | `coverage` | share of the sauced area under toppings |
-| `sym_mirror`, `sym_axis_deg` | best mirror symmetry: mean distance from each reflected piece to the nearest piece of the same topping, at the best of 18 axes, ÷ the same for 40 random layouts of the same toppings. <1 = more symmetric than chance |
-| `sym_rot180` | the same for a half turn |
-| `sym_rot_best`, `sym_rot_k` | the best k-fold rotational symmetry for k = 2-8 (ratio to random as above), and its k |
+| `mirror_match`, `mirror_chance`, `mirror_score`, `mirror_axis_deg`, `mirror_cx`, `mirror_cy` | share of pieces whose reflection lands on a piece of the same topping (within half the two radii, one-to-one) at the best axis; the same share for random layouts of the same pieces; score = (match − chance) / (1 − chance) above chance, (match − chance) / chance below (−1…1, 0 = chance); the axis (degrees) and the point it passes through. Exact rules and worked examples: the Methods page |
+| `rot_match`, `rot_k`, `rot_chance`, `rot_score`, `rot_cx`, `rot_cy` | the same for the best k-fold rotation, k = 2-8 |
 | `first_topping`, `switch_rate`, `blockiness` | placement order: share of consecutive placements that change topping; expected minus observed switch rate (>0 grouped, <0 alternating) |
 | `sweep_consistency` | share of consecutive placements that keep turning round the pizza in the same direction (1 = a steady clockwise/anticlockwise sweep, ~0.5 = none) |
 | `meat_before_veg` | mean relative rank of vegetable placements minus meat placements (>0 = meat first) |
@@ -255,7 +256,7 @@ sample (mean 0, SD 1, capped at ±3; missing values take the sample median), sig
 named trait. Measures marked log are log(1 + x) first. In order:
 - **Composition:** pieces (log), different toppings, variety (Shannon), unusual toppings share, animal products (0 vegan … 3 meat)
 - **Normality:** unusual combination (which-toppings percentile), unusual number of toppings (how-many percentile)
-- **Space:** mirror symmetry (−`sym_mirror`), rotational symmetry (−`sym_rot_best`), even spacing (−`nn_cv`), repeating slice pattern,
+- **Space:** mirror symmetry (`mirror_score`), rotational symmetry (`rot_score`), even spacing (−`nn_cv`), repeating slice pattern,
   spread out (Clark-Evans), coverage, touching, stacking, on or over the crust, off-centre
 - **Size:** amount (log area), size variation, pieces resized, size matching within a topping
 - **Order:** grouped by topping, placed in a sweep

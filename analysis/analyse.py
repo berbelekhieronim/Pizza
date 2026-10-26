@@ -35,36 +35,42 @@ from collections import Counter
 
 CATS = {'pep': 'meat', 'ham': 'meat', 'chk': 'meat', 'anc': 'seafood', 'mus': 'veg', 'grp': 'veg', 'oni': 'veg',
         'oli': 'veg', 'crn': 'veg', 'pin': 'fruit', 'jal': 'veg', 'bas': 'herb', 'shr': 'seafood', 'egg': 'egg',
-        'gor': 'dairy', 'nor': 'seaweed', 'kim': 'veg', 'par': 'fruit', 'ban': 'fruit', 'wal': 'nut'}
+        'gor': 'dairy', 'nor': 'seaweed', 'kim': 'veg', 'par': 'fruit', 'ban': 'fruit', 'wal': 'nut',
+        'tun': 'seafood', 'kan': 'meat', 'fig': 'fruit'}
 NAMES = {'pep': 'Pepperoni', 'ham': 'Ham', 'chk': 'Chicken', 'anc': 'Anchovies', 'mus': 'Mushrooms', 'grp': 'Green pepper',
          'oni': 'Red onion', 'oli': 'Black olives', 'crn': 'Sweetcorn', 'pin': 'Pineapple', 'jal': 'Jalapenos', 'bas': 'Basil',
-         'shr': 'Shrimp', 'egg': 'Egg', 'gor': 'Blue cheese', 'nor': 'Nori', 'kim': 'Kimchi', 'par': 'Pear', 'ban': 'Banana', 'wal': 'Walnuts'}
+         'shr': 'Shrimp', 'egg': 'Egg', 'gor': 'Blue cheese', 'nor': 'Nori', 'kim': 'Kimchi', 'par': 'Pear', 'ban': 'Banana', 'wal': 'Walnuts',
+         'tun': 'Tuna', 'kan': 'Kangaroo', 'fig': 'Fig'}
 # a-priori conventionality (same as the task script); validate it against the sample's own norm ratings
 TIER = {'pep': 'common', 'ham': 'common', 'chk': 'common', 'mus': 'common', 'grp': 'common', 'oni': 'common', 'oli': 'common',
         'crn': 'common', 'jal': 'common', 'bas': 'common', 'anc': 'mid', 'pin': 'mid', 'shr': 'mid', 'egg': 'mid', 'gor': 'mid',
-        'nor': 'unusual', 'kim': 'unusual', 'par': 'unusual', 'ban': 'unusual', 'wal': 'unusual'}
+        'nor': 'unusual', 'kim': 'unusual', 'par': 'unusual', 'ban': 'unusual', 'wal': 'unusual',
+        'tun': 'common', 'kan': 'unusual', 'fig': 'unusual'}
 # toppings that spoil quickly or carry a food-safety risk (meat, seafood, egg, soft dairy) - for the dietary-vigilance account
-PERISHABLE = {'pep', 'ham', 'chk', 'anc', 'shr', 'egg', 'gor'}
+PERISHABLE = {'pep', 'ham', 'chk', 'anc', 'shr', 'egg', 'gor', 'tun', 'kan'}
 SIZE = {'pep': 13, 'ham': 10, 'chk': 8.5, 'anc': 15, 'mus': 12, 'grp': 13.5, 'oni': 12.5, 'oli': 6.2, 'crn': 6, 'pin': 8.6,
-        'jal': 6, 'bas': 12, 'shr': 9.5, 'egg': 8.5, 'gor': 6.5, 'nor': 9.5, 'kim': 9, 'par': 12, 'ban': 6.5, 'wal': 7, 'tom': 10}
+        'jal': 6, 'bas': 12, 'shr': 9.5, 'egg': 8.5, 'gor': 6.5, 'nor': 9.5, 'kim': 9, 'par': 12, 'ban': 6.5, 'wal': 7, 'tom': 10,
+        'tun': 8, 'kan': 11, 'fig': 10}
 # each topping's outline as a capsule: half-length along its long axis and half-width, in pizza units before scaling
 # (pizza radius = 100 units ~ 15 cm, so 1 unit ~ 1.5 mm). Round toppings have half-length 0.
 FOOT = {'pep': (0, 13), 'ham': (1, 6.4), 'chk': (1.5, 6.5), 'anc': (12, 2.8), 'mus': (0, 11), 'grp': (11, 3), 'oni': (10, 2),
         'oli': (0, 6.1), 'crn': (0, 4.7), 'pin': (0, 6.5), 'jal': (0, 5.6), 'bas': (9.5, 5), 'shr': (0, 8), 'egg': (1, 7.2),
-        'gor': (0, 5), 'nor': (1.5, 6.3), 'kim': (2, 5.8), 'par': (8, 4), 'ban': (0, 6.2), 'wal': (0.6, 5.8), 'tom': (0, 10)}
+        'gor': (0, 5), 'nor': (1.5, 6.3), 'kim': (2, 5.8), 'par': (8, 4), 'ban': (0, 6.2), 'wal': (0.6, 5.8), 'tom': (0, 10),
+        'tun': (1, 6), 'kan': (7, 4.2), 'fig': (0, 9)}
 MM_PER_UNIT = 1.5
 TOUCH_GAP = 1.0      # units: outlines closer than 1.5 mm count as touching
 STACK_DEPTH = 0.5    # outlines overlapping by more than half the thinner piece's half-width count as stacked
-MEATS = {'pep', 'ham', 'chk'}
+MEATS = {'pep', 'ham', 'chk', 'kan'}
 # toppings a stated diet usually rules out - lets analyses separate constraint from preference
 DIET_EXCLUDES = {
-    'vegetarian': MEATS | {'anc', 'shr'}, 'vegan': MEATS | {'anc', 'shr', 'egg', 'gor'}, 'pescatarian': MEATS,
-    'nopork': {'pep', 'ham'}, 'halal': {'pep', 'ham'}, 'kosher': {'pep', 'ham', 'shr'}, 'nobeef': {'pep'},
+    'vegetarian': MEATS | {'anc', 'shr', 'tun'}, 'vegan': MEATS | {'anc', 'shr', 'tun', 'egg', 'gor'}, 'pescatarian': MEATS,
+    'nopork': {'pep', 'ham'}, 'halal': {'pep', 'ham', 'kan'}, 'kosher': {'pep', 'ham', 'shr', 'kan'}, 'nobeef': {'pep'},
     'dairyfree': {'gor'},
 }
 # what each topping means for a diet. Kimchi is counted as vegan, as many shop brands are; traditional kimchi contains
 # fish sauce, so change it to 'seafood' if that matches your stimulus.
-DIET_CLASS = {'pep': 'meat', 'ham': 'meat', 'chk': 'meat', 'anc': 'seafood', 'shr': 'seafood', 'egg': 'vegetarian', 'gor': 'vegetarian'}
+DIET_CLASS = {'pep': 'meat', 'ham': 'meat', 'chk': 'meat', 'kan': 'meat', 'anc': 'seafood', 'shr': 'seafood', 'tun': 'seafood',
+              'egg': 'vegetarian', 'gor': 'vegetarian'}
 PIZZA_CLASSES = [('vegan', 'Vegan'), ('vegetarian', 'Vegetarian'), ('pescatarian', 'Pescatarian'), ('meat', 'Contains meat')]
 
 
@@ -503,71 +509,119 @@ def clark_evans(pts):
     return statistics.mean(nn_dists(pts)) / expected
 
 
-def sym_cost(pieces, transform):
-    """Mean distance from each transformed topping to the nearest topping of the same kind (0 = perfect symmetry)."""
-    by = {}
-    for p in pieces:
-        by.setdefault(p['ing'], []).append((p['x'], p['y']))
-    total, n = 0.0, 0
-    for pts in by.values():
-        for x, y in pts:
+def piece_radius(p):
+    """Bounding radius of a piece in pizza units (pizza radius = 1), including how much it was resized."""
+    return SIZE.get(p['ing'], 8) * p.get('s', 1) / 100
+
+
+def sym_match(pieces, transform):
+    """How many pieces have a symmetric partner: each piece's image under the transform must land on a piece of the
+    same topping, within tolerance = half the sum of the two pieces' radii (the image overlaps the partner's middle).
+    One-to-one: each piece is used once as a source and once as a partner, closest pairs first. A piece on the axis
+    (or at the centre of a rotation) can be its own partner. Returns (matched, matched pairs [(i, j, distance)])."""
+    groups = {}
+    for i, p in enumerate(pieces):
+        groups.setdefault(p['ing'], []).append((i, p['x'], p['y'], piece_radius(p)))
+    cand = []
+    for g in groups.values():
+        for i, x, y, ri in g:
             tx, ty = transform(x, y)
-            total += min(math.hypot(tx - a, ty - b) for a, b in pts)
-            n += 1
-    return total / n if n else None
+            for j, qx, qy, rj in g:
+                d = math.sqrt((tx - qx) ** 2 + (ty - qy) ** 2)
+                if d <= 0.5 * (ri + rj):
+                    cand.append((d, i, j))
+    cand.sort()
+    src, dst, pairs = set(), set(), []
+    for d, i, j in cand:
+        if i not in src and j not in dst:
+            src.add(i); dst.add(j); pairs.append((i, j, d))
+    return len(pairs), pairs
+
+
+def mirror_about(cx, cy, phi):
+    c, s = math.cos(2 * phi), math.sin(2 * phi)
+    return lambda x, y: (cx + c * (x - cx) + s * (y - cy), cy + s * (x - cx) - c * (y - cy))
 
 
 def mirror(phi):
-    c, s = math.cos(2 * phi), math.sin(2 * phi)
-    return lambda x, y: (c * x + s * y, s * x - c * y)
+    return mirror_about(0.0, 0.0, phi)
 
 
-def rot180(x, y):
-    return -x, -y
+def rotate_about(cx, cy, a):
+    c, s = math.cos(a), math.sin(a)
+    return lambda x, y: (cx + c * (x - cx) - s * (y - cy), cy + s * (x - cx) + c * (y - cy))
 
 
-AXES = [math.radians(a) for a in range(0, 180, 10)]
+def sym_centres(pieces):
+    """Centres tried for an axis or rotation: the pizza's centre, and the toppings' centroid when it is elsewhere."""
+    cx, cy = sum(p['x'] for p in pieces) / len(pieces), sum(p['y'] for p in pieces) / len(pieces)
+    return [(0.0, 0.0)] + ([(cx, cy)] if math.sqrt(cx * cx + cy * cy) > 0.02 else [])
+
+
+def best_mirror(pieces):
+    """Best mirror axis: every 3 degrees (0-177) through each centre, then the three best refined in 0.25 degree steps
+    (+-1.5 degrees). Better = more matched pieces, then a smaller summed partner distance; on a full tie the earlier
+    candidate stays (centres in order, angles ascending). Returns (matched, axis_deg, centre)."""
+    def score(c, deg):
+        m, pairs = sym_match(pieces, mirror_about(c[0], c[1], math.radians(deg)))
+        return m, round(sum(d for _, _, d in pairs), 6)      # rounded so equal axes tie the same way in every language
+    better = lambda a, b: a[0] > b[0] or (a[0] == b[0] and a[1] < b[1])
+    coarse = [score(c, a) + (a, c) for c in sym_centres(pieces) for a in range(0, 180, 3)]
+    top = sorted(coarse, key=lambda t: (-t[0], t[1]))[:3]          # stable: ties keep their order
+    best = None
+    for _, _, a0, c in top:
+        for k in range(-6, 7):
+            a = (a0 + 0.25 * k) % 180
+            cand = score(c, a) + (a, c)
+            if best is None or better(cand, best):
+                best = cand
+    return best[0], best[2], best[3]
+
+
+def best_rotation(pieces):
+    """Best k-fold rotation, k = 2..8, about each centre. Equal matches go to the higher k (an 8-fold ring is also
+    4- and 2-fold). Returns (matched, k, centre)."""
+    best = None
+    for c in sym_centres(pieces):
+        for k in range(2, 9):
+            m = sym_match(pieces, rotate_about(c[0], c[1], 2 * math.pi / k))[0]
+            if best is None or m > best[0] or (m == best[0] and k > best[1]):
+                best = (m, k, c)
+    return best
+
+
+def random_like(pieces, rnd):
+    """The same pieces (topping, size) at random positions on the pizza."""
+    out = []
+    for p in pieces:
+        r, t = R_VALID * math.sqrt(rnd.random()), rnd.random() * 2 * math.pi
+        out.append(dict(p, x=r * math.cos(t), y=r * math.sin(t)))
+    return out
+
+
+SYM_NULLS = 12
 
 
 def symmetry(pieces, rnd):
-    """Best mirror-axis cost and 180-degree rotation cost, each divided by the same cost for random layouts
-    with the same toppings (ratio < 1 = more symmetric than chance)."""
-    if len(pieces) < 2:
-        return None, None, None
-    obs_m = min(sym_cost(pieces, mirror(a)) for a in AXES)
-    best_axis = min(AXES, key=lambda a: sym_cost(pieces, mirror(a)))
-    obs_r = sym_cost(pieces, rot180)
-    null_m, null_r = [], []
-    for _ in range(40):
-        fake = []
-        for p in pieces:
-            r, t = R_VALID * math.sqrt(rnd.random()), rnd.random() * 2 * math.pi
-            fake.append({'ing': p['ing'], 'x': r * math.cos(t), 'y': r * math.sin(t)})
-        null_m.append(min(sym_cost(fake, mirror(a)) for a in AXES))
-        null_r.append(sym_cost(fake, rot180))
-    return obs_m / statistics.mean(null_m), obs_r / statistics.mean(null_r), round(math.degrees(best_axis))
-
-
-def rot_symmetry(pieces, rnd):
-    """Best k-fold rotational symmetry, k = 2..8, as a ratio to random layouts (< 1 = more symmetric than chance)."""
-    if len(pieces) < 2:
-        return None, None
-    best = None
-    for k in range(2, 9):
-        a = 2 * math.pi / k
-        c, s = math.cos(a), math.sin(a)
-        obs = sym_cost(pieces, lambda x, y: (c * x - s * y, s * x + c * y))
-        null = []
-        for _ in range(20):
-            fake = []
-            for p in pieces:
-                r, t = R_VALID * math.sqrt(rnd.random()), rnd.random() * 2 * math.pi
-                fake.append({'ing': p['ing'], 'x': r * math.cos(t), 'y': r * math.sin(t)})
-            null.append(sym_cost(fake, lambda x, y: (c * x - s * y, s * x + c * y)))
-        ratio = obs / statistics.mean(null)
-        if best is None or ratio <= best[0] + 0.02:     # near-ties go to the higher order: an 8-fold ring is also 4-fold
-            best = (min(ratio, best[0]) if best else ratio, k)
-    return best
+    """Mirror and rotational symmetry as the share of pieces with a symmetric partner (sym_match), at the best axis /
+    rotation, against the share the same pieces get at random positions with the same search (chance, mean of
+    SYM_NULLS layouts). score = (share - chance) / (1 - chance) above chance and (share - chance) / chance below it:
+    -1 = nothing matched, 0 = what chance gives, 1 = every piece matched."""
+    n = len(pieces)
+    if n < 2:
+        return {}
+    m, axis, mc = best_mirror(pieces)
+    r, k, rc = best_rotation(pieces)
+    fakes = [random_like(pieces, rnd) for _ in range(SYM_NULLS)]
+    m0 = statistics.mean(best_mirror(f)[0] for f in fakes) / n
+    r0 = statistics.mean(best_rotation(f)[0] for f in fakes) / n
+    def score(share, ch):
+        if share >= ch:
+            return (share - ch) / (1 - ch) if ch < 1 else 0.0
+        return (share - ch) / ch
+    return {'mirror_match': m / n, 'mirror_chance': m0, 'mirror_score': score(m / n, m0), 'mirror_axis_deg': round(axis, 2),
+            'mirror_cx': mc[0], 'mirror_cy': mc[1],
+            'rot_match': r / n, 'rot_k': k, 'rot_chance': r0, 'rot_score': score(r / n, r0), 'rot_cx': rc[0], 'rot_cy': rc[1]}
 
 
 def angular_regularity(pieces):
@@ -672,8 +726,7 @@ def spatial(pieces, rnd):
     out['face_up_deg'] = f['up_deg'] if f else None
     out['face_brows'] = f['brows'] if f else None
     out['face_cheeks'] = f['cheeks'] if f else None
-    out['sym_mirror'], out['sym_rot180'], out['sym_axis_deg'] = symmetry(pieces, rnd)
-    out['sym_rot_best'], out['sym_rot_k'] = rot_symmetry(pieces, rnd)
+    out.update(symmetry(pieces, rnd))
     return out
 
 
@@ -874,7 +927,9 @@ def corr(a, b):
 # ------------------------------------------------------------------ drawing
 
 COLORS = {'pep': '#a8281e', 'ham': '#e59a94', 'chk': '#e6cc9c', 'anc': '#5d3d2f', 'mus': '#d9c3a1', 'grp': '#3f8a2e',
-          'oni': '#93357a', 'oli': '#25231f', 'crn': '#f2c63a', 'pin': '#f3cf55', 'jal': '#6ea548', 'bas': '#2f7d32', 'tom': '#d8432c'}
+          'oni': '#93357a', 'oli': '#25231f', 'crn': '#f2c63a', 'pin': '#f3cf55', 'jal': '#6ea548', 'bas': '#2f7d32', 'tom': '#d8432c',
+          'shr': '#ef8a5f', 'egg': '#f6f1df', 'gor': '#d9d6c6', 'nor': '#1f2a1d', 'kim': '#d4542b', 'par': '#e8e2b8', 'ban': '#f5eab8',
+          'wal': '#9a6a3c', 'tun': '#bf7a64', 'kan': '#7a2e24', 'fig': '#6b2f5c'}
 SAUCE = {'none': '#ecd3a0', 'tomato': '#b8321f', 'white': '#ece2cc', 'bbq': '#6b2614'}
 CHEESE = {'none': 0, 'light': 0.35, 'normal': 0.65, 'extra': 0.9}
 LONG = {'anc': (1, 0.22), 'grp': (0.95, 0.3), 'oni': (0.9, 0.25), 'bas': (0.9, 0.45), 'mus': (0.9, 0.8)}
@@ -905,42 +960,33 @@ def esc(t):
     return str(t).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 
-def match_class(d):
-    return 'ok' if d <= 0.06 else 'near' if d <= 0.15 else 'miss'
-
-
-def ghost_panel(pieces, summary, transform, guides):
-    """Pizza with, for every piece, a ring where its symmetric partner would have to be, coloured by whether one is there."""
-    by = {}
-    for p in pieces:
-        by.setdefault(p['ing'], []).append(p)
-    s = ['<svg viewBox="-106 -106 212 212" role="img">', base_svg(None if False else {}), guides]
-    s[1] = '<circle r="100" class="crust"/><circle r="86" class="sauce"/>'
+def ghost_panel(pieces, transform, guides):
+    """Pizza with, for every piece, a ring where its symmetric partner would have to be: green when sym_match found a
+    partner there (the piece counts as matched), red when not."""
+    _, pairs = sym_match(pieces, transform)
+    matched = {i for i, _, _ in pairs}
+    s = ['<svg viewBox="-106 -106 212 212" role="img">', '<circle r="100" class="crust"/><circle r="86" class="sauce"/>', guides]
     s += [glyph(p, ' opacity=".9"') for p in pieces]
-    for p in pieces:
+    for i, p in enumerate(pieces):
         tx, ty = transform(p['x'], p['y'])
-        q = min(by[p['ing']], key=lambda o: math.hypot(tx - o['x'], ty - o['y']))
-        d = math.hypot(tx - q['x'], ty - q['y'])
-        c = match_class(d)
-        if c != 'ok':
-            s.append('<line class="link %s" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f"/>' % (c, tx * 100, -ty * 100, q['x'] * 100, -q['y'] * 100))
-        s.append('<circle class="ghost %s" cx="%.1f" cy="%.1f" r="%.1f"/>' % (c, tx * 100, -ty * 100, max(capsule(p)[2] * 100 * 0.75, 3)))
+        s.append('<circle class="ghost %s" cx="%.1f" cy="%.1f" r="%.1f"/>' % ('ok' if i in matched else 'miss', tx * 100, -ty * 100, max(capsule(p)[2] * 100 * 0.75, 3)))
     return ''.join(s) + '</svg>'
 
 
-def mirror_panel(pieces, axis_deg):
-    phi = math.radians(axis_deg or 0)
-    ex, ey = math.cos(phi) * 104, -math.sin(phi) * 104
-    guide = '<line class="axis" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f"/>' % (-ex, -ey, ex, ey)
-    return ghost_panel(pieces, None, mirror(phi), guide)
+def mirror_panel(pieces, rec):
+    cx, cy, phi = rec.get('mirror_cx') or 0, rec.get('mirror_cy') or 0, math.radians(rec.get('mirror_axis_deg') or 0)
+    ex, ey = math.cos(phi) * 150, math.sin(phi) * 150
+    guide = ('<clipPath id="cl"><circle r="104"/></clipPath><line class="axis" clip-path="url(#cl)" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f"/>'
+             % ((cx - ex / 100) * 100, -(cy - ey / 100) * 100, (cx + ex / 100) * 100, -(cy + ey / 100) * 100))
+    return ghost_panel(pieces, mirror_about(cx, cy, phi), guide)
 
 
-def rotation_panel(pieces, k):
-    k = k or 2
+def rotation_panel(pieces, rec):
+    k, cx, cy = rec.get('rot_k') or 2, rec.get('rot_cx') or 0, rec.get('rot_cy') or 0
     a = 2 * math.pi / k
-    c, s_ = math.cos(a), math.sin(a)
-    guide = ''.join('<line class="spoke" x1="0" y1="0" x2="%.1f" y2="%.1f"/>' % (math.cos(i * a + math.pi / 2) * 100, -math.sin(i * a + math.pi / 2) * 100) for i in range(k))
-    return ghost_panel(pieces, None, lambda x, y: (c * x - s_ * y, s_ * x + c * y), guide)
+    guide = ''.join('<line class="spoke" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f"/>' % (cx * 100, -cy * 100, (cx + math.cos(i * a + math.pi / 2)) * 100,
+                                                                                      -(cy + math.sin(i * a + math.pi / 2)) * 100) for i in range(k))
+    return ghost_panel(pieces, rotate_about(cx, cy, a), '<clipPath id="cr"><circle r="104"/></clipPath><g clip-path="url(#cr)">%s</g>' % guide)
 
 
 def contact_panel(pieces):
@@ -1200,7 +1246,7 @@ DASH_COLS = [  # (key, heading, group, format)
     ('diet_class', 'Diet', 'composition', None), ('n_pieces', 'Pieces', 'composition', '%d'), ('n_distinct', 'Toppings', 'composition', '%d'),
     ('n_distinct_unusual', 'Unusual', 'composition', '%d'), ('composition_pct', 'Which %ile', 'normality', '%.0f'), ('count_pct', 'How many %ile', 'normality', '%.0f'),
     ('normality_band', 'Band', 'normality', None),
-    ('sym_mirror', 'Mirror sym.', 'space', '%.2f'), ('sym_rot_best', 'Rotation sym.', 'space', '%.2f'), ('clark_evans', 'Spread (CE)', 'space', '%.2f'),
+    ('mirror_match', 'Mirror match', 'space', '%.2f'), ('mirror_score', 'Mirror score', 'space', '%.2f'), ('rot_score', 'Rotation score', 'space', '%.2f'), ('clark_evans', 'Spread (CE)', 'space', '%.2f'),
     ('coverage', 'Coverage', 'space', '%.2f'), ('prop_touching', 'Touching', 'space', '%.2f'), ('max_stack_depth', 'Pile', 'space', '%d'),
     ('topping_area_cm2', 'Area cm²', 'size', '%.0f'), ('n_grown', 'Enlarged', 'size', '%d'), ('n_shrunk', 'Shrunk', 'size', '%d'), ('size_max', 'Max size', 'size', '%.1f'),
     ('t_first_pick', 'First pick s', 'time', 's'), ('decision_median', 'Decision s', 'time', 's'), ('t_submit', 'Done s', 'time', 's'),
@@ -1260,7 +1306,7 @@ def dashboard_report(entries, ref_info, group_label):
                        % (thumb(p, {}), esc(r['pid']), r['normality_band'], r['normality_band'], r['atypicality_pct'], esc(r.get('unusual_elements') or 'common toppings only'))
                        for r, p in unusual)
     vals = lambda k, scale=1: {g: [r[k] / scale for r in recs if r['_group'] == g and isinstance(r.get(k), (int, float))] for g in groups}
-    space = (dot_plot('Mirror symmetry vs random (lower = more symmetric)', vals('sym_mirror'), 1.0, 'random', hi=1.5) +
+    space = (dot_plot('Mirror symmetry score (0 = chance, 1 = every piece has a mirror partner)', vals('mirror_score'), 0.0, 'chance', lo=-0.5, hi=1.0) +
              dot_plot('Spread: Clark-Evans ratio (<1 clustered, >1 evenly spaced)', vals('clark_evans'), 1.0, 'random') +
              dot_plot('Share of the pizza covered by toppings', vals('coverage'), lo=0.0, hi=1.0) +
              dot_plot('Share of pieces touching another piece', vals('prop_touching'), lo=0.0, hi=1.0))
@@ -1344,31 +1390,36 @@ def arrangement_report(entries, group_label):
         by_group.setdefault(str(rec.get('_group') or 'all'), []).append(rec)
     def vals(key):
         return {g: [r[key] for r in rs if isinstance(r.get(key), (int, float))] for g, rs in by_group.items()}
-    plots = (dot_plot('Mirror symmetry (best axis), relative to random layouts. Lower = more symmetric', vals('sym_mirror'), 1.0, 'random', hi=1.5) +
-             dot_plot('Rotational symmetry (best of 2- to 8-fold), relative to random layouts', vals('sym_rot_best'), 1.0, 'random', hi=1.5) +
+    plots = (dot_plot('Mirror symmetry score (0 = chance, 1 = every piece has a mirror partner)', vals('mirror_score'), 0.0, 'chance', lo=-0.5, hi=1.0) +
+             dot_plot('Pieces with a mirror partner (share)', vals('mirror_match'), lo=0.0, hi=1.0) +
+             dot_plot('Rotational symmetry score (best of 2- to 8-fold; 0 = chance, 1 = every piece matched)', vals('rot_score'), 0.0, 'chance', lo=-0.5, hi=1.0) +
              dot_plot('Share of pieces touching another piece', vals('prop_touching'), lo=0.0, hi=1.0) +
              dot_plot('Share of pieces stacked on or under another piece', vals('prop_stacked'), lo=0.0, hi=1.0) +
              dot_plot('Tallest pile (layers; 1 = nothing stacked)', vals('max_stack_depth'), lo=1.0, fmt='%.1f'))
     cards = []
-    for rec, pieces in sorted(entries, key=lambda e: (e[0].get('sym_mirror') is None, e[0].get('sym_mirror') or 0)):
+    for rec, pieces in sorted(entries, key=lambda e: (e[0].get('mirror_score') is None, -(e[0].get('mirror_score') or 0))):
         if len(pieces) < 2:
             continue
         head = '<h3>%s <span>%s · %s · %d pieces</span></h3>' % (esc(rec['pid']), esc(rec['build']), esc(rec.get('_group') or ''), rec['n_pieces'])
-        p1 = '<div class="panel">%s<b>Mirror</b><div class="v">%s × random · axis %s°</div></div>' % (mirror_panel(pieces, rec.get('sym_axis_deg')), fmtv(rec.get('sym_mirror')), fmtv(rec.get('sym_axis_deg')))
-        p2 = '<div class="panel">%s<b>Rotation</b><div class="v">%s × random · best %s-fold · half-turn %s ×</div></div>' % (rotation_panel(pieces, rec.get('sym_rot_k')), fmtv(rec.get('sym_rot_best')), fmtv(rec.get('sym_rot_k')), fmtv(rec.get('sym_rot180')))
+        n = rec['n_pieces']
+        p1 = ('<div class="panel">%s<b>Mirror: %d of %d pieces matched (%.0f%%)</b><div class="v">chance %.0f%% · score %s · axis %.1f°</div></div>'
+              % (mirror_panel(pieces, rec), round(rec['mirror_match'] * n), n, 100 * rec['mirror_match'], 100 * rec['mirror_chance'], fmtv(rec.get('mirror_score')), rec['mirror_axis_deg']))
+        p2 = ('<div class="panel">%s<b>%d-fold rotation: %d of %d matched (%.0f%%)</b><div class="v">chance %.0f%% · score %s</div></div>'
+              % (rotation_panel(pieces, rec), rec['rot_k'], round(rec['rot_match'] * n), n, 100 * rec['rot_match'], 100 * rec['rot_chance'], fmtv(rec.get('rot_score'))))
         p3 = ('<div class="panel">%s<b>Contact and stacking</b><div class="v">%s touching pairs · %s stacked pairs · tallest pile %s · median gap %s mm</div></div>'
               % (contact_panel(pieces), fmtv(rec.get('n_touch_pairs')), fmtv(rec.get('n_stack_pairs')), fmtv(rec.get('max_stack_depth')), fmtv(rec.get('nn_gap_mm'), '%.1f')))
         cards.append('<section class="card">%s<div class="panels">%s%s%s</div></section>' % (head, p1, p2, p3))
-    key = ('<div class="key"><span><i class="ok"></i>a matching topping is there</span><span><i class="near"></i>one is close (within 15% of the radius)</span>'
-           '<span><i class="miss"></i>none nearby</span><span><i class="ok ln" style="border-color:var(--axis)"></i>mirror axis / rotation spokes</span>'
+    key = ('<div class="key"><span><i class="ok"></i>a piece of the same topping is there (matched)</span>'
+           '<span><i class="miss"></i>none there (not matched)</span><span><i class="ok ln" style="border-color:var(--axis)"></i>mirror axis / rotation spokes</span>'
            '<span><i class="ln" style="border-color:var(--near)"></i>touching</span><span><i class="ln" style="border-color:var(--miss);border-top-width:3px"></i>stacked (dashed ring = piece on top)</span></div>')
     return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
             '<title>Pizza Arrangement Report</title><style>%s</style></head><body><div class="wrap">'
             '<h1>Pizza arrangement: symmetry and contact</h1>'
             '<p class="muted">Each ring marks where a topping would have to be for the pizza to be perfectly symmetric: reflected across the best mirror axis, '
-            'or turned by the best rotation. The ring\'s colour says whether a piece of the same topping is actually there. The score is the average distance '
-            'from each ring to the nearest matching piece, divided by the same distance for random pizzas with the same toppings: 0 is perfect symmetry, 1 is no '
-            'more symmetric than chance. The contact panel joins pieces whose outlines touch or overlap; faded pieces touch nothing, and a number gives the '
+            'or turned by the best rotation. Green: a piece of the same topping lies there (within half the two pieces\' combined radius; each piece '
+            'partners one other), so the piece counts as matched. The share of green rings is the match; chance is the share the same pieces get at random '
+            'positions with the same search; score = (match − chance) / (1 − chance), so 0 is no more symmetric than chance and 1 is every piece matched. '
+            'Full definitions are on the Methods page. The contact panel joins pieces whose outlines touch or overlap; faded pieces touch nothing, and a number gives the '
             'height of a pile of three or more. A negative gap means pieces overlap. Groups come from the <code>%s</code> column.</p>'
             '%s<h2>Across the sample</h2>%s<h2>Each pizza, most mirror-symmetric first</h2><div class="cards">%s</div></div></body></html>'
             % (REPORT_CSS, esc(group_label), key, plots, ''.join(cards)))
@@ -1436,13 +1487,13 @@ def normality(own_recs, ref_sets_external, toppings):
 
 
 # The profile: one standardised score per measure, signed so that a higher score always means "more" of the named
-# trait (e.g. mirror symmetry uses -sym_mirror, because a lower ratio is more symmetric). 'log' = log(1 + x) first.
+# trait (e.g. even spacing uses -nn_cv, because a lower variation is more even). 'log' = log(1 + x) first.
 PROFILE_FEATURES = [
     ('Composition', 'n_pieces', 'Pieces', 'log', 1), ('Composition', 'n_distinct', 'Different toppings', None, 1),
     ('Composition', 'shannon', 'Variety', None, 1), ('Composition', 'prop_unusual_distinct', 'Unusual toppings', None, 1),
     ('Composition', 'diet_rank', 'Animal products', None, 1),
     ('Normality', 'composition_pct', 'Unusual combination', None, 1), ('Normality', 'count_pct', 'Unusual number of toppings', None, 1),
-    ('Space', 'sym_mirror', 'Mirror symmetry', None, -1), ('Space', 'sym_rot_best', 'Rotational symmetry', None, -1),
+    ('Space', 'mirror_score', 'Mirror symmetry', None, 1), ('Space', 'rot_score', 'Rotational symmetry', None, 1),
     ('Space', 'nn_cv', 'Even spacing', None, -1), ('Space', 'sector_similarity', 'Repeating slice pattern', None, 1),
     ('Space', 'clark_evans', 'Spread out', None, 1), ('Space', 'coverage', 'Coverage', None, 1),
     ('Space', 'prop_touching', 'Touching', None, 1), ('Space', 'prop_stacked', 'Stacking', None, 1),
@@ -2505,6 +2556,8 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
     for rec, _ in arrangement:
         rec.pop('_group', None)
     write_csv(os.path.join(out_dir, 'participants.csv'), people)
+    import methods                                    # the Methods page: how every number above is counted
+    methods.write(os.path.join(out_dir, 'methods.html'))
     with open(os.path.join(out_dir, 'gallery.html'), 'w', encoding='utf-8') as f:
         f.write('<!doctype html><meta charset="utf-8"><title>Pizza gallery</title>'
                 '<body style="font-family:sans-serif;display:flex;flex-wrap:wrap;gap:8px">' + ''.join(cells) + '</body>')
