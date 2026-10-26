@@ -45,13 +45,13 @@ A JSON array of `[t, type, ...]`:
 |---|---|---|
 | `start` | tray order (space-separated codes) | task shown |
 | `pick` | code, id, pointer (`m`ouse/`t`ouch/`p`en) | topping lifted from the tray |
-| `add` | code, id, x, y, drag_ms, snapped, size | dropped on the pizza |
-| `reject` | code, id, x, y, drag_ms | lifted from the tray, then dropped off the pizza |
+| `add` | code, id, x, y, drag_ms, snapped, size, movement | dropped on the pizza |
+| `reject` | code, id, x, y, drag_ms, -, -, movement | lifted from the tray, then dropped off the pizza |
 | `tap` | code, id | touched without dragging (a hint is shown) |
 | `grab` | code, id | placed topping picked up again |
-| `move` | code, id, x, y, drag_ms, snapped, size | placed topping moved |
+| `move` | code, id, x, y, drag_ms, snapped, size, movement | placed topping moved |
 | `resize` | code, id, size, hold_ms | placed topping pressed and held in place, released at a new size |
-| `remove` | code, id, x, y, drag_ms | placed topping dragged off the pizza |
+| `remove` | code, id, x, y, drag_ms, -, -, movement | placed topping dragged off the pizza |
 | `abort` | code, id | drag interrupted by the browser (e.g. a system gesture) |
 | `undo` | undone action (`add`/`move`/`resize`/`remove`/`clear`), id or count | |
 | `clear` | number of pieces removed | "Start over" confirmed |
@@ -59,6 +59,13 @@ A JSON array of `[t, type, ...]`:
 | `hover` | code, ms | mouse rested ≥150 ms on a tray item (desktop only) |
 | `hide`, `show` | | tab hidden or visible again |
 | `done`, `cancel`, `finish` | | "I'm done" pressed, confirmation declined, task finished |
+
+`movement` (the 10th element, index 9; `null` for a drag that never moved) describes how the drag went:
+`[path, straightness, pauses, longest_pause_ms, dwell_ms, crossings, hold_ms]`: path length in pizza diameters;
+straight-line distance / path (1 = straight); pauses of 250 ms or more after the piece started moving; the longest of
+them; time held still before letting go (includes any hold-to-resize); times the piece crossed the pizza's edge; time
+from pressing to the first movement. Recorded from task version with movement; older data has no index 9.
+The build summary has `move: {n, straight, pausesPerDrag, dwell, hold, path}` (medians, except pauses per drag).
 
 ### `<prefix>summary` - totals, device and layout
 
@@ -83,7 +90,7 @@ The default (`style: 'strong'`):
   strong: [codes the participant has strong feelings about], none: true if they chose "None of these",
   firstTapMs, pickMs,
   items: { <code>: { placed, feel, about: [...], safe, sameway, crave, t: {<question>: ms to first answer}, ms } },
-  finished, tTotal }
+  about: { ... }, diet: [...], finished, tTotal }
 ```
 
 - `feel`: `love` / `like` / `mixed` / `dislike` / `cant` (can't stand it)
@@ -92,6 +99,18 @@ The default (`style: 'strong'`):
 - `sameway`: it has to be a certain way (brand, cut, cooking) to eat it: `yes` / `sometimes` / `no`
 - `crave`: crave it or go looking for it: `often` / `sometimes` / `never`
 - `placed`: pieces of it on their pizza (`null` if the counts did not reach the follow-up page)
+
+`about` (the "About you" card, last; left out with `askAbout: false`):
+
+```
+{ neuro: [autistic|adhd|dys|otherND|none|pnts], dx: { autistic: formal|self|waiting|pnts, adhd: ... },
+  eating: [picky|arfid|ed|allergy|none|pnts], picky: 1-7, sensoryfood: 1-7,
+  age: 18-24|25-34|35-44|45-54|55-64|65+|pnts, gender: woman|man|nonbinary|other|pnts, t: {<question>: ms}, ms }
+```
+
+`dx` has an entry only for autistic / ADHD when ticked. `picky`: *I am a picky eater*; `sensoryfood`: *Food textures,
+smells or looks often bother me* (1 strongly disagree … 7 strongly agree). When the separate diet card is off, the card
+also asks the diet question into the top-level `diet` (with `pnts` = prefer not to say). `pnts` = prefer not to say throughout.
 
 With `style: 'ratings'` (and optionally `askPizza`, `askDiet`):
 
@@ -191,6 +210,14 @@ Scales run 1-7:
 | `practice_*`, `drag_vs_practice` | motor baseline from the practice (drag time, targeting error, tries, duration, pointer); build drag ÷ practice drag |
 | device | `pointer`, `coarse`, `layout`, `pizzaPx`, `vw`, `vh`, `dpr`, `hiddenMs`, `hides` |
 | `diet`, `diet_other`, `pizza_freq` | from the follow-up |
+| `neurotype` | from "About you": `AuDHD` (autistic and ADHD), `Autistic`, `ADHD`, `Other ND` (dyslexic etc. or otherwise neurodivergent only), `Not ND`; empty if not asked or prefer not to say |
+| `nd_autistic`, `nd_adhd`, `nd_dys`, `nd_otherND`, `nd_none`, `nd_pnts` | each self-description ticked (0/1) |
+| `dx_autistic`, `dx_adhd`, `nd_identified` | how each was identified (`formal` / `self` / `waiting` / `pnts`); `formal` if every autism/ADHD identity is formally diagnosed, else `self or waiting` |
+| `eat_picky`, `eat_arfid`, `eat_ed`, `eat_allergy`, `eat_none`, `eat_pnts`, `eat_any` | eating history ticked (0/1); `eat_any`: any of the first four |
+| `self_picky`, `self_sensory_food` | the two 1-7 self-ratings |
+| `age_band`, `gender` | demographics (empty if prefer not to say) |
+| `group` | the group in the study link (study server) |
+| `mv_n`, `mv_path`, `mv_straight`, `mv_pauses`, `mv_paused_share`, `mv_longest_pause`, `mv_dwell`, `mv_crossings`, `mv_hold` | movement of the drags (see `movement` above): number of drags with a record; median path; median straightness; mean pauses per drag; share of drags with a pause; longest pause (ms); median dwell before letting go (ms); mean edge crossings; median hold before moving (ms) |
 | `health_<allergy/intolerance/digestive/badexp/sensory>`, `health_any`, `health_other` | food-related health and past experience |
 | `pz_<express/distinct/auton/control/system/safety>` | the "About your pizza" items |
 | `ident_mean`, `ident_mean_unusual` | mean "reflects who I am" rating over the toppings used / over unusual-tier toppings used |
@@ -223,7 +250,7 @@ the ratings (`like`, `fam`, `safe`, `disg`, `norm`, `ident`), `never_tasted`, `w
 
 ### `profiles.csv`
 
-`pid`, `group`, `cluster`, then `z_<measure>` for each of the 29 profile measures: the measure standardised across the
+`pid`, `group` (the primary grouping), `cluster`, then `z_<measure>` for each of the 31 profile measures: the measure standardised across the
 sample (mean 0, SD 1, capped at ±3; missing values take the sample median), signed so that higher means *more* of the
 named trait. Measures marked log are log(1 + x) first. In order:
 - **Composition:** pieces (log), different toppings, variety (Shannon), unusual toppings share, animal products (0 vegan … 3 meat)
@@ -235,6 +262,17 @@ named trait. Measures marked log are log(1 + x) first. In order:
 - **Time:** time to start, decision time, time to completion (each log)
 - **Figurative:** face-like (`face_score`)
 - **Feelings:** strong feelings about toppings (`n_strong`), sensory reasons given (`n_sensory_reasons`)
+- **Movement:** direct drags (`mv_straight`), pauses while dragging (`mv_pauses`)
 
 Clusters: Ward's hierarchical clustering on the Euclidean distances between profiles; the number of clusters (2-8) is the one
 with the highest mean silhouette, unless `--clusters` fixes it.
+
+### `explore.csv`
+
+One row per comparison behind `explore.html`: `grouping` (the column people were grouped by, or a covariate), `level`
+(the group; `Spearman rho` for covariates), `vs` (the comparison group, or `the rest`), `area`, `key` (a column of
+`participants.csv`; `inc_<code>` = topping on the pizza, `neg_<code>` / `pos_<code>` = named with strong negative /
+positive feelings, `<field>=<value>` = a base or diet-class choice), `label`, `n1`, `n0` (group sizes), `m1`, `m0`
+(medians; proportions for yes/no measures), `delta` (Cliff's δ, or Spearman's ρ for covariates), `p`, `q`
+(Benjamini-Hochberg within the grouping).
+

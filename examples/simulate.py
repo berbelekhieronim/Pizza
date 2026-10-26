@@ -1,5 +1,6 @@
 """Simulated participants, for previewing the reports before real data exists. The data is made up: the groups are
-labelled 'Group A/B (simulated)' and no result from it means anything.
+labelled 'Group A/B (simulated)', the "About you" answers are drawn at random (style A a little more often autistic /
+ADHD), and no result from it means anything.
 
     python3 simulate.py <out_dir> <seed> <n> <styles>
     python3 simulate.py sample 5 60 AB      # 60 participants alternating between the two simulated styles
@@ -67,13 +68,18 @@ def person(style, pid):
         t += int(R.lognormvariate(6.9, .55) * slow); ev.append([t, 'pick', k, i + 1, 'm'])
         drag = int(R.lognormvariate(6.2, .3)); g = round(R.uniform(1.3, 2.3), 2) if grower and R.random() < .3 else 1
         if g > 1: drag += int((g - 1) / .8 * 1000) + 500
-        t += drag; ev.append([t, 'add', k, i + 1, x, y, drag, 0, g])
+        # how the drag moved: path (pizza diameters), straightness, pauses, longest pause, dwell, edge crossings, hold before moving
+        pauses = sum(R.random() < (.35 if style == 'A' else .15) for _ in range(3))
+        mv = [round(R.uniform(.6, 1.4), 2), round(min(1, R.betavariate(9, 2) if style == 'B' else R.betavariate(6, 2)), 2), pauses,
+              int(R.lognormvariate(5.9, .4)) if pauses else 0, int(R.lognormvariate(5.3, .6)), int(R.random() < .08), int(R.lognormvariate(4.8, .5))]
+        t += drag; ev.append([t, 'add', k, i + 1, x, y, drag, 0, g, mv])
         final.append([i + 1, k, x, y, R.randrange(360), round(R.uniform(.9, 1.1), 2), R.randrange(3), i + 1, g])
     t += R.randint(1500, 6000); ev.append([t, 'done']); ev.append([t + 900, 'finish'])
     cheese = 'none' if diet == 'vegan' else R.choices(['light', 'normal', 'extra', 'none'], [.2, .6, .17, .03])[0]
     sauce = R.choices(['tomato', 'white', 'bbq', 'none'], [.82, .06, .09, .03])[0]
     if diet == 'vegan' and sauce == 'white': sauce = 'tomato'
-    summ = {'finished': True, 'cond': 'simulated', 'sauce': sauce, 'cheese': cheese, 'tray': TRAY, 'hiddenMs': 0}
+    summ = {'finished': True, 'cond': 'simulated', 'sauce': sauce, 'cheese': cheese, 'tray': TRAY, 'hiddenMs': 0,
+            'pointer': R.choice(['touch', 'mouse'])}
     # follow-up (default style): strong feelings about a few ingredients, five answers about each
     strong = R.sample(TRAY, R.choice([0, 1, 1, 2, 2, 3, 4] if style == 'A' else [0, 0, 1, 1, 2, 3]))
     items = {}
@@ -84,7 +90,15 @@ def person(style, pid):
                     'safe': R.choice(['yes', 'sometimes', 'no'] if on else ['no', 'no', 'sometimes']),
                     'sameway': R.choice(['yes', 'sometimes', 'no', 'no'] if style == 'A' else ['sometimes', 'no', 'no', 'no']),
                     'crave': R.choice(['often', 'sometimes', 'never'] if on else ['never']), 'placed': plan.count(k)}
-    fol = {'style': 'strong', 'strong': strong, 'none': not strong, 'items': items,
+    # "About you": a made-up mix of neurotypes, how they were identified, eating history and self-ratings
+    neuro = R.choices([['autistic'], ['adhd'], ['autistic', 'adhd'], ['dys'], ['none'], ['pnts']],
+                      [.3, .15, .15, .05, .3, .05] if style == 'A' else [.08, .12, .04, .06, .65, .05])[0]
+    dx = {c: R.choice(['formal', 'formal', 'self', 'waiting']) for c in neuro if c in ('autistic', 'adhd')}
+    eating = [e for e in ('picky', 'arfid', 'allergy') if R.random() < {'picky': .4 if 'autistic' in neuro else .12, 'arfid': .06, 'allergy': .1}[e]] or ['none']
+    about = {'neuro': neuro, 'dx': dx, 'eating': eating, 'picky': max(1, min(7, round(R.gauss(3 + len(strong) * .5 + ('picky' in eating) * 1.5, 1.3)))),
+             'sensoryfood': max(1, min(7, round(R.gauss(3 + len(strong) * .6, 1.4)))),
+             'age': R.choice(['18-24', '25-34', '25-34', '35-44', '45-54', '55-64']), 'gender': R.choice(['woman', 'man', 'woman', 'man', 'nonbinary'])}
+    fol = {'style': 'strong', 'strong': strong, 'none': not strong, 'items': items, 'about': about,
            'diet': [diet] if diet != 'none' else ['none'], 'health': ['none'], 'freq': '1-3m', 'pizza': {}, 'finished': True}
     return {'pz_final': json.dumps(final), 'pz_events': json.dumps(ev), 'pz_summary': json.dumps(summ), 'pzf_data': json.dumps(fol)}
 out, n, styles = sys.argv[1], int(sys.argv[3]), sys.argv[4]

@@ -82,7 +82,7 @@
       opts.prefix = 'pzt_';
       opts.prompt = 'Now make the pizza you think a typical person taking part in this study would choose. Drag toppings onto the pizza; drag a topping off to remove it.';
     }
-    if (name === 'followup') opts.counts = S.fields.pz_counts || null;
+    if (name === 'followup') { opts.counts = S.fields.pz_counts || null; opts.askAbout = S.study.about_you !== false; }
     widget = PizzaBuilder.mount(box, opts);
   }
   function intro() {

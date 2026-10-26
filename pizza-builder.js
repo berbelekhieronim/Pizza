@@ -42,6 +42,7 @@
     return a;
   }
   function shuffle(a) { a = a.slice(); for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+  function fmedian(a) { a = a.filter(function (x) { return x != null; }).sort(function (x, y) { return x - y; }); if (!a.length) return null; var m = a.length >> 1; return a.length % 2 ? a[m] : Math.round(50 * (a[m - 1] + a[m])) / 100; }
   function median(a) { if (!a.length) return null; a = a.slice().sort(function (x, y) { return x - y; }); var m = a.length >> 1; return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2); }
   function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -469,7 +470,21 @@
       ['allergy', 'Allergy or intolerance'], ['health', 'Health or calories'], ['safety', 'Worried it might not be safe to eat'],
       ['disgust', 'It puts me off / disgusts me'], ['unfamiliar', "I don't know it well"], ['notpizza', "It doesn't belong on a pizza"],
       ['nofit', 'It does not go with my other toppings'], ['noreason', 'No particular reason'], ['other', 'Something else']],
-    reasonOtherPh: 'Please describe (optional)'
+    reasonOtherPh: 'Please describe (optional)',
+    aboutTitle: 'About you',
+    aboutSub: 'This helps us see how different people make their pizzas. Every question has a "Prefer not to say" option.',
+    about: {
+      neuro: ['Do any of these describe you? Choose all that apply.', true, [['autistic', 'Autistic'], ['adhd', 'ADHD'],
+        ['dys', 'Dyslexic, dyspraxic or dyscalculic'], ['otherND', 'Neurodivergent in another way'], ['none', 'None of these'], ['pnts', 'Prefer not to say']]],
+      dx_autistic: ['Being autistic: is this', false, [['formal', 'Formally diagnosed'], ['self', 'Self-identified'], ['waiting', 'Waiting for or seeking an assessment'], ['pnts', 'Prefer not to say']]],
+      dx_adhd: ['ADHD: is this', false, [['formal', 'Formally diagnosed'], ['self', 'Self-identified'], ['waiting', 'Waiting for or seeking an assessment'], ['pnts', 'Prefer not to say']]],
+      eating: ['Have any of these ever applied to you? Choose all that apply.', true, [['picky', 'Picky or selective eating since childhood'],
+        ['arfid', 'ARFID (avoidant/restrictive food intake disorder)'], ['ed', 'An eating disorder'], ['allergy', 'A food allergy or intolerance'],
+        ['none', 'None of these'], ['pnts', 'Prefer not to say']]],
+      age: ['Your age', false, [['18-24', '18-24'], ['25-34', '25-34'], ['35-44', '35-44'], ['45-54', '45-54'], ['55-64', '55-64'], ['65+', '65 or over'], ['pnts', 'Prefer not to say']]],
+      gender: ['Your gender', false, [['woman', 'Woman'], ['man', 'Man'], ['nonbinary', 'Non-binary'], ['other', 'Another gender'], ['pnts', 'Prefer not to say']]]
+    },
+    aboutScales: [['picky', 'I am a picky eater.'], ['sensoryfood', 'Food textures, smells or looks often bother me.']]
   };
 
   function iname(o, code) { return (o.names && o.names[code]) || ING[code].name; }
@@ -483,7 +498,7 @@
     sauce: 'tomato', cheese: 'normal', baseChoices: true,
     minSeconds: 0, minPieces: 0, maxPieces: 250, showCounts: false,
     touchLift: 44, logHover: true, confirm: true, bake: true, autoScroll: true, snapIn: false,
-    grow: true, growDelay: 500, growMin: 0.5, growMax: 2.5, growPeriod: 3000, stillPx: 8,
+    grow: true, growDelay: 500, growMin: 0.5, growMax: 2.5, growPeriod: 3000, stillPx: 8, pauseMs: 250,
     target: [0.42, 0.3], targetTol: 0.12, maxEventChars: 60000,
     names: null, text: null, onSave: null, onFinish: null, onEvent: null
   };
@@ -721,7 +736,8 @@
     var t = now();
     this.drag = { p: p, tray: trayEl, id: e.pointerId, t0: t, offX: offX, offY: offY, sx: e.clientX, sy: e.clientY,
       lx: e.clientX, ly: e.clientY, moved: false, ghost: gh, half: half, x0: p.x, y0: p.y,
-      g0: g0, g: g0, hx: e.clientX, hy: e.clientY, ht: t, lt: t, lift: trayEl ? 0 : lift };
+      g0: g0, g: g0, hx: e.clientX, hy: e.clientY, ht: t, lt: t, lift: trayEl ? 0 : lift,
+      path: 0, px: e.clientX, py: e.clientY, diam: 2 * 100 * g.ppu, np: 0, mp: 0, cross: 0, wasOn: null, tMoved: null };
     this._frame();
   };
 
@@ -731,9 +747,11 @@
     var d = this.drag, o = this.o, self = this;
     if (!d) return;
     var t = now();
-    if (o.grow) {
-      if (Math.abs(d.lx - d.hx) + Math.abs(d.ly - d.hy) > o.stillPx) { d.hx = d.lx; d.hy = d.ly; d.ht = t; d.ph = null; }
-      else if (t - d.ht > o.growDelay) {
+    if (Math.abs(d.lx - d.hx) + Math.abs(d.ly - d.hy) > o.stillPx) {
+      if (d.tMoved != null && d.ht >= d.tMoved && t - d.ht >= o.pauseMs) { d.np++; d.mp = Math.max(d.mp, t - d.ht); }   // a pause mid-drag
+      d.hx = d.lx; d.hy = d.ly; d.ht = t; d.ph = null;
+    } else if (o.grow) {
+      if (t - d.ht > o.growDelay) {
         var mid = (o.growMax + o.growMin) / 2, amp = (o.growMax - o.growMin) / 2;
         if (d.ph == null) d.ph = Math.asin(Math.max(-1, Math.min(1, (d.g - mid) / amp)));
         d.ph += 2 * Math.PI * (t - d.lt) / o.growPeriod;
@@ -750,7 +768,8 @@
     if (!d || e.pointerId !== d.id) return;
     e.preventDefault();
     d.lx = e.clientX; d.ly = e.clientY;
-    if (!d.moved && Math.abs(d.lx - d.sx) + Math.abs(d.ly - d.sy) > 6) { d.moved = true; d.offY -= d.lift; }
+    d.path += Math.sqrt((d.lx - d.px) * (d.lx - d.px) + (d.ly - d.py) * (d.ly - d.py)); d.px = d.lx; d.py = d.ly;
+    if (!d.moved && Math.abs(d.lx - d.sx) + Math.abs(d.ly - d.sy) > 6) { d.moved = true; d.offY -= d.lift; d.tMoved = now(); }
   };
 
   Builder.prototype._paint = function () {
@@ -759,6 +778,7 @@
     d.ghost.style.transform = 'translate3d(' + (cx - d.half) + 'px,' + (cy - d.half) + 'px,0) scale(' + (d.g / d.g0) + ')';
     var q = this._toPizza(cx, cy, this._geom()), on = Math.sqrt(q.x * q.x + q.y * q.y) <= R_OFF;
     d.ghost.classList.toggle('pzb-out', !on);
+    if (d.moved) { if (d.wasOn != null && on !== d.wasOn) d.cross++; d.wasOn = on; }
     this.w.classList.toggle('pzb-over', on);
   };
 
@@ -773,8 +793,13 @@
     var g = this._geom(), q = this._toPizza(e.clientX + d.offX, e.clientY + d.offY, g);
     var r = Math.sqrt(q.x * q.x + q.y * q.y), snap = 0;
     if (this.o.snapIn && r > R_SNAP && r <= R_OFF) { q.x *= R_SNAP / r; q.y *= R_SNAP / r; snap = 1; }
-    var on = r <= R_OFF, x = r3(q.x), y = r3(q.y);
+    var on = r <= R_OFF, x = r3(q.x), y = r3(q.y), mv = null;
     this._dropGhost(d, on && !cancelled);
+    if (d.moved) {   // how the drag moved: path (pizza diameters), straightness, pauses, longest pause, dwell before letting go, edge crossings, hold before moving
+      var t1 = now(), direct = Math.sqrt((e.clientX - d.sx) * (e.clientX - d.sx) + (e.clientY - d.sy) * (e.clientY - d.sy));
+      mv = [Math.round(100 * d.path / d.diam) / 100, d.path > 0 ? Math.round(100 * Math.min(1, direct / d.path)) / 100 : null,
+        d.np, Math.round(d.mp), Math.round(t1 - d.ht), d.cross, Math.round(d.tMoved - d.t0)];
+    }
 
     if (cancelled) { this.log('abort', p.ing, p.id); if (!d.tray) this._render(); return; }
     if (!d.moved && grew && !d.tray) {  // pressed and held in place: the topping changed size where it lies
@@ -794,21 +819,21 @@
       if (on) {
         p.x = x; p.y = y; p.n = ++this.seq; p.g = gNew;
         this.pieces.push(p); this.stack.push({ a: 'add', p: p });
-        this.log('add', p.ing, p.id, x, y, ms, snap, gNew);
+        this.log('add', p.ing, p.id, x, y, ms, snap, gNew, mv);
         if (this.practice && this.step === 3 && grew) this._nextStep(); else this._practiceAdd(p);
       } else {
-        this.log('reject', p.ing, p.id, x, y, ms);
+        this.log('reject', p.ing, p.id, x, y, ms, null, null, mv);
       }
     } else if (on) {
       this.stack.push({ a: 'move', p: p, x: p.x, y: p.y, g: p.g });
       p.x = x; p.y = y; p.g = gNew;
       this.pieces.splice(this.pieces.indexOf(p), 1); this.pieces.push(p);   // a moved topping lands on top
-      this.log('move', p.ing, p.id, x, y, ms, snap, gNew);
+      this.log('move', p.ing, p.id, x, y, ms, snap, gNew, mv);
       if (this.practice && (this.step === 2 || (this.step === 3 && grew))) this._nextStep();
     } else {
       var i = this.pieces.indexOf(p);
       this.pieces.splice(i, 1); this.stack.push({ a: 'remove', p: p, i: i });
-      this.log('remove', p.ing, p.id, x, y, ms);
+      this.log('remove', p.ing, p.id, x, y, ms, null, null, mv);
       if (this.practice && this.step === 4) this._nextStep();
     }
     this._render();
@@ -948,9 +973,10 @@
   };
 
   Builder.prototype.data = function () {
-    var o = this.o, counts = this.counts(), ev = this.ev, n = {}, drags = [], adds = [], first = {};
+    var o = this.o, counts = this.counts(), ev = this.ev, n = {}, drags = [], adds = [], first = {}, mv = [];
     ev.forEach(function (e) {
       n[e[1]] = (n[e[1]] || 0) + 1;
+      if (e[9]) mv.push(e[9]);
       if (e[1] === 'add' || e[1] === 'move') drags.push(e[6]);
       if (e[1] === 'add') { adds.push(e[0]); if (first.add == null) first.add = e[0]; }
       if (e[1] === 'pick' && first.pick == null) first.pick = e[0];
@@ -970,6 +996,8 @@
       nGrown: this.pieces.filter(function (p) { return (p.g || 1) > 1.01; }).length,
       nShrunk: this.pieces.filter(function (p) { return (p.g || 1) < 0.99; }).length,
       dragMsMedian: median(drags), addGapMsMedian: median(gaps),
+      move: mv.length ? { n: mv.length, straight: fmedian(mv.map(function (m) { return m[1]; })), pausesPerDrag: Math.round(100 * mv.reduce(function (a, m) { return a + m[2]; }, 0) / mv.length) / 100,
+        dwell: median(mv.map(function (m) { return m[4]; })), hold: median(mv.map(function (m) { return m[6]; })), path: fmedian(mv.map(function (m) { return m[0]; })) } : null,
       hiddenMs: Math.round(this.hiddenMs + (this.hiddenAt != null ? now() - this.hiddenAt : 0)), hides: n.hide || 0,
       pointer: this.pointer, coarse: mq('(pointer: coarse)'), hover: mq('(hover: hover)'),
       vw: global.innerWidth, vh: global.innerHeight, dpr: global.devicePixelRatio || 1,
@@ -1025,6 +1053,9 @@
     // style 'ratings': every ingredient rated on scales, reasons for those left off. askPizza / askDiet default to on only there.
     style: 'strong', feelQuestions: ['feel', 'about', 'safe', 'sameway', 'crave'],
     counts: null, countsFrom: 'pz_', askPizza: null, askDiet: null, askReasons: true, askIdentity: true, force: true,
+    // 'About you', the last card: who the participant is, so patterns can be explored across many kinds of people.
+    // 'diet' is asked here only when the separate diet card is off. Set askAbout: false if the survey asks these itself.
+    askAbout: true, aboutQuestions: ['neuro', 'eating', 'diet', 'scales', 'age', 'gender'],
     scales: ['like', 'fam', 'safe', 'disg', 'norm'], pizzaItems: null, names: null, text: null, onSave: null, onFinish: null
   };
 
@@ -1037,6 +1068,7 @@
     this.T = extend({}, TEXT, o.text);
     if (o.text && o.text.feel) this.T.feel = extend({}, TEXT.feel, o.text.feel);
     if (o.text && o.text.scales) this.T.scales = extend({}, TEXT.scales, o.text.scales);
+    if (o.text && o.text.about) this.T.about = extend({}, TEXT.about, o.text.about);
     this.counts = parseCounts(o.counts);
     if (!Object.keys(this.counts).length) {     // piping gave nothing: use what the build page left in this tab
       try { this.counts = parseCounts(global.sessionStorage.getItem('pzb:' + o.countsFrom + 'counts')); } catch (e) { /* storage blocked */ }
@@ -1049,6 +1081,7 @@
     if (strong) { this.res.strong = []; this.res.none = false; }
     this.screens = strong ? ['@pick'].concat(o.askPizza ? ['@pizza'] : [], o.askDiet ? ['@diet'] : [])
       : (o.askPizza ? ['@pizza'] : []).concat(this.order, o.askDiet ? ['@diet'] : []);
+    if (o.askAbout) this.screens.push('@about');
     this.w = el('div', 'pzb pzb-mode-followup');
     root.appendChild(this.w);
     var self = this;
@@ -1062,7 +1095,7 @@
     this.w.innerHTML = '';
     this.cardT = now();
     var sc = this.screens[this.i];
-    if (sc === '@diet') this._diet(); else if (sc === '@pizza') this._pizza(); else if (sc === '@pick') this._pick();
+    if (sc === '@diet') this._diet(); else if (sc === '@pizza') this._pizza(); else if (sc === '@pick') this._pick(); else if (sc === '@about') this._about();
     else if (sc.indexOf('f:') === 0) this._feel(sc.slice(2)); else this._item(sc);
     try { this.w.scrollIntoView({ block: 'start' }); } catch (e) { /* old browsers */ }
   };
@@ -1256,9 +1289,61 @@
     this.w.appendChild(card);
   };
 
+  // Who the participant is: neurotype (self-described, with how it was identified), eating history, diet, two
+  // self-ratings and demographics. Each question has "Prefer not to say"; the card needs an answer to each.
+  Followup.prototype._about = function () {
+    var T = this.T, o = this.o, r = this.res, self = this, card = el('div', 'pzb-card'), upd, checks = [];
+    var a = r.about = { neuro: [], dx: {}, eating: [], age: null, gender: null, t: {} };
+    card.appendChild(el('h3', null, esc(T.aboutTitle)));
+    card.appendChild(el('p', 'pzb-sub', esc(T.aboutSub)));
+    function stamp(k) { if (a.t[k] == null) a.t[k] = Math.round(now() - self.cardT); }
+    function ask(k, sel, onChange, parent) {
+      var def = T.about[k], q = el('div', 'pzb-q'), one = [];
+      q.appendChild(el('p', null, esc(def[0])));
+      q.appendChild(self._checks(def[2], def[1], def[1] ? sel : one, function () { if (!def[1]) onChange(one[0]); else onChange(); stamp(k); upd(); }, def[1] ? ['none', 'pnts'] : null));
+      (parent || card).appendChild(q);
+      return q;
+    }
+    o.aboutQuestions.forEach(function (k) {
+      if (k === 'neuro') {
+        var sub = {};
+        ask('neuro', a.neuro, function () {
+          ['autistic', 'adhd'].forEach(function (c) {
+            var on = a.neuro.indexOf(c) >= 0;
+            sub[c].style.display = on ? '' : 'none';
+            if (!on && a.dx[c]) { delete a.dx[c]; [].forEach.call(sub[c].querySelectorAll('.pzb-check'), function (b) { b.setAttribute('aria-pressed', 'false'); }); }
+          });
+        });
+        ['autistic', 'adhd'].forEach(function (c) {
+          sub[c] = ask('dx_' + c, null, function (v) { a.dx[c] = v; });
+          sub[c].style.display = 'none';
+        });
+        checks.push(function () { return a.neuro.length > 0 && ['autistic', 'adhd'].every(function (c) { return a.neuro.indexOf(c) < 0 || a.dx[c]; }); });
+      } else if (k === 'eating') {
+        ask('eating', a.eating, function () {});
+        checks.push(function () { return a.eating.length > 0; });
+      } else if (k === 'diet' && !o.askDiet) {
+        var q = el('div', 'pzb-q'); q.appendChild(el('p', null, esc(T.dietQ)));
+        q.appendChild(self._checks(T.diets.concat([['pnts', T.about.age[2][6][1]]]), true, r.diet, function () { stamp('diet'); upd(); }, ['none', 'pnts'])); card.appendChild(q);
+        checks.push(function () { return r.diet.length > 0; });
+      } else if (k === 'scales') {
+        T.aboutScales.forEach(function (it) {
+          a[it[0]] = null;
+          card.appendChild(self._scale(it[1], T.agree, function (v) { a[it[0]] = v; stamp(it[0]); upd(); }));
+          checks.push(function () { return a[it[0]] != null; });
+        });
+      } else if (k === 'age' || k === 'gender') {
+        ask(k, null, function (v) { a[k] = v; });
+        checks.push(function () { return a[k] != null; });
+      }
+    });
+    upd = this._nav(card, function () { return checks.every(function (f) { return f(); }); }, this.i === this.screens.length - 1 ? T.finish : T.next);
+    this.w.appendChild(card);
+  };
+
   Followup.prototype._next = function () {
     var ms = Math.round(now() - this.cardT), sc = this.screens[this.i];
-    if (sc === '@diet') this.res.dietMs = ms; else if (sc === '@pizza') this.res.pizza.ms = ms;
+    if (sc === '@diet') this.res.dietMs = ms; else if (sc === '@pizza') this.res.pizza.ms = ms; else if (sc === '@about') this.res.about.ms = ms;
     else if (sc === '@pick') {
       this.res.pickMs = ms;
       var picked = this.order.filter(function (k) { return this.res.strong.indexOf(k) >= 0; }, this);   // asked in the list's order

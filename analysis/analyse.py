@@ -15,10 +15,15 @@ Writes into --out (default: pizza_results/):
     profiles.csv         the standardised profile scores and cluster of each participant
     dashboard.html       the data at a glance: diet breakdown, normality against a reference distribution (--reference),
                          space / size / time by group, and a sortable table of every participant
+    explore.html         for discovering patterns: every measure and topping screened across every way of grouping people
+                         (self-described neurotype, diagnosis status, eating history, gender, age, device, --group columns)
+                         and against continuous self-reports (--covariates), ranked by effect size with FDR q-values
+    explore.csv          every comparison behind explore.html
 
 Standard library only. Measure definitions are in ../CODEBOOK.md.
 """
 import argparse
+import bisect
 import csv
 import json
 import math
@@ -730,6 +735,63 @@ def timing(events, summary):
     return out
 
 
+def movement_measures(events):
+    """How the drags moved (index 9 of add / move / reject / remove events, recorded from task version with movement):
+    path in pizza diameters, straightness (straight-line distance / path), pauses of 250 ms+ mid-drag, the longest one,
+    dwell (still time before letting go), crossings of the pizza edge, and the hold before the piece first moved."""
+    mv = [e[9] for e in events if e[1] in ('add', 'move', 'reject', 'remove') and len(e) > 9 and isinstance(e[9], list) and len(e[9]) >= 7]
+    if not mv:
+        return {}
+    med = lambda i: statistics.median([m[i] for m in mv if m[i] is not None]) if any(m[i] is not None for m in mv) else None
+    return {'mv_n': len(mv), 'mv_path': med(0), 'mv_straight': med(1), 'mv_pauses': statistics.mean(m[2] for m in mv),
+            'mv_paused_share': sum(m[2] > 0 for m in mv) / len(mv), 'mv_longest_pause': max(m[3] for m in mv),
+            'mv_dwell': med(4), 'mv_crossings': statistics.mean(m[5] for m in mv), 'mv_hold': med(6)}
+
+
+AB_NEURO = ['autistic', 'adhd', 'dys', 'otherND', 'none', 'pnts']
+AB_EATING = ['picky', 'arfid', 'ed', 'allergy', 'none', 'pnts']
+
+
+def neurotype(neuro):
+    """A grouping from the self-described neurotypes: AuDHD, Autistic, ADHD, Other ND, Not ND, or None (not asked / prefer not)."""
+    if not neuro or 'pnts' in neuro:
+        return None
+    a, d = 'autistic' in neuro, 'adhd' in neuro
+    if a and d:
+        return 'AuDHD'
+    if a:
+        return 'Autistic'
+    if d:
+        return 'ADHD'
+    if 'dys' in neuro or 'otherND' in neuro:
+        return 'Other ND'
+    return 'Not ND' if 'none' in neuro else None
+
+
+def about_measures(about):
+    """The 'About you' card of the follow-up: neurotype (self-described, and how it was identified), eating history,
+    two 1-7 self-ratings and demographics. Every column is empty when the card was not shown."""
+    if not about:
+        return {}
+    neuro, dx, eating = about.get('neuro') or [], about.get('dx') or {}, about.get('eating') or []
+    out = {'neurotype': neurotype(neuro)}
+    for k in AB_NEURO:
+        out['nd_' + k] = int(k in neuro) if neuro else None
+    for c in ('autistic', 'adhd'):
+        out['dx_' + c] = dx.get(c)
+    ids = [dx.get(c) for c in ('autistic', 'adhd') if c in neuro]
+    # how the autistic / ADHD identity was established, for checking whether patterns hold with formal diagnoses only
+    out['nd_identified'] = None if not ids or 'pnts' in ids or None in ids else ('formal' if all(v == 'formal' for v in ids) else 'self or waiting')
+    for k in AB_EATING:
+        out['eat_' + k] = int(k in eating) if eating else None
+    out['eat_any'] = int(any(k in eating for k in ('picky', 'arfid', 'ed', 'allergy'))) if eating and 'pnts' not in eating else None
+    out['self_picky'] = about.get('picky')
+    out['self_sensory_food'] = about.get('sensoryfood')
+    out['age_band'] = None if about.get('age') in (None, 'pnts') else about.get('age')
+    out['gender'] = None if about.get('gender') in (None, 'pnts') else about.get('gender')
+    return out
+
+
 def practice_measures(summary, events):
     if not summary:
         return {}
@@ -1392,6 +1454,7 @@ PROFILE_FEATURES = [
     ('Time', 't_submit', 'Time to completion', 'log', 1),
     ('Figurative', 'face_score', 'Face-like', None, 1),
     ('Feelings', 'n_strong', 'Strong feelings about toppings', None, 1), ('Feelings', 'n_sensory_reasons', 'Sensory reasons given', None, 1),
+    ('Movement', 'mv_straight', 'Direct drags', None, 1), ('Movement', 'mv_pauses', 'Pauses while dragging', None, 1),
 ]
 
 
@@ -1796,13 +1859,418 @@ def r4(v):
     return round(v, 4) if isinstance(v, float) else v
 
 
-def analyse(rows, builds, out_dir, seed, group_col=None, ref_rows=None, k_force=None):
+# ------------------------------------------------------------------ exploration
+
+# Measures screened in explore.html beyond the profile measures: (area, key, label).
+EXPLORE_EXTRA = [
+    ('Composition', 'meat_or_fish', 'Any meat or fish'), ('Composition', 'n_categories', 'Food categories'),
+    ('Composition', 'evenness', 'Even amounts of each topping'), ('Normality', 'ingredient_rarity', 'Rare toppings (in this sample)'),
+    ('Normality', 'profile_uniqueness', 'Unlike the other pizzas'), ('Space', 'angular_regularity', 'Even angles round the centre'),
+    ('Figurative', 'face_detected', 'Made a face'),
+    ('Process', 'n_ev_move', 'Moves'), ('Process', 'n_ev_remove', 'Removals'), ('Process', 'n_ev_undo', 'Undos'),
+    ('Process', 'n_ev_reject', 'Dropped off the pizza'), ('Process', 'n_never_picked', 'Toppings never touched'),
+    ('Process', 'n_picked_not_kept', 'Toppings tried, then left off'), ('Process', 'n_done_presses', "Presses of I'm done"),
+    ('Process', 't_after_done', "Time between I'm done and submitting"),
+    ('Movement', 'mv_straight', 'Direct drags'), ('Movement', 'mv_pauses', 'Pauses per drag'), ('Movement', 'mv_paused_share', 'Drags with a pause'),
+    ('Movement', 'mv_dwell', 'Dwell before letting go'), ('Movement', 'mv_hold', 'Hold before moving'),
+    ('Movement', 'mv_crossings', 'Crossings of the pizza edge'), ('Movement', 'mv_path', 'Drag path length'),
+    ('Feelings', 'n_strong_positive', 'Strong positive feelings'), ('Feelings', 'n_strong_negative', 'Strong negative feelings'),
+    ('Feelings', 'n_safe_foods', 'Safe foods named'), ('Feelings', 'n_same_way', 'Foods that must be a certain way'),
+    ('Feelings', 'n_crave_often', 'Foods often craved'), ('Feelings', 'n_about_texture', 'Texture reasons'),
+    ('Feelings', 'n_about_smell', 'Smell reasons'), ('Feelings', 'n_about_touching', '"Touching other food" reasons'),
+    ('Feelings', 'strong_neg_on_pizza', 'Disliked toppings still used'),
+]
+# Ways of grouping people that explore.html tries when present: (key, label).
+EXPLORE_GROUPINGS = [
+    ('neurotype', 'Neurotype (self-described)'), ('nd_autistic', 'Autistic, incl. AuDHD (yes / no)'), ('nd_adhd', 'ADHD, incl. AuDHD (yes / no)'),
+    ('nd_identified', 'Autism / ADHD: formally diagnosed or not'), ('eat_any', 'Any eating difficulty, allergy or intolerance (yes / no)'),
+    ('eat_picky', 'Picky eating since childhood (yes / no)'), ('gender', 'Gender'), ('age_band', 'Age'), ('pointer', 'Device (touch / mouse)'),
+    ('group', 'Recruitment group (study link)'), ('condition', 'Condition'),
+]
+EXPLORE_COVARIATES = [('self_picky', '"I am a picky eater" (1-7)'), ('self_sensory_food', '"Food textures, smells or looks bother me" (1-7)')]
+
+
+def midranks(vals):
+    order = sorted(range(len(vals)), key=lambda i: vals[i])
+    r = [0.0] * len(vals)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and vals[order[j + 1]] == vals[order[i]]:
+            j += 1
+        for k in range(i, j + 1):
+            r[order[k]] = (i + j) / 2 + 1
+        i = j + 1
+    return r
+
+
+def cliff_delta(x, y):
+    """Cliff's delta: P(a value from x > one from y) - P(<). -1..1; 0 = no difference. For yes/no measures it is the
+    difference in percentages (as a proportion)."""
+    if not x or not y:
+        return None
+    ys = sorted(y)
+    m = len(ys)
+    return sum(bisect.bisect_left(ys, v) - (m - bisect.bisect_right(ys, v)) for v in x) / (len(x) * m)
+
+
+def mw_p(r1, all_ranks, n1, tie_term, rnd):
+    """Two-sided p for the rank sum of n1 values out of n (Mann-Whitney): a permutation test (4000 draws) when a group
+    is small, otherwise the normal approximation with the tie correction."""
+    n = len(all_ranks)
+    n2 = n - n1
+    mu = n1 * (n + 1) / 2
+    if min(n1, n2) < 8:
+        obs = abs(r1 - mu) - 1e-9
+        hits = sum(abs(sum(rnd.sample(all_ranks, n1)) - mu) >= obs for _ in range(4000))
+        return (hits + 1) / 4001
+    var = n1 * n2 / 12 * ((n + 1) - tie_term / (n * (n - 1)))
+    if var <= 0:
+        return 1.0
+    z = max(0.0, abs(r1 - mu) - 0.5) / math.sqrt(var)
+    return math.erfc(z / math.sqrt(2))
+
+
+def bh(ps):
+    """Benjamini-Hochberg q-values (false discovery rate) for a list of p-values (None stays None)."""
+    idx = sorted((i for i, p in enumerate(ps) if p is not None), key=lambda i: ps[i])
+    q = [None] * len(ps)
+    m, run = len(idx), 1.0
+    for rank in range(m, 0, -1):
+        i = idx[rank - 1]
+        run = min(run, ps[i] * m / rank)
+        q[i] = run
+    return q
+
+
+def boot_ci(x, y, rnd, B=600):
+    """95% percentile bootstrap interval for Cliff's delta, resampling within each group."""
+    if set(x) | set(y) <= {0, 1}:                     # yes/no: delta is the difference in proportions
+        ds = sorted(sum(rnd.choice(x) for _ in x) / len(x) - sum(rnd.choice(y) for _ in y) / len(y) for _ in range(B))
+    else:
+        ds = sorted(cliff_delta([rnd.choice(x) for _ in x], [rnd.choice(y) for _ in y]) for _ in range(B))
+    return ds[int(0.025 * B)], ds[int(0.975 * B) - 1]
+
+
+def spearman(a, b):
+    pairs = [(x, y) for x, y in zip(a, b) if isinstance(x, (int, float)) and isinstance(y, (int, float))]
+    if len(pairs) < 5:
+        return None, None, len(pairs)
+    rx, ry = midranks([p[0] for p in pairs]), midranks([p[1] for p in pairs])
+    rho = corr(rx, ry)
+    if rho is None:
+        return None, None, len(pairs)
+    n = len(pairs)
+    if abs(rho) >= 1:
+        return rho, 0.0, n
+    t = rho * math.sqrt((n - 2) / (1 - rho * rho))
+    return rho, t_sf2(abs(t), n - 2), n
+
+
+def t_sf2(t, df):
+    """Two-sided p of Student's t (regularised incomplete beta by continued fraction)."""
+    x = df / (df + t * t)
+    a, b = df / 2, 0.5
+    lbeta = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
+    front = math.exp(math.log(x) * a + math.log(1 - x) * b - lbeta) / a if 0 < x < 1 else (0.0 if x <= 0 else 1.0)
+    if not 0 < x < 1:
+        return front
+    f, c, d = 1.0, 1.0, 1 - (a + b) * x / (a + 1)
+    d = 1 / (d if abs(d) > 1e-30 else 1e-30)
+    f = d
+    for m in range(1, 200):
+        for num in (m * (b - m) * x / ((a + 2 * m - 1) * (a + 2 * m)), -(a + m) * (a + b + m) * x / ((a + 2 * m) * (a + 2 * m + 1))):
+            d = 1 + num * d
+            d = 1 / (d if abs(d) > 1e-30 else 1e-30)
+            c = 1 + num / c
+            c = c if abs(c) > 1e-30 else 1e-30
+            f *= d * c
+        if abs(d * c - 1) < 1e-10:
+            break
+    return min(1.0, front * f)
+
+
+def explore_measures(recs, tray):
+    """Every measure screened: the profile measures, EXPLORE_EXTRA, base choices, diet class, and per-topping
+    indicators (on the pizza; named with strong positive / negative feelings). Returns [(area, key, label)], {key: [values]}."""
+    defs, seen = [], set()
+    for dom, key, label, _tf, _sign in PROFILE_FEATURES:
+        defs.append((dom, key, label)); seen.add(key)
+    for d in EXPLORE_EXTRA:
+        if d[1] not in seen:
+            defs.append(d); seen.add(d[1])
+    vals = {k: [r.get(k) if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool) else None for r in recs] for _, k, _ in defs}
+    for field_, label in (('sauce', 'Sauce'), ('cheese', 'Cheese'), ('diet_class', 'Diet class')):
+        levels = sorted({r.get(field_) for r in recs if r.get(field_)})
+        if len(levels) > 1:
+            for lv in levels:
+                k = '%s=%s' % (field_, lv)
+                defs.append(('Base and diet', k, '%s: %s' % (label, lv)))
+                vals[k] = [None if not r.get(field_) else int(r.get(field_) == lv) for r in recs]
+    strong_known = [r.get('n_strong') is not None for r in recs]
+    for ing in tray:
+        k = 'inc_' + ing
+        defs.append(('Toppings used', k, NAMES.get(ing, ing)))
+        vals[k] = [int((r.get('n_' + ing) or 0) > 0) for r in recs]
+    for sign, word in (('neg', 'negative'), ('pos', 'positive')):
+        for ing in tray:
+            k = '%s_%s' % (sign, ing)
+            feel = FEEL_NEG if sign == 'neg' else FEEL_POS
+            v = []
+            for r, known in zip(recs, strong_known):
+                if not known:
+                    v.append(None)
+                    continue
+                lst = dict(x.split(':', 1) for x in (r.get('strong_list') or '').split() if ':' in x)
+                v.append(int(lst.get(ing) in feel))
+            defs.append(('Strong %s feelings' % word, k, NAMES.get(ing, ing)))
+            vals[k] = v
+    keep = []
+    for d in defs:
+        present = [v for v in vals[d[1]] if v is not None]
+        if len(present) >= 4 and len(set(present)) > 1:
+            keep.append(d)
+    return keep, vals
+
+
+def grouping_levels(recs, key, min_n=3):
+    raw = [r.get(key) for r in recs]
+    if key in ('nd_autistic', 'nd_adhd', 'eat_any', 'eat_picky'):
+        raw = [None if v is None else ('yes' if v else 'no') for v in raw]
+    raw = [None if v in (None, '') else str(v) for v in raw]
+    cnt = Counter(v for v in raw if v is not None)
+    levels = [lv for lv, c in sorted(cnt.items(), key=lambda kv: (-kv[1], kv[0])) if c >= min_n]
+    return (levels, [v if v in levels else None for v in raw], {lv: c for lv, c in cnt.items() if lv not in levels}) if len(levels) >= 2 else (None, None, None)
+
+
+def explore_grouping(defs, vals, labels, levels, rnd):
+    """Each measure compared between the levels of one grouping: with two levels, the first against the second;
+    with more, each level against all the others. Returns a list of test dicts with BH q-values over the grouping."""
+    tests = []
+    pairs = [(levels[0], levels[1])] if len(levels) == 2 else [(lv, None) for lv in levels]
+    for dom, key, label in defs:
+        idx = [i for i, (v, g) in enumerate(zip(vals[key], labels)) if v is not None and g is not None]
+        if len(idx) < 6:
+            continue
+        xs = [vals[key][i] for i in idx]
+        if len(set(xs)) < 2:
+            continue
+        r = midranks(xs)
+        tie = sum(c ** 3 - c for c in Counter(xs).values())
+        for a, b in pairs:
+            ia = [j for j, i in enumerate(idx) if labels[i] == a]
+            ib = [j for j, i in enumerate(idx) if (labels[i] == b if b else labels[i] != a)]
+            if len(ia) < 3 or len(ib) < 3:
+                continue
+            if b:  # two levels: rank within just these two
+                xs2 = [xs[j] for j in ia + ib]
+                if len(set(xs2)) < 2:
+                    continue
+                rr, tie2 = midranks(xs2), sum(c ** 3 - c for c in Counter(xs2).values())
+                r1 = sum(rr[:len(ia)])
+            else:
+                rr, tie2, r1 = r, tie, sum(r[j] for j in ia)
+            x, y = [xs[j] for j in ia], [xs[j] for j in ib]
+            u = r1 - len(ia) * (len(ia) + 1) / 2
+            delta = 2 * u / (len(ia) * len(ib)) - 1
+            binary = set(xs) <= {0, 1}
+            tests.append({'area': dom, 'key': key, 'label': label, 'level': a, 'vs': b or 'the rest', 'n1': len(x), 'n0': len(y),
+                          'm1': statistics.mean(x) if binary else statistics.median(x), 'm0': statistics.mean(y) if binary else statistics.median(y),
+                          'binary': binary, 'delta': delta, 'p': mw_p(r1, rr, len(ia), tie2, rnd), 'x': x, 'y': y})
+    for t, q in zip(tests, bh([t['p'] for t in tests])):
+        t['q'] = q
+    return tests
+
+
+def delta_cell(d, q):
+    if d is None:
+        return '<td class="dc na">·</td>'
+    mark = ' sig' if q is not None and q < 0.1 else ''
+    return '<td class="dc%s" style="background:%s" title="delta %.2f, q %.3f">%s</td>' % (mark, heat_color(d * 2.5), d, q if q is not None else 1, ('%.2f' % d).replace('0.', '.').replace('-.', '−.'))
+
+
+def strip_svg(x, y, binary, la, lb):
+    """Two rows of dots (group, comparison) on a shared axis, medians marked; for yes/no measures, two bars."""
+    W, H, L, R = 260, 44, 4, 4
+    if binary:
+        pa, pb = statistics.mean(x), statistics.mean(y)
+        return ('<svg class="strip" viewBox="0 0 %d %d" role="img" aria-label="%s %.0f%%, %s %.0f%%">'
+                '<rect x="%d" y="6" width="%.1f" height="12" class="ba"/><rect x="%d" y="24" width="%.1f" height="12" class="bb"/>'
+                '<text x="%.1f" y="16" class="sv">%.0f%%</text><text x="%.1f" y="34" class="sv">%.0f%%</text></svg>'
+                % (W, H, esc(la), 100 * pa, esc(lb), 100 * pb, L, max(1, pa * 200), L, max(1, pb * 200), L + pa * 200 + 4, 100 * pa, L + pb * 200 + 4, 100 * pb))
+    allv = x + y
+    lo, hi = min(allv), max(allv)
+    if hi - lo < 1e-12:
+        hi = lo + 1
+    X = lambda v: L + (W - L - R) * (v - lo) / (hi - lo)
+    s = ['<svg class="strip" viewBox="0 0 %d %d" role="img" aria-label="medians %s %.3g, %s %.3g">' % (W, H, esc(la), statistics.median(x), esc(lb), statistics.median(y))]
+    for row, vs, cls in ((12, x, 'da'), (32, y, 'db')):
+        for i, v in enumerate(vs):
+            s.append('<circle cx="%.1f" cy="%.1f" r="2.6" class="%s"/>' % (X(v), row + ((i * 7) % 9 - 4) * 0.7, cls))
+        m = statistics.median(vs)
+        s.append('<line x1="%.1f" x2="%.1f" y1="%d" y2="%d" class="md"/>' % (X(m), X(m), row - 8, row + 8))
+    s.append('</svg>')
+    return ''.join(s)
+
+
+def fmt_m(v, binary):
+    if v is None:
+        return ''
+    if binary:
+        return '%.0f%%' % (100 * v)
+    return ('%.0f' % v) if abs(v) >= 100 else ('%.2f' % v)
+
+
+EXPLORE_CSS = """
+.lead { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--near); border-radius: 12px; padding: 10px 14px; }
+.tbl { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px 8px; margin-bottom: 14px; }
+.tbl table { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; width: 100%; }
+.tbl th, .tbl td { padding: 4px 6px; text-align: right; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.tbl th { color: var(--muted); font-weight: 600; } .tbl .l { text-align: left; }
+.tbl td.ci { white-space: nowrap; color: var(--muted); }
+.tbl table.leads { min-width: 900px; } .tbl table.leads td { white-space: nowrap; } .tbl table.small { width: auto; min-width: 280px; }
+.tbl tr.dom td { text-align: left; font-weight: 600; background: var(--bg); }
+.dc { text-align: center !important; min-width: 44px; font-size: 12px; } .dc.sig { font-weight: 700; outline: 2px solid var(--fg); outline-offset: -2px; }
+.dc.na { color: var(--muted); }
+.strip { width: 260px; height: 44px; display: block; }
+.strip .da { fill: var(--g1); fill-opacity: .75; } .strip .db { fill: var(--g0); fill-opacity: .6; } .strip .md { stroke: var(--fg); stroke-width: 2; }
+.strip .ba { fill: var(--g1); } .strip .bb { fill: var(--g0); } .strip .sv { fill: var(--fg); font-size: 11px; }
+details.more { margin: 8px 0 14px; } details.more summary { cursor: pointer; font-weight: 600; }
+.corr td.c { width: 16px; min-width: 16px; height: 16px; padding: 0; border: 0; }
+.corr th { font-weight: 400; color: var(--muted); font-size: 11px; white-space: nowrap; text-align: right; padding: 0 6px 0 0; border: 0; }
+.corr th.v { height: 150px; vertical-align: bottom; padding: 0 0 4px; } .corr th.v div { writing-mode: vertical-rl; transform: rotate(180deg); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; } .chips span { background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 13px; }
+"""
+
+
+def explore_report(recs, tray, groupings, covariates, seed=1):
+    """explore.html: screens every measure for differences between the groups of every grouping available, and for
+    links with continuous self-reports, to find patterns worth following up. Writes the tests to explore.csv too."""
+    rnd = random.Random(seed)
+    n = len(recs)
+    head = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
+            '<title>Pizza Explorer</title><style>%s%s</style></head><body><div class="wrap"><h1>Exploring patterns</h1>' % (REPORT_CSS, EXPLORE_CSS))
+    if n < 6:
+        return head + '<p>This needs at least 6 finished pizzas; there %s %d so far.</p></div></body></html>' % ('is' if n == 1 else 'are', n), []
+    defs, vals = explore_measures(recs, tray)
+    body, all_tests, used = [], [], []
+    for key, glabel in groupings:
+        levels, labels, dropped = grouping_levels(recs, key)
+        if not levels:
+            continue
+        tests = explore_grouping(defs, vals, labels, levels, rnd)
+        if not tests:
+            continue
+        used.append((key, glabel, levels, labels))
+        for t in tests:
+            all_tests.append(dict(t, grouping=key))
+        cols = [levels[0] + ' vs ' + levels[1]] if len(levels) == 2 else levels
+        sig = sum(1 for t in tests if t['q'] < 0.1)
+        top = sorted(tests, key=lambda t: (-abs(t['delta']), t['p']))[:12]
+        rows = []
+        for t in top:
+            lo, hi = boot_ci(t['x'], t['y'], rnd)
+            rows.append('<tr><td class="l">%s<br><span class="muted">%s</span></td><td class="l">%s<br><span class="muted">vs %s</span></td><td>%d / %d</td>'
+                        '<td>%s / %s</td><td><b>%+.2f</b></td><td class="ci">%+.2f to %+.2f</td><td>%.3f</td><td>%.3f</td><td class="l">%s</td></tr>'
+                        % (esc(t['label']), esc(t['area']), esc(t['level']), esc(t['vs']), t['n1'], t['n0'], fmt_m(t['m1'], t['binary']), fmt_m(t['m0'], t['binary']),
+                           t['delta'], lo, hi, t['p'], t['q'], strip_svg(t['x'], t['y'], t['binary'], t['level'], t['vs'])))
+        by = {(t['key'], t['level']): t for t in tests}
+        main = [d for d in defs if not d[0].startswith(('Toppings', 'Strong '))]
+        tops = [d for d in defs if d[0].startswith(('Toppings', 'Strong '))]
+        def heat_rows(ds):
+            out, last = [], None
+            for dom, k, label in ds:
+                cells = [by.get((k, lv)) for lv in (levels[:1] if len(levels) == 2 else levels)]
+                if not any(cells):
+                    continue
+                if dom != last:
+                    out.append('<tr class="dom"><td colspan="%d">%s</td></tr>' % (len(cols) + 1, esc(dom)))
+                    last = dom
+                out.append('<tr><td class="l">%s</td>%s</tr>' % (esc(label), ''.join(delta_cell(c['delta'], c['q']) if c else delta_cell(None, None) for c in cells)))
+            return ''.join(out)
+        thead = '<tr><th class="l">Measure</th>%s</tr>' % ''.join('<th class="dc">%s</th>' % esc(c) for c in cols)
+        counts = ''.join('<span>%s: %d</span>' % (esc(lv), sum(1 for g in labels if g == lv)) for lv in levels)
+        if dropped:
+            counts += '<span class="muted">left out (fewer than 3): %s</span>' % esc(', '.join('%s %d' % kv for kv in dropped.items()))
+        body.append('<h2 id="g-%s">%s</h2><div class="chips">%s</div>'
+                    '<p class="muted">%d comparisons; %d with q &lt; 0.10 (false discovery rate). Largest differences first:</p>'
+                    '<div class="tbl"><table class="leads"><tr><th class="l">Measure</th><th class="l">Group</th><th>n</th><th>%s</th><th>δ</th><th>95%% CI</th><th>p</th><th>q</th><th class="l">Data (orange = group)</th></tr>%s</table></div>'
+                    '<details class="more"><summary>Every measure (Cliff\'s δ; orange = higher in %s; outlined = q &lt; 0.10)</summary><div class="tbl"><table>%s%s</table></div></details>'
+                    '<details class="more"><summary>Every topping: used, and named with strong feelings</summary><div class="tbl"><table>%s%s</table></div></details>'
+                    % (esc(key), esc(glabel), counts, len(tests), sig, 'group / rest' if len(levels) > 2 else '%s / %s' % (esc(levels[0]), esc(levels[1])),
+                       ''.join(rows), 'the group' if len(levels) > 2 else esc(levels[0]), thead, heat_rows(main), thead, heat_rows(tops)))
+    # links with continuous self-reports and covariates
+    cov_html = []
+    for ckey, clabel in covariates:
+        cv = [r.get(ckey) if isinstance(r.get(ckey), (int, float)) else None for r in recs]
+        if sum(v is not None for v in cv) < 6:
+            continue
+        res = []
+        for dom, k, label in defs:
+            if k == ckey:
+                continue
+            rho, p, m = spearman(vals[k], cv)
+            if rho is not None:
+                res.append({'area': dom, 'key': k, 'label': label, 'rho': rho, 'p': p, 'n': m})
+        for t, q in zip(res, bh([t['p'] for t in res])):
+            t['q'] = q
+            all_tests.append({'grouping': ckey, 'area': t['area'], 'key': t['key'], 'label': t['label'], 'level': 'Spearman rho', 'vs': '',
+                              'n1': t['n'], 'n0': None, 'm1': None, 'm0': None, 'delta': t['rho'], 'p': t['p'], 'q': q})
+        top = sorted(res, key=lambda t: -abs(t['rho']))[:10]
+        cov_html.append('<h3>%s</h3><p class="muted">%d measures; %d with q &lt; 0.10.</p><div class="tbl"><table><tr><th class="l">Measure</th><th>n</th><th>ρ</th><th>p</th><th>q</th></tr>%s</table></div>'
+                        % (esc(clabel), len(res), sum(1 for t in res if t['q'] < 0.1),
+                           ''.join('<tr><td class="l">%s <span class="muted">· %s</span></td><td>%d</td><td><b>%+.2f</b></td><td>%.3f</td><td>%.3f</td></tr>'
+                                   % (esc(t['label']), esc(t['area']), t['n'], t['rho'], t['p'], t['q']) for t in top)))
+    # how the measures go together
+    cm = [d for d in defs if d[0] not in ('Toppings used',) and not d[0].startswith(('Strong ', 'Base and diet'))]
+    M = len(cm)
+    grid = [[spearman(vals[a[1]], vals[b[1]])[0] if i != j else 1.0 for j, b in enumerate(cm)] for i, a in enumerate(cm)]
+    corr_html = ('<div class="tbl corr"><table><tr><th></th>%s</tr>%s</table></div>'
+                 % (''.join('<th class="v"><div>%s</div></th>' % esc(d[2]) for d in cm),
+                    ''.join('<tr><th>%s</th>%s</tr>' % (esc(cm[i][2]), ''.join(
+                        '<td class="c" style="background:%s" title="%s × %s: ρ = %s"></td>' % (heat_color((grid[i][j] or 0) * 2.5) if grid[i][j] is not None else 'transparent',
+                                                                                               esc(cm[i][2]), esc(cm[j][2]), '%.2f' % grid[i][j] if grid[i][j] is not None else 'n/a')
+                        for j in range(M))) for i in range(M))))
+    # clusters (found from the profiles without any grouping) against each grouping
+    cl_html = []
+    clusters = [r.get('cluster') for r in recs]
+    k = len({c for c in clusters if c})
+    if k > 1:
+        for key, glabel, levels, labels in used:
+            tab = [[sum(1 for c, g in zip(clusters, labels) if c == ci and g == lv) for lv in levels] for ci in range(1, k + 1)]
+            rt, ct = [sum(row) for row in tab], [sum(tab[c][g] for c in range(k)) for g in range(len(levels))]
+            tot = sum(rt)
+            if not tot:
+                continue
+            chi = sum((tab[c][g] - rt[c] * ct[g] / tot) ** 2 / (rt[c] * ct[g] / tot) for c in range(k) for g in range(len(levels)) if rt[c] and ct[g])
+            df = (k - 1) * (len(levels) - 1)
+            cl_html.append('<h3>%s</h3><div class="tbl"><table class="small"><tr><th class="l">Cluster</th>%s</tr>%s</table></div><p class="muted">χ²(%d) = %.2f, p = %.3f (rough with small counts).</p>'
+                           % (esc(glabel), ''.join('<th>%s</th>' % esc(lv) for lv in levels),
+                              ''.join('<tr><td class="l">%d</td>%s</tr>' % (c + 1, ''.join('<td>%d</td>' % v for v in tab[c])) for c in range(k)), df, chi, chi2_sf(chi, df)))
+    nav = ''.join('<span><a href="#g-%s">%s</a></span>' % (esc(k_), esc(l_)) for k_, l_, _, _ in used)
+    html = (head + '<p class="lead"><b>For exploring, not confirming.</b> This page screens %d measures (%d main, the rest per topping) across every '
+            'way of grouping people that the data allow, so some differences will look large by chance. Effect sizes are Cliff\'s δ (−1 to 1: how often a value '
+            'from the group is higher than one from the comparison, minus how often it is lower; for yes/no measures, the difference in percentages). '
+            'p comes from a Mann-Whitney test (by permutation for groups under 8), q is the Benjamini-Hochberg false discovery rate within each grouping, and the '
+            'intervals are bootstrap 95%% intervals. Treat what stands out as a lead to test in a new sample or a preregistered analysis.</p>'
+            '<p class="muted">%d pizzas.</p><div class="chips">%s</div>'
+            % (len(defs), len([d for d in defs if not d[0].startswith(('Toppings', 'Strong '))]), n, nav or '<span>No grouping has two groups of 3+ people yet.</span>')
+            + ''.join(body)
+            + ('<h2>Links with self-reports</h2><p class="muted">Spearman correlations (ρ) of each measure with each continuous self-report.</p>' + ''.join(cov_html) if cov_html else '')
+            + '<h2>How the measures go together</h2><p class="muted">Spearman correlations between the main measures across all participants '
+              '(orange = rise together, blue = one rises as the other falls; hover for the value). Strongly linked measures tell the same story twice.</p>' + corr_html
+            + ('<h2>Clusters and groups</h2><p class="muted">The clusters from the profiles page, found without using any grouping, against each grouping.</p>' + ''.join(cl_html) if cl_html else '')
+            + '</div></body></html>')
+    return html, all_tests
+
+
+def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force=None, covariates=None):
     rnd = random.Random(seed)
     people, ing_long, ev_long, svgs, arrangement = [], [], [], [], []
     for row in rows:
         pid = row['_pid']
         follow = loads(field(row, 'pzf_data'), {}) or {}
-        diet = follow.get('diet') or []
+        diet = [d for d in (follow.get('diet') or []) if d != 'pnts']      # 'prefer not to say' = unknown
         p_sum = loads(field(row, 'pzp_summary'), {})
         p_ev = loads(field(row, 'pzp_events'), [])
         for prefix in builds:
@@ -1863,6 +2331,7 @@ def analyse(rows, builds, out_dir, seed, group_col=None, ref_rows=None, k_force=
             rec.update(spatial(pieces, rnd))
             rec.update(order_measures(events))
             rec.update(timing(events, summary))
+            rec.update(movement_measures(events))
             rec.update(practice_measures(p_sum, p_ev))
             if rec.get('practice_drag_median') and rec.get('drag_median'):
                 rec['drag_vs_practice'] = rec['drag_median'] / rec['practice_drag_median']
@@ -1897,6 +2366,7 @@ def analyse(rows, builds, out_dir, seed, group_col=None, ref_rows=None, k_force=
             for k in PIZZA_ITEMS:
                 rec['pz_' + k] = pz.get(k)
             rec['pizza_freq'] = follow.get('freq')
+            rec.update(about_measures(follow.get('about')))
             rec['flag_tab_away'] = int((summary.get('hiddenMs') or 0) > 30000)
             rec['flag_fast'] = int(rec['t_finish'] is not None and rec['t_finish'] < 15000)
             rec['flag_empty'] = int(n == 0)
@@ -1925,9 +2395,19 @@ def analyse(rows, builds, out_dir, seed, group_col=None, ref_rows=None, k_force=
                 ev_long.append({'pid': pid, 'build': prefix.rstrip('_'), 't_ms': e[0], 'type': e[1],
                                 'a': e[2] if len(e) > 2 else None, 'b': e[3] if len(e) > 3 else None,
                                 'x': e[4] if len(e) > 4 else None, 'y': e[5] if len(e) > 5 else None,
-                                'drag_ms': e[6] if len(e) > 6 else None, 'snapped': e[7] if len(e) > 7 else None})
+                                'drag_ms': e[6] if len(e) > 6 else None, 'snapped': e[7] if len(e) > 7 else None,
+                                **dict(zip(('mv_path', 'mv_straight', 'mv_pauses', 'mv_longest_pause', 'mv_dwell', 'mv_crossings', 'mv_hold'),
+                                           e[9] if len(e) > 9 and isinstance(e[9], list) else [None] * 7))})
             svgs.append((pid, prefix, pizza_svg(pieces, summary, '%s %s (%d)' % (pid, prefix.rstrip('_'), n))))
-            rec['group'] = (row.get(group_col) if group_col else None) or None
+            for c in (group_cols or []) + ['group']:          # grouping columns from the export / study server
+                if c not in rec:
+                    rec[c] = field(row, c) or row.get(c) or None
+            for c in covariates or []:                        # numeric columns from the export (e.g. questionnaire scores)
+                if c not in rec:
+                    try:
+                        rec[c] = float(field(row, c))
+                    except (TypeError, ValueError):
+                        rec[c] = None
             arrangement.append((rec, pieces))
 
     # deviation from what the rest of the sample actually did (leave-one-out inclusion rates)
@@ -1989,25 +2469,39 @@ def analyse(rows, builds, out_dir, seed, group_col=None, ref_rows=None, k_force=
         with open(os.path.join(out_dir, 'pizzas', name + '.svg'), 'w', encoding='utf-8') as f:
             f.write(svg)
         cells.append(svg)
-    for rec, _ in arrangement:
-        rec['_group'] = rec.get('group') or rec.get('condition') or 'all'
-    with open(os.path.join(out_dir, 'arrangement.html'), 'w', encoding='utf-8') as f:
-        f.write(arrangement_report(arrangement, group_col or 'condition'))
-    for rec, _ in arrangement:
-        rec.pop('_group', None)
-    for rec, _ in arrangement:
-        rec['_group'] = rec.get('group') or rec.get('condition') or 'all'
+    # the grouping the dashboard, symmetry and profile reports compare: the first --group column, else the
+    # self-described neurotype, the study link's group or the condition, whichever first has two or more values
     own_entries = [e for e in arrangement if e[0]['build'] == builds[0].rstrip('_')]
+    def n_levels(c):
+        return len({r.get(c) for r, _ in own_entries if r.get(c) not in (None, '')})
+    primary = (group_cols or [None])[0] or next((c for c in ('neurotype', 'group', 'condition') if n_levels(c) > 1), 'condition')
+    group_label = dict(EXPLORE_GROUPINGS).get(primary, primary)
+    for rec, _ in arrangement:
+        v = rec.get(primary)
+        rec['_group'] = str(v) if v not in (None, '') else ('not stated' if primary == 'neurotype' else 'all')
+    with open(os.path.join(out_dir, 'arrangement.html'), 'w', encoding='utf-8') as f:
+        f.write(arrangement_report(arrangement, group_label))
     with open(os.path.join(out_dir, 'dashboard.html'), 'w', encoding='utf-8') as f:
-        f.write(dashboard_report(own_entries, ref_info, group_col or 'condition'))
+        f.write(dashboard_report(own_entries, ref_info, group_label))
     prof = profile_analysis(own_entries, k_force)
     for (rec, _), z, lab in zip(own_entries, prof['Z'], prof['labels']):
         rec['cluster'] = lab + 1 if prof['k'] > 1 else None
     with open(os.path.join(out_dir, 'profiles.html'), 'w', encoding='utf-8') as f:
-        f.write(profiles_report(own_entries, prof, group_col or 'condition'))
+        f.write(profiles_report(own_entries, prof, group_label))
     write_csv(os.path.join(out_dir, 'profiles.csv'), [
         dict([('pid', r['pid']), ('group', r['_group']), ('cluster', r.get('cluster'))] + [('z_' + f[1], round(v, 4)) for f, v in zip(PROFILE_FEATURES, z)])
         for (r, _), z in zip(own_entries, prof['Z'])])
+    # explore.html: every measure screened across every way of grouping people the data allow
+    groupings = [(c, dict(EXPLORE_GROUPINGS).get(c, c)) for c in (group_cols or [])]
+    groupings += [g for g in EXPLORE_GROUPINGS if g[0] not in dict(groupings)]
+    covs = EXPLORE_COVARIATES + [(c, c) for c in covariates or [] if c not in dict(EXPLORE_COVARIATES)]
+    html, tests = explore_report([r for r, _ in own_entries], toppings, groupings, covs, seed)
+    with open(os.path.join(out_dir, 'explore.html'), 'w', encoding='utf-8') as f:
+        f.write(html)
+    write_csv(os.path.join(out_dir, 'explore.csv'), [
+        dict({k: t.get(k) for k in ('grouping', 'level', 'vs', 'area', 'key', 'label', 'n1', 'n0', 'm1', 'm0', 'delta')},
+             p='%.3g' % t['p'], q='%.3g' % t['q']) for t in tests]
+        or [{'grouping': None}])
     for rec, _ in arrangement:
         rec.pop('_group', None)
     write_csv(os.path.join(out_dir, 'participants.csv'), people)
@@ -2039,14 +2533,20 @@ def main():
     ap.add_argument('--id', default='PROLIFIC_PID', help='column identifying participants (default PROLIFIC_PID, then ResponseId)')
     ap.add_argument('--builds', default='pz_,pzt_', help='field prefixes of the builds; the first is the participant\'s own pizza')
     ap.add_argument('--seed', type=int, default=1, help='seed for the random layouts behind the symmetry ratios')
-    ap.add_argument('--group', default=None, help='column to compare groups by in the reports (e.g. your ASD/NT column); default: condition')
+    ap.add_argument('--group', default=None, help='column(s) to compare groups by, comma-separated (e.g. a diagnosis column); the first is used by the '
+                    'dashboard, symmetry and profile reports, and explore.html tries all of them as well as the "About you" answers. '
+                    'Default: the self-described neurotype, else the study link\'s group, else the condition')
+    ap.add_argument('--covariates', default=None, help='numeric columns, comma-separated (e.g. food neophobia and disgust sensitivity scores), '
+                    'correlated with every measure in explore.html')
     ap.add_argument('--clusters', type=int, default=None, help='number of clusters (default: chosen by silhouette)')
     ap.add_argument('--reference', nargs='+', default=None, help='pizzas that define "normal" (e.g. a pilot export or demo JSON files); '
                     'default: each pizza is compared with all the others in the sample')
     a = ap.parse_args()
     rows = read_inputs(a.inputs, a.id)
     ref_rows = read_inputs(a.reference, a.id) if a.reference else None
-    people = analyse(rows, [b if b.endswith('_') else b + '_' for b in a.builds.split(',') if b], a.out, a.seed, a.group, ref_rows, a.clusters)
+    split = lambda v: [c.strip() for c in (v or '').split(',') if c.strip()]
+    people = analyse(rows, [b if b.endswith('_') else b + '_' for b in a.builds.split(',') if b], a.out, a.seed, split(a.group), ref_rows, a.clusters,
+                     split(a.covariates))
     print('%d responses, %d pizzas scored -> %s/' % (len(rows), len(people), a.out))
     if not people:
         print('No pizza fields found. Check that pz_final / __js_pz_final are declared in the survey flow.', file=sys.stderr)

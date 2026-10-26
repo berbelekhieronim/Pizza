@@ -1,7 +1,7 @@
 {
   "title": "Make a pizza",
   "intro": [
-    "In this short study you will make a virtual pizza by dragging toppings onto it, and then answer a few questions about it. Nothing is eaten.",
+    "In this short study you will make a virtual pizza by dragging toppings onto it, and then answer a few questions about it and about yourself. Nothing is eaten.",
     "It takes about 10 minutes and works on a phone or a computer. Your answers are stored without your name."
   ],
   "consent": "I have read the information above and agree to take part.",
@@ -9,5 +9,6 @@
   "completion_redirect": "",
   "conditions": [],
   "groups": ["ASD", "NT"],
-  "typical_build": false
+  "typical_build": false,
+  "about_you": true
 }

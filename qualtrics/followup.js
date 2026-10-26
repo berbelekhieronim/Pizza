@@ -22,6 +22,7 @@ Qualtrics.SurveyEngine.addOnReady(function () {
     PizzaBuilder.mount(box, {
       mode: 'followup',
       counts: '${e://Field/pz_counts},${e://Field/__js_pz_counts}',   // which toppings were left off -> asks why
+      askAbout: true,   // the "About you" card (neurotype, diagnosis status, eating history, age, gender); false if your survey asks these
       onSave: save,
       onFinish: function () { q.showNextButton(); q.clickNextButton(); }   // the task's own button moves on
     });

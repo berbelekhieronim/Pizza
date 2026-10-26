@@ -29,6 +29,10 @@
   function J(v, d) { try { return v ? JSON.parse(v) : d; } catch (e) { return d; } }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function median(a) { if (!a.length) return null; a = a.slice().sort(function (x, y) { return x - y; }); var m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }
+  var ABOUT_NAMES = { autistic: 'Autistic', adhd: 'ADHD', dys: 'Dyslexic / dyspraxic / dyscalculic', otherND: 'Other neurodivergent', none: 'None of these',
+    pnts: 'Prefer not to say', formal: 'formally diagnosed', self: 'self-identified', waiting: 'waiting for assessment', picky: 'Picky since childhood',
+    arfid: 'ARFID', ed: 'Eating disorder', allergy: 'Allergy or intolerance' };
+  function fmedian(a) { a = a.filter(function (x) { return x != null; }).sort(function (x, y) { return x - y; }); if (!a.length) return null; var m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }
   function sec(ms) { return ms == null ? '-' : (ms / 1000).toFixed(1) + ' s'; }
 
   // ---- geometry, as in analyse.py: every piece is a capsule (segment + half-width) in radius units
@@ -372,6 +376,7 @@
     var fin = J(f.pz_final, null);
     if (!fin) { el.innerHTML = '<p class="pv-empty">The preview appears once the pizza page has been used.</p>'; return; }
     var summ = J(f.pz_summary, {}), ev = J(f.pz_events, []), prac = J(f.pzp_summary, null), fol = J(f.pzf_data, null);
+    var mvs = ev.filter(function (e) { return e[9] && e[9].length >= 7; }).map(function (e) { return e[9]; }), ab = fol && fol.about && fol.about.neuro ? fol.about : null;
     var ps = fin.map(function (a) { var g = a.length > 8 ? a[8] : 1; return { ing: a[1], x: a[2], y: a[3], rot: a[4], s: a[5] * g, g: g }; });
     var counts = {}; ps.forEach(function (p) { counts[p.ing] = (counts[p.ing] || 0) + 1; });
     var set = {}; Object.keys(counts).forEach(function (k) { set[k] = 1; });
@@ -427,6 +432,10 @@
       '<div class="pv-group"><h4>Time</h4>' + stat('First topping', sec(firstPick)) + stat('Median decision', sec(median(decisions)), 'end of one action to picking up the next topping') +
         stat('Placements', adds.length) + stat('Pressed "I\'m done"', sec(doneT), dones.length > 1 ? 'pressed ' + dones.length + ' times, went back to edit ' + (dones.length - 1) + '\u00d7' : '') +
         stat('Time to completion', sec(fin_t), 'confirmed and submitted') + (prac ? stat('Practice drag (motor baseline)', sec(prac.dragMsMedian)) : '') + '</div>' +
+      (mvs.length ? '<div class="pv-group"><h4>Movement</h4>' + stat('Direct drags', (function (v) { return v == null ? '-' : v.toFixed(2); })(fmedian(mvs.map(function (m) { return m[1]; }))), 'straight-line distance / path; 1 = straight') +
+        stat('Pauses per drag', (mvs.reduce(function (a, m) { return a + m[2]; }, 0) / mvs.length).toFixed(2), Math.round(100 * mvs.filter(function (m) { return m[2] > 0; }).length / mvs.length) + '% of drags paused (250 ms+)') +
+        stat('Dwell before letting go', sec(fmedian(mvs.map(function (m) { return m[4]; }))), 'median') +
+        stat('Hold before moving', sec(fmedian(mvs.map(function (m) { return m[6]; }))), 'median') + '</div>' : '') +
       (fol && fol.style === 'strong' ? '<div class="pv-group"><h4>Strong feelings</h4>' +
         (fol.none ? stat('Ingredients', 'none') : (fol.strong || []).map(function (k) {
           var it = (fol.items || {})[k] || {};
@@ -438,6 +447,11 @@
         stat('"Expresses who I am"', fol.pizza && fol.pizza.express != null ? fol.pizza.express + ' / 7' : '-') +
         stat('"Followed a rule or system"', fol.pizza && fol.pizza.system != null ? fol.pizza.system + ' / 7' : '-') +
         stat('Toppings rated', Object.keys(fol.items || {}).length) + '</div>' : '') +
+      (ab ? '<div class="pv-group"><h4>About you</h4>' + stat('Describes self as', esc(ab.neuro.map(function (v) { return ABOUT_NAMES[v] || v; }).join(', ') || '-'),
+          esc(Object.keys(ab.dx || {}).map(function (c) { return (ABOUT_NAMES[c] || c) + ': ' + (ABOUT_NAMES[ab.dx[c]] || ab.dx[c]); }).join(' \u00b7 '))) +
+        stat('Eating', esc((ab.eating || []).map(function (v) { return ABOUT_NAMES[v] || v; }).join(', ') || '-')) +
+        stat('"I am a picky eater"', ab.picky != null ? ab.picky + ' / 7' : '-') + stat('"Food textures, smells or looks bother me"', ab.sensoryfood != null ? ab.sensoryfood + ' / 7' : '-') +
+        stat('Age, gender', esc([ab.age, ab.gender].filter(Boolean).join(', ') || '-')) + '</div>' : '') +
       '</div></div>';
     el.innerHTML = html;
   }

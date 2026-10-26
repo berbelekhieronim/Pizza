@@ -55,13 +55,19 @@ def main():
         check(run('analysis/analyse.py', *sorted(glob.glob(os.path.join(tmp, 'sample', '*.json'))), '--group', 'group',
                   '--reference', *sorted(glob.glob(os.path.join(tmp, 'ref', '*.json'))), '--out', out), 'analyse.py runs')
         for f in ('participants.csv', 'ingredients_long.csv', 'events_long.csv', 'profiles.csv',
-                  'dashboard.html', 'profiles.html', 'arrangement.html', 'gallery.html'):
+                  'dashboard.html', 'profiles.html', 'arrangement.html', 'gallery.html', 'explore.html', 'explore.csv'):
             check(os.path.getsize(os.path.join(out, f)) > 0 if os.path.exists(os.path.join(out, f)) else False, 'writes ' + f)
         rows = list(csv.DictReader(open(os.path.join(out, 'participants.csv'), encoding='utf-8')))
         check(len(rows) == 24, 'one row per participant')
         for col in ('diet_class', 'atypicality_pct', 'sym_mirror', 'n_on_crust', 'face_detected', 'size_match_same', 't_submit', 'cluster',
-                    'n_strong', 'n_safe_foods', 'n_sensory_reasons'):
+                    'n_strong', 'n_safe_foods', 'n_sensory_reasons', 'neurotype', 'nd_identified', 'eat_any', 'self_picky', 'age_band',
+                    'mv_straight', 'mv_pauses', 'mv_dwell', 'group'):
             check(col in rows[0], 'column ' + col)
+        ex = open(os.path.join(out, 'explore.html'), encoding='utf-8').read()
+        tests = list(csv.DictReader(open(os.path.join(out, 'explore.csv'), encoding='utf-8')))
+        check('Neurotype (self-described)' in ex and 'Recruitment group' in ex and {'neurotype', 'group'} <= {t['grouping'] for t in tests},
+              'explore.html screens the self-described neurotype and the study-link group')
+        check(all(0 <= float(t['q']) <= 1 and -1 <= float(t['delta']) <= 1 for t in tests), 'explore.csv: effect sizes in -1..1, q in 0..1')
 
         # a pilot's first sessions: one participant with a plain pizza, then two; every chart must cope with all-equal values
         first = sorted(glob.glob(os.path.join(tmp, 'sample', '*.json')))[:2]
@@ -100,6 +106,7 @@ def main():
             check(code == 200 and b'SMOKE001' in page and b'Links to send' in page, 'researcher page lists the session and links')
             code, page = http('POST', base + '/admin/reports?key=smoke-key')
             check(code == 200 and os.path.exists(os.path.join(data, 'reports', 'dashboard.html')), 'builds the reports')
+            check(os.path.exists(os.path.join(data, 'reports', 'explore.html')), 'builds the explore report')
             code, z = http('GET', base + '/admin/data.zip?key=smoke-key')
             check(code == 200 and z[:2] == b'PK', 'downloads all data as a zip')
             saved = json.load(open(os.path.join(data, 'participants', 'SMOKE001.json'), encoding='utf-8'))

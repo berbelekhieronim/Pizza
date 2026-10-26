@@ -15,7 +15,7 @@ Participant links can carry:  ?pid=<id>  (e.g. a Prolific ID; otherwise a random
 
 Edit study.json (next to this file) for the title, intro text, consent sentence, completion message or redirect
 (e.g. a Prolific completion URL), conditions, groups (a ready-made link per group on the researcher page), and whether
-to add the "typical participant" build.
+to add the "typical participant" build and the "About you" questions (about_you).
 Standard library only.
 """
 import argparse
@@ -123,7 +123,7 @@ class Study:
             tmp = out + '.new'
             shutil.rmtree(tmp, ignore_errors=True)
             try:
-                r = subprocess.run([sys.executable, os.path.join(ROOT, 'analysis', 'analyse.py')] + files + ['--group', 'group', '--out', tmp],
+                r = subprocess.run([sys.executable, os.path.join(ROOT, 'analysis', 'analyse.py')] + files + ['--out', tmp],
                                    capture_output=True, text=True, timeout=900)
             except subprocess.TimeoutExpired:
                 return False, 'The analysis took longer than 15 minutes and was stopped.'
@@ -168,10 +168,17 @@ class Study:
                     pieces = len(json.loads(r['pz_final'])) if r.get('pz_final') else None
                 except ValueError:
                     pieces = summ.get('nPieces')
+                try:
+                    neuro = ((json.loads(r.get('pzf_data') or '{}').get('about') or {}).get('neuro')) or []
+                except (ValueError, AttributeError):
+                    neuro = []
                 out.append({'pid': r.get('pid', name[:-5]), 'group': r.get('group', ''), 'cond': r.get('cond', ''),
                             'started': r.get('started', ''), 'updated': r.get('updated', ''), 'stage': r.get('stage', 'intro'),
-                            'pieces': pieces, 'done': r.get('stage') == 'done'})
+                            'pieces': pieces, 'done': r.get('stage') == 'done', 'about': ', '.join(NEURO_NAMES.get(v, v) for v in neuro)})
         return out
+
+
+NEURO_NAMES = {'autistic': 'Autistic', 'adhd': 'ADHD', 'dys': 'Dyslexic etc.', 'otherND': 'Other ND', 'none': 'None', 'pnts': 'Prefer not to say'}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -232,7 +239,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.file(os.path.join(ROOT, route[1:]), 'application/javascript; charset=utf-8')
         if route == '/study.json':
             s = load_study()
-            return self.send(200, json.dumps({k: s.get(k) for k in ('title', 'intro', 'consent', 'completion_message', 'completion_redirect', 'typical_build')}), 'application/json')
+            return self.send(200, json.dumps({k: s.get(k) for k in ('title', 'intro', 'consent', 'completion_message', 'completion_redirect', 'typical_build', 'about_you')}), 'application/json')
         if route == '/api/start':
             q = self.query()
             rec = self.study.new_session(q.get('pid', [''])[0] or q.get('PROLIFIC_PID', [''])[0], q.get('group', [''])[0], q.get('cond', [''])[0])
@@ -305,8 +312,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         done = sum(r['done'] for r in rows)
         k = urllib.parse.quote(self.study.key)
         info = self.study.reports_info()
-        reports = [('dashboard.html', 'Dashboard'), ('profiles.html', 'Profiles and clusters'), ('arrangement.html', 'Symmetry and contact')]
-        tables = [('participants.csv', 'participants.csv'), ('ingredients_long.csv', 'ingredients_long.csv'), ('profiles.csv', 'profiles.csv'), ('events_long.csv', 'events_long.csv')]
+        reports = [('dashboard.html', 'Dashboard'), ('explore.html', 'Explore patterns'), ('profiles.html', 'Profiles and clusters'), ('arrangement.html', 'Symmetry and contact')]
+        tables = [('participants.csv', 'participants.csv'), ('ingredients_long.csv', 'ingredients_long.csv'), ('profiles.csv', 'profiles.csv'),
+                  ('explore.csv', 'explore.csv'), ('events_long.csv', 'events_long.csv')]
         if info:
             status = 'Last built %s UTC from %d pizza%s. Opening a report brings it up to date with any newer sessions.' % (
                 escape(info[0].replace('T', ' ')[:16]), info[1], '' if info[1] == 1 else 's')
@@ -314,8 +322,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             status = 'Not built yet. Opening a report builds it.'
         report_btns = ''.join('<a class="btn" href="/admin/reports/%s?key=%s">%s</a>' % (f, k, label) for f, label in reports)
         table_links = ' · '.join('<a href="/admin/reports/%s?key=%s">%s</a>' % (f, k, label) for f, label in tables)
-        trs = ''.join('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (
-            escape(r['pid']), escape(r['group']), escape(r['cond']), escape(r['stage']), '' if r['pieces'] is None else r['pieces'],
+        trs = ''.join('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (
+            escape(r['pid']), escape(r['group']), escape(r['about']), escape(r['cond']), escape(r['stage']), '' if r['pieces'] is None else r['pieces'],
             escape(r['started'].replace('T', ' ')[:16]), escape(r['updated'].replace('T', ' ')[:16])) for r in rows)
         note = ('<pre class="note">%s</pre>' % escape(message)) if message else ''
         return """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -338,7 +346,7 @@ button,.btn{font:inherit;padding:8px 14px;border-radius:9px;border:1px solid var
 <p class="muted" style="margin:4px 0">%s</p>
 <div class="row"><form method="post" action="/admin/reports?key=%s" style="margin:0"><button class="alt" type="submit">Rebuild now</button></form>
 <a class="btn alt" href="/admin/data.zip?key=%s">Download all data (.zip)</a></div>%s</div>
-<div class="card"><h2>Sessions</h2><table><tr><th>Participant</th><th>Group</th><th>Condition</th><th>Stage</th><th>Pieces</th><th>Started (UTC)</th><th>Last saved</th></tr>%s</table></div>
+<div class="card"><h2>Sessions</h2><table><tr><th>Participant</th><th>Group</th><th>Says they are</th><th>Condition</th><th>Stage</th><th>Pieces</th><th>Started (UTC)</th><th>Last saved</th></tr>%s</table></div>
 </div><script>
 document.querySelectorAll('.copy').forEach(function (b) {
   b.onclick = function () {

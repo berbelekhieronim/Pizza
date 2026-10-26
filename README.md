@@ -4,8 +4,15 @@
 
 A drag-and-drop virtual pizza task for food-choice research, run in Qualtrics (e.g. with Prolific) or from its own
 small study server. No food is eaten.
-Participants practise briefly, then make a pizza by dragging toppings onto it, then rate each topping.
-Everything they do is recorded: which toppings, how many, where, in what order, and how long each decision took.
+Participants practise briefly, make a pizza by dragging toppings onto it, say which ingredients they have strong
+feelings about, and tell us a little about themselves. Everything they do is recorded: which toppings, how many, where,
+in what order, how long each decision took, and how each drag moved.
+
+It is built for **exploratory** work: finding how pizzas differ across many kinds of people (autistic, ADHD, AuDHD,
+otherwise neurodivergent or not, formally diagnosed or self-identified, picky eaters, people with eating difficulties...)
+rather than testing one fixed contrast. Many measures are recorded per pizza, people can be grouped in several ways at
+once, and `explore.html` screens every measure across every grouping, ranked by effect size with false-discovery-rate
+control, so leads can be followed up in a new sample.
 
 Works the same with mouse, touch and pen, on phones and desktops. No libraries, no image hosting:
 the toppings are drawn in SVG by the script itself.
@@ -75,6 +82,12 @@ python3 tests/smoke_test.py           # check that everything works on this mach
      5. *Do you crave it or go looking for it?* often / sometimes / never
 
      Reword them with `text: { feel: {...} }`, or drop some with `feelQuestions`.
+   - **About you** (last, so it cannot prime the pizza; `askAbout: false` to leave it out if your survey asks these):
+     self-described neurotype (autistic, ADHD, dyslexic/dyspraxic/dyscalculic, otherwise neurodivergent, none), and for
+     autism and ADHD whether it was formally diagnosed, self-identified or awaiting assessment; eating history (picky since
+     childhood, ARFID, an eating disorder, allergy or intolerance); diet; two 1-7 self-ratings (*I am a picky eater*,
+     *Food textures, smells or looks often bother me*); age band and gender. Every question has *Prefer not to say*.
+     The analysis derives a `neurotype` grouping from it (AuDHD / Autistic / ADHD / Other ND / Not ND).
 
    Two more parts can be switched on (`askPizza: true`, `askDiet: true`), and `style: 'ratings'` replaces the list with
    the detailed version: every ingredient rated on scales, plus reasons for each one left off. In that version, in
@@ -92,7 +105,10 @@ python3 tests/smoke_test.py           # check that everything works on this mach
      food allergy, intolerance, digestive problems, past bad experiences with food, avoiding foods for texture/smell/look
      (+ which foods); how often they eat pizza.
 
-## How the measures map onto the study's questions
+## Guiding questions and the measures behind them
+
+The study is exploratory: the hypotheses below steer which measures exist, but the analysis does not assume any of
+them. `explore.html` looks at everything; this table says where to look first for each question.
 
 | question | measured by (column names from `analysis/analyse.py`) |
 |---|---|
@@ -101,9 +117,12 @@ python3 tests/smoke_test.py           # check that everything works on this mach
 | restricted choice / avoidance | `n_pieces`, `n_distinct`, `shannon`, `simpson`, categories, `n_never_picked`, `n_picked_not_kept`, reasons (`why_*`) |
 | **H2a** identity expression | `ident_mean`, `ident_mean_unusual`, per-topping `ident`, `pz_express`, `pz_distinct`; plus your identity-salience manipulation as `condition` |
 | **H2b** agency and control | `pz_auton`, `pz_control`; plus your control manipulation as `condition` |
+| hesitation and deliberation while placing | movement of each drag: `mv_straight` (how direct), `mv_pauses` / `mv_paused_share` (stopping mid-drag), `mv_dwell` (lingering before letting go), `mv_hold` (holding before moving), `mv_crossings` (going back and forth over the pizza edge); `decision_median`; `t_after_done`, `n_done_presses`; `n_ev_undo`, `n_ev_move` |
+| who the participant is (for grouping) | `neurotype`, `nd_autistic`, `nd_adhd`, `nd_identified` (formal or not), `eat_*`, `self_picky`, `self_sensory_food`, `age_band`, `gender`; the study link's `group`; `condition` |
 | **H2c** dietary vigilance | `health_*`, `diet`, `diet_conflict`; `n_perishable_included`, `safe_mean_included`, per-topping `safe` and `perishable`; `decision_median` and per-topping `decision_ms_mean` against the practice motor baseline; `pz_safety`; `why_safety`, `why_allergy`, `why_health` |
 
-Combining these into a single systematicity or distinctiveness index is a decision to preregister. Several
+Combining these into a single systematicity or distinctiveness index is a decision to make once the exploratory data
+have shown which measures hang together (see the correlation map in `explore.html`), and to preregister for a confirmatory sample. Several
 are ratios or proportions, so standardise them within the sample first.
 
 ### Manipulations and covariates (built natively in Qualtrics)
@@ -113,8 +132,9 @@ are ratios or proportions, so standardise them within the sample first.
   `student-id`, `low-control`, `high-control`). The build page stores it with every pizza (`condition`), so the analysis needs no merging.
   The practice sits between the manipulation and the build, so keep it short, as it is now, to limit decay.
 - **Covariates**: food neophobia (Food Neophobia Scale, Pliner & Hobden, 1992), disgust sensitivity (e.g. DS-R), and
-  your autism measure / diagnosis status. Place them **after** the follow-up so they cannot prime the pizza. Merge them
-  with the output by `PROLIFIC_PID` (the analysis keeps that as `pid`).
+  any trait measures (e.g. AQ, ASRS). Place them **after** the follow-up so they cannot prime the pizza. Give the analysis
+  their score columns with `--covariates fns_total,dsr_total` and `explore.html` correlates every measure with each;
+  give categorical columns (e.g. a clinician-confirmed diagnosis) with `--group` to compare by them too.
 - **Sensory and predictability.** The task has no time limit or countdown, no sound, and every action can be undone.
   It also follows the device's *reduce motion* setting, which switches off the pulsing target and the baking transition.
 
@@ -157,16 +177,17 @@ practice, build, ratings, completion code) and saves each participant as they go
 2. The server tries to make port 8000 public so participants can open the link. If the log says it is still private:
    open the **Ports** tab, right-click port 8000 → **Port Visibility → Public**.
 3. Send participants a link from **Links to send** on the researcher page. A link can carry `?group=ASD` (or `NT`, etc.)
-   to record their group, and `&pid=...` to use your own IDs; Prolific's `PROLIFIC_PID` is picked up too. Conditions
+   to record the group you recruited them through (participants also describe themselves on the "About you" card, and
+   the reports use both), and `&pid=...` to use your own IDs; Prolific's `PROLIFIC_PID` is picked up too. Conditions
    listed in `server/study.json` are assigned in turn.
-4. Watch sessions arrive on the researcher page. The **Dashboard**, **Profiles and clusters** and **Symmetry and contact**
+4. Watch sessions arrive on the researcher page (it shows what each person said they are). The **Dashboard**, **Explore patterns**, **Profiles and clusters** and **Symmetry and contact**
    buttons open the reports, rebuilt automatically from everyone so far whenever new sessions have arrived (**Rebuild now**
    forces it). **Download all data** gives a zip of every session. Keep the researcher link to yourself: the password is
    part of it, which is what lets the page work even inside the codespace's preview panel.
 
 Edit `server/study.json` for the title, intro text, consent sentence, completion message or a redirect URL (e.g. a
-Prolific completion link), the conditions, the groups that get a ready-made link, and whether to add the "typical
-participant" build.
+Prolific completion link), the conditions, the groups that get a ready-made link, whether to add the "typical
+participant" build (`typical_build`), and whether to ask the "About you" questions (`about_you`, on by default).
 
 Things to know:
 - **The link works only while the server is on.** A codespace stops after about 30 minutes without activity in its editor
@@ -216,10 +237,14 @@ Set in the `PizzaBuilder.mount(box, { ... })` call:
 ## Analysis
 
 ```
-python3 analysis/analyse.py my_export.csv --group <your ASD/NT column> --out results
+python3 analysis/analyse.py my_export.csv --out results
+python3 analysis/analyse.py my_export.csv --group dx_confirmed,site --covariates fns_total,dsr_total --out results
 ```
 
-This needs Python 3.10 or newer and nothing else. `--reference <files>` sets the pizzas that define "normal" (default: the
+This needs Python 3.10 or newer and nothing else. People are grouped by every way the data allow: the "About you" answers,
+the study link's group, the condition, the device, and any `--group` columns. The first `--group` column (default: the
+self-described neurotype, else the study link's group, else the condition) is the one the dashboard, symmetry and profile
+reports compare. `--reference <files>` sets the pizzas that define "normal" (default: the
 rest of the sample) and `--clusters <k>` fixes the number of clusters. It writes:
 
 | file | what |
@@ -229,7 +254,8 @@ rest of the sample) and `--clusters <k>` fixes the number of clusters. It writes
 | `events_long.csv` | every interaction, for sequence analyses |
 | `profiles.csv` | each participant's standardised profile and cluster |
 | **`dashboard.html`** | the data at a glance, for proposals and for checking data as it comes in: diet breakdown, stated diet against the pizza, the normality distribution with the most unusual pizzas, space / size / time by group, a sortable table of every participant with a thumbnail |
-| **`profiles.html`** | every participant as a profile of 29 measures; compare any two side by side (with each person's most similar participants); hierarchical clusters with plain-language descriptions, how the groups spread across them (χ²), a map of all profiles, and a heatmap ordered by the clustering tree |
+| **`explore.html`** | for discovering patterns: every measure, and every topping (used / named with strong feelings), compared between the groups of every grouping, largest effects first with the data drawn, Cliff's δ with bootstrap intervals, p and false-discovery-rate q; each measure's correlation with each self-rating and covariate; how all the measures correlate with each other; and the profile clusters against every grouping. `explore.csv` holds every comparison |
+| **`profiles.html`** | every participant as a profile of 31 measures; compare any two side by side (with each person's most similar participants); hierarchical clusters with plain-language descriptions, how the groups spread across them (χ²), a map of all profiles, and a heatmap ordered by the clustering tree |
 | **`arrangement.html`** | symmetry and contact drawn on every pizza: the best mirror axis, the best rotation (rings mark where each topping's symmetric partner would have to be: green = a matching topping is there, red = none nearby), and touching and stacked pieces, with group comparisons |
 | `pizzas/`, `gallery.html` | every pizza redrawn from its coordinates |
 
@@ -276,7 +302,17 @@ The measures are defined in `CODEBOOK.md`. In short:
 - **Timing:** decision time (end of one action to picking up the next, excluding the drag itself), gaps between
   placements, drag time, time away from the tab, and **time to completion**: when "I'm done" was first pressed, when the
   pizza was confirmed and submitted, and how often the participant pressed it but went back to edit.
-- **Profiles and clusters:** 29 measures across composition, normality, space, size, order, time, faces and strong feelings, each
+- **Movement:** for every drag, its path, how direct it was, pauses on the way, the dwell before letting go, the hold
+  before moving and crossings of the pizza edge, summarised per person (`mv_*`). Drag measures depend on the device and
+  motor skill as well as on deliberation, so compare them against the practice baseline and the device (`pointer`).
+- **Exploring patterns (`explore.html`):** every measure is compared between groups with Cliff's δ (−1 to 1; for yes/no
+  measures the difference in proportions), which needs no assumptions about distributions and reads the same for every
+  measure. With two groups the first is compared with the second; with more, each group with all the others.
+  p is from a Mann-Whitney test (a permutation test when a group has fewer than 8 people) and q is the
+  Benjamini-Hochberg false discovery rate across all the comparisons for that grouping. Groups smaller than 3 are left
+  out and listed. With hundreds of comparisons some large-looking differences are chance: treat the page as a source
+  of leads to confirm, and report how many comparisons were looked at.
+- **Profiles and clusters:** 31 measures across composition, normality, space, size, order, time, faces, strong feelings and movement, each
   standardised in the sample and signed so that higher means more of the named trait. Participants are compared by the
   distance between their profiles and grouped by Ward clustering, with the number of clusters chosen by silhouette.
 - **Norm deviation:**
