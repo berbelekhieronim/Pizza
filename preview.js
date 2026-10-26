@@ -367,7 +367,14 @@
       '<div class="pv-group"><h4>Time</h4>' + stat('First topping', sec(firstPick)) + stat('Median decision', sec(median(decisions)), 'end of one action to picking up the next topping') +
         stat('Placements', adds.length) + stat('Pressed "I\'m done"', sec(doneT), dones.length > 1 ? 'pressed ' + dones.length + ' times, went back to edit ' + (dones.length - 1) + '\u00d7' : '') +
         stat('Time to completion', sec(fin_t), 'confirmed and submitted') + (prac ? stat('Practice drag (motor baseline)', sec(prac.dragMsMedian)) : '') + '</div>' +
-      (fol ? '<div class="pv-group"><h4>Follow-up</h4>' + stat('Stated diet', esc((fol.diet || []).join(', ') || '-')) + stat('Food health', esc((fol.health || []).join(', ') || '-')) +
+      (fol && fol.style === 'strong' ? '<div class="pv-group"><h4>Strong feelings</h4>' +
+        (fol.none ? stat('Ingredients', 'none') : (fol.strong || []).map(function (k) {
+          var it = (fol.items || {})[k] || {};
+          return stat(NAMES[k] || k, esc(({ love: 'loves', like: 'likes', mixed: 'mixed', dislike: 'dislikes', cant: "can't stand" })[it.feel] || '...'),
+            [(it.about || []).join(', '), it.safe === 'yes' ? 'safe food' : '', it.sameway === 'yes' ? 'must be a certain way' : '', it.crave === 'often' ? 'craves it' : '']
+              .filter(Boolean).map(esc).join(' \u00b7 '));
+        }).join('') || stat('Ingredients', 'not answered yet')) + '</div>' : '') +
+      (fol && fol.style !== 'strong' ? '<div class="pv-group"><h4>Follow-up</h4>' + stat('Stated diet', esc((fol.diet || []).join(', ') || '-')) + stat('Food health', esc((fol.health || []).join(', ') || '-')) +
         stat('"Expresses who I am"', fol.pizza && fol.pizza.express != null ? fol.pizza.express + ' / 7' : '-') +
         stat('"Followed a rule or system"', fol.pizza && fol.pizza.system != null ? fol.pizza.system + ' / 7' : '-') +
         stat('Toppings rated', Object.keys(fol.items || {}).length) + '</div>' : '') +

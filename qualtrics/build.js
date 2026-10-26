@@ -25,7 +25,7 @@ Qualtrics.SurveyEngine.addOnReady(function () {
       // minSeconds: 20,                       // optional: earliest moment "I'm done" becomes available
       // prompt: 'Make the pizza you would like to eat. ...',
       onSave: save,
-      onFinish: function () { q.showNextButton(); }
+      onFinish: function () { q.showNextButton(); q.clickNextButton(); }   // the task's own button moves on
     });
   }
   if (window.PizzaBuilder) start();

@@ -40,6 +40,7 @@ ROOT = os.path.dirname(HERE)                          # the repository root
 PID_RE = re.compile(r'^[A-Za-z0-9_-]{4,64}$')
 MAX_BODY = 2_000_000
 LOCK = threading.Lock()
+BUILD_LOCK = threading.Lock()
 
 
 def load_study():
@@ -106,6 +107,52 @@ class Study:
             write_json(self.path(pid), rec)
         return True
 
+    def build_reports(self, force=False):
+        """Runs the analysis on every session into data/reports. Skipped when nothing changed since the last build.
+        Returns (built: bool, message)."""
+        folder = os.path.join(self.data, 'participants')
+        out = os.path.join(self.data, 'reports')
+        files = [os.path.join(folder, n) for n in sorted(os.listdir(folder)) if n.endswith('.json')]
+        if not files:
+            return False, 'No sessions yet.'
+        stamp = os.path.join(out, '.built')
+        newest = max(os.path.getmtime(f) for f in files)
+        if not force and os.path.exists(stamp) and os.path.getmtime(stamp) >= newest:
+            return False, ''
+        with BUILD_LOCK:
+            tmp = out + '.new'
+            shutil.rmtree(tmp, ignore_errors=True)
+            try:
+                r = subprocess.run([sys.executable, os.path.join(ROOT, 'analysis', 'analyse.py')] + files + ['--group', 'group', '--out', tmp],
+                                   capture_output=True, text=True, timeout=900)
+            except subprocess.TimeoutExpired:
+                return False, 'The analysis took longer than 15 minutes and was stopped.'
+            if r.returncode != 0 or not os.path.exists(os.path.join(tmp, 'participants.csv')):
+                err = (r.stderr or r.stdout).strip()
+                if 'No pizza fields found' in err:
+                    return False, 'No finished pizzas yet: reports need at least one participant who has built a pizza.'
+                return False, 'The analysis failed:\n' + err[-1500:]
+            shutil.rmtree(out, ignore_errors=True)
+            os.replace(tmp, out)                          # swap in the new reports only when they are complete
+            with open(stamp, 'w') as f:
+                f.write(time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+            return True, r.stdout.strip().split('\n')[-1]
+
+    def reports_info(self):
+        stamp = os.path.join(self.data, 'reports', '.built')
+        try:
+            with open(stamp) as f:
+                when = f.read().strip()
+        except OSError:
+            return None
+        n = 0
+        try:
+            with open(os.path.join(self.data, 'reports', 'participants.csv'), encoding='utf-8') as f:
+                n = max(0, sum(1 for _ in f) - 1)
+        except OSError:
+            pass
+        return when, n
+
     def sessions(self):
         out = []
         folder = os.path.join(self.data, 'participants')
@@ -117,9 +164,13 @@ class Study:
                     summ = json.loads(r.get('pz_summary') or '{}')
                 except ValueError:
                     pass
+                try:
+                    pieces = len(json.loads(r['pz_final'])) if r.get('pz_final') else None
+                except ValueError:
+                    pieces = summ.get('nPieces')
                 out.append({'pid': r.get('pid', name[:-5]), 'group': r.get('group', ''), 'cond': r.get('cond', ''),
                             'started': r.get('started', ''), 'updated': r.get('updated', ''), 'stage': r.get('stage', 'intro'),
-                            'pieces': summ.get('nPieces'), 'done': r.get('stage') == 'done'})
+                            'pieces': pieces, 'done': r.get('stage') == 'done'})
         return out
 
 
@@ -155,11 +206,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
 
     def is_admin(self):
-        q = self.query()
-        if q.get('key', [''])[0] == self.study.key:
-            return True
-        cookies = dict(c.strip().split('=', 1) for c in (self.headers.get('Cookie') or '').split(';') if '=' in c)
-        return secrets.compare_digest(cookies.get('pzkey', ''), self.study.key)
+        return secrets.compare_digest(self.query().get('key', [''])[0], self.study.key)
+
+    def denied_page(self):
+        return ('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Pizza Study Admin</title>'
+                '<body style="font:16px system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px"><h1>Researcher page</h1>'
+                '<p>This page needs the researcher link, which ends in <code>/admin?key=...</code>. Find it in the codespace terminal, '
+                'or print it with <code>python3 server/server.py --links</code>.</p></body>')
 
     def body_json(self):
         n = int(self.headers.get('Content-Length') or 0)
@@ -186,10 +239,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(200, json.dumps({'pid': rec['pid'], 'cond': rec.get('cond', ''), 'stage': rec.get('stage', 'intro')}), 'application/json')
         if route.startswith('/admin'):
             if not self.is_admin():
-                return self.send(403, '<p>Add <code>?key=</code> with the password printed in the terminal.</p>')
-            cookie = {'Set-Cookie': 'pzkey=%s; Path=/admin; HttpOnly; SameSite=Strict; Secure' % self.study.key}
+                return self.send(403, self.denied_page())
             if route == '/admin':
-                return self.send(200, self.admin_page(), headers=cookie)
+                q = self.query()
+                return self.send(200, self.admin_page(q.get('msg', [''])[0]))
             if route == '/admin/data.zip':
                 buf = io.BytesIO()
                 with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
@@ -200,9 +253,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(200, buf.getvalue(), 'application/zip', {'Content-Disposition': 'attachment; filename="pizza-data-%s.zip"' % time.strftime('%Y%m%d-%H%M')})
             m = re.match(r'^/admin/reports/([A-Za-z0-9_.-]+)$', route)
             if m and not m.group(1).startswith('.'):
-                ctype = 'text/html; charset=utf-8' if m.group(1).endswith('.html') else 'text/csv; charset=utf-8'
-                return self.file(os.path.join(self.study.data, 'reports', m.group(1)), ctype)
-        self.send(404, 'Not found', 'text/plain')
+                built, msg = self.study.build_reports()          # brings the reports up to date with the newest sessions
+                path = os.path.join(self.study.data, 'reports', m.group(1))
+                if not os.path.exists(path):
+                    return self.send(200, self.admin_page(msg or 'That report has not been made yet.'))
+                if m.group(1).endswith('.html'):
+                    with open(path, encoding='utf-8') as f:
+                        html = f.read()
+                    bar = ('<div style="position:sticky;top:0;z-index:50;background:#2a2421;color:#fff;font:14px system-ui,sans-serif;padding:8px 16px">'
+                           '<a href="/admin?key=%s" style="color:#fff">&larr; Researcher page</a></div>' % urllib.parse.quote(self.study.key))
+                    html = re.sub(r'(<body[^>]*>)', lambda mm: mm.group(1) + bar, html, count=1)
+                    return self.send(200, html)
+                return self.file(path, 'text/csv; charset=utf-8')
+                self.send(404, 'Not found', 'text/plain')
 
     def do_POST(self):
         route = urllib.parse.urlparse(self.path).path
@@ -212,16 +275,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(400, '{"ok":false}', 'application/json')
             ok = self.study.save(body.get('pid'), body['fields'], body.get('stage'))
             return self.send(200 if ok else 404, json.dumps({'ok': ok}), 'application/json')
-        if route == '/admin/reports' and self.is_admin():
-            out = os.path.join(self.study.data, 'reports')
-            files = [os.path.join(self.study.data, 'participants', n) for n in sorted(os.listdir(os.path.join(self.study.data, 'participants'))) if n.endswith('.json')]
-            if not files:
-                return self.send(200, self.admin_page('No sessions yet.'))
-            shutil.rmtree(out, ignore_errors=True)
-            r = subprocess.run([sys.executable, os.path.join(ROOT, 'analysis', 'analyse.py')] + files + ['--group', 'group', '--out', out],
-                               capture_output=True, text=True, timeout=600)
-            msg = (r.stdout + r.stderr).strip()[-600:]
-            return self.send(200, self.admin_page(msg or 'Reports built.'))
+        if route == '/admin/reports':
+            if not self.is_admin():
+                return self.send(403, self.denied_page())
+            built, msg = self.study.build_reports(force=True)
+            # redirect so that reloading the page does not build again
+            return self.send(303, '', headers={'Location': '/admin?' + urllib.parse.urlencode({'key': self.study.key, 'msg': msg or 'Reports are up to date.'})})
         self.send(404, 'Not found', 'text/plain')
 
     def base_url(self):
@@ -244,32 +303,42 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def admin_page(self, message=''):
         rows = self.study.sessions()
         done = sum(r['done'] for r in rows)
-        reports = os.path.join(self.study.data, 'reports')
-        have = os.path.exists(os.path.join(reports, 'dashboard.html'))
+        k = urllib.parse.quote(self.study.key)
+        info = self.study.reports_info()
+        reports = [('dashboard.html', 'Dashboard'), ('profiles.html', 'Profiles and clusters'), ('arrangement.html', 'Symmetry and contact')]
+        tables = [('participants.csv', 'participants.csv'), ('ingredients_long.csv', 'ingredients_long.csv'), ('profiles.csv', 'profiles.csv'), ('events_long.csv', 'events_long.csv')]
+        if info:
+            status = 'Last built %s UTC from %d pizza%s. Opening a report brings it up to date with any newer sessions.' % (
+                escape(info[0].replace('T', ' ')[:16]), info[1], '' if info[1] == 1 else 's')
+        else:
+            status = 'Not built yet. Opening a report builds it.'
+        report_btns = ''.join('<a class="btn" href="/admin/reports/%s?key=%s">%s</a>' % (f, k, label) for f, label in reports)
+        table_links = ' · '.join('<a href="/admin/reports/%s?key=%s">%s</a>' % (f, k, label) for f, label in tables)
         trs = ''.join('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (
             escape(r['pid']), escape(r['group']), escape(r['cond']), escape(r['stage']), '' if r['pieces'] is None else r['pieces'],
             escape(r['started'].replace('T', ' ')[:16]), escape(r['updated'].replace('T', ' ')[:16])) for r in rows)
-        links = (' · '.join('<a href="/admin/reports/%s">%s</a>' % (f, label) for f, label in
-                            [('dashboard.html', 'Dashboard'), ('profiles.html', 'Profiles and clusters'), ('arrangement.html', 'Symmetry and contact'),
-                             ('participants.csv', 'participants.csv'), ('ingredients_long.csv', 'ingredients_long.csv'), ('profiles.csv', 'profiles.csv')])
-                 if have else 'Not built yet.')
+        note = ('<pre class="note">%s</pre>' % escape(message)) if message else ''
         return """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pizza Study Admin</title><style>
-:root{--bg:#f6f2ed;--fg:#2a2421;--muted:#6e635b;--line:#dcd2c7;--panel:#fff;--accent:#a8361d}
-@media (prefers-color-scheme: dark){:root{--bg:#1d1916;--fg:#eee6de;--muted:#b0a398;--line:#3a322c;--panel:#26211d;--accent:#e0765b;color-scheme:dark}}
+:root{--bg:#f6f2ed;--fg:#2a2421;--muted:#6e635b;--line:#dcd2c7;--panel:#fff;--accent:#a8361d;--accent-ink:#fff}
+@media (prefers-color-scheme: dark){:root{--bg:#1d1916;--fg:#eee6de;--muted:#b0a398;--line:#3a322c;--panel:#26211d;--accent:#e0765b;--accent-ink:#1d1916;color-scheme:dark}}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
 .wrap{max-width:1000px;margin:0 auto;padding:20px 16px}h1{font-size:1.4rem;margin:0 0 4px}.muted{color:var(--muted)}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0;overflow-x:auto}
 table{border-collapse:collapse;width:100%%;font-size:.9rem}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
 h2{font-size:1.05rem;margin:0 0 8px}.link{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}
 .link span{min-width:130px;color:var(--muted)}.link input{flex:1;min-width:220px;font:inherit;font-size:.9rem;padding:7px 9px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
-button,.btn{font:inherit;padding:8px 14px;border-radius:9px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;text-decoration:none;display:inline-block}
-.btn.alt{background:transparent;color:var(--fg);border-color:var(--line)}a{color:var(--accent)}pre{white-space:pre-wrap;font-size:.8rem}
-</style></head><body><div class="wrap"><h1>Pizza study</h1><p class="muted">%d sessions, %d finished. Reload to refresh.</p>
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+button,.btn{font:inherit;padding:8px 14px;border-radius:9px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);cursor:pointer;text-decoration:none;display:inline-block}
+.btn.alt,button.alt{background:transparent;color:var(--fg);border-color:var(--line)}a{color:var(--accent)}
+.note{white-space:pre-wrap;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0 0}
+</style></head><body><div class="wrap"><h1>Pizza study</h1><p class="muted">%d sessions, %d finished. <a href="/admin?key=%s">Refresh</a></p>
 %s
-<div class="card"><form method="post" action="/admin/reports" style="display:inline"><button>Build reports from all sessions</button></form>
-<a class="btn alt" href="/admin/data.zip">Download all data (.zip)</a><p>Reports: %s</p>%s</div>
-<div class="card"><table><tr><th>Participant</th><th>Group</th><th>Condition</th><th>Stage</th><th>Pieces</th><th>Started (UTC)</th><th>Last saved</th></tr>%s</table></div>
+<div class="card"><h2>Reports</h2><div class="row">%s</div><p class="muted" style="margin:4px 0">Tables: %s</p>
+<p class="muted" style="margin:4px 0">%s</p>
+<div class="row"><form method="post" action="/admin/reports?key=%s" style="margin:0"><button class="alt" type="submit">Rebuild now</button></form>
+<a class="btn alt" href="/admin/data.zip?key=%s">Download all data (.zip)</a></div>%s</div>
+<div class="card"><h2>Sessions</h2><table><tr><th>Participant</th><th>Group</th><th>Condition</th><th>Stage</th><th>Pieces</th><th>Started (UTC)</th><th>Last saved</th></tr>%s</table></div>
 </div><script>
 document.querySelectorAll('.copy').forEach(function (b) {
   b.onclick = function () {
@@ -278,7 +347,8 @@ document.querySelectorAll('.copy').forEach(function (b) {
     if (navigator.clipboard) navigator.clipboard.writeText(i.value).then(ok, function () { document.execCommand('copy'); ok(); }); else { document.execCommand('copy'); ok(); }
   };
 });
-</script></body></html>""" % (len(rows), done, self.links_card(), links, ('<pre>%s</pre>' % escape(message)) if message else '', trs or '<tr><td colspan="7" class="muted">No sessions yet.</td></tr>')
+</script></body></html>""" % (len(rows), done, k, self.links_card(), report_btns, table_links, status, k, k, note,
+                               trs or '<tr><td colspan="7" class="muted">No sessions yet.</td></tr>')
 
 
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):

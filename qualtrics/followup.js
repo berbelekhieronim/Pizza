@@ -23,7 +23,7 @@ Qualtrics.SurveyEngine.addOnReady(function () {
       mode: 'followup',
       counts: '${e://Field/pz_counts},${e://Field/__js_pz_counts}',   // which toppings were left off -> asks why
       onSave: save,
-      onFinish: function () { q.showNextButton(); }
+      onFinish: function () { q.showNextButton(); q.clickNextButton(); }   // the task's own button moves on
     });
   }
   if (window.PizzaBuilder) start();

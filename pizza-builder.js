@@ -384,6 +384,13 @@
     '.pzb-opt{margin-top:6px}',
     '.pzb-nav{display:flex;justify-content:flex-end;margin-top:18px}',
     '.pzb-nav .pzb-btn{flex:0 1 200px}',
+    '.pzb-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin:12px 0 4px}',
+    '.pzb-narrow .pzb-tiles{grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:6px}',
+    '.pzb-tile{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:12px;border:2px solid var(--pzb-line);background:#fff;font-size:.82em;line-height:1.15;text-align:center}',
+    '.pzb-tile[aria-pressed=true]{border-color:var(--pzb-accent);background:#fdf3ef}',
+    '.pzb-tile[aria-pressed=true]:after{content:"";position:absolute;top:5px;right:5px;width:16px;height:16px;border-radius:50%;background:var(--pzb-accent);box-shadow:inset 0 0 0 4px #fdf3ef}',
+    '.pzb-tile .pzb-bowl{width:52px;height:52px}',
+    '.pzb-narrow .pzb-tile .pzb-bowl{width:44px;height:44px}',
     '@media (prefers-reduced-motion: reduce){.pzb *,.pzb-ghost,.pzb-toast{animation:none!important;transition:none!important}}'
   ].join('\n');
 
@@ -407,7 +414,7 @@
     clearTitle: 'Remove all toppings?', clearBody: 'You can undo this.', clearYes: 'Remove all', cancel: 'Cancel',
     tapHint: 'Hold and drag the topping onto the pizza', full: 'There is no room for more toppings',
     waitNote: 'You can finish in {s} s', minNote: 'Add at least {n} toppings to finish',
-    baked: 'Your pizza is ready! Please continue to the next page.',
+    baked: 'Your pizza is ready!',
     steps: ['Drag a tomato slice into the dashed circle', 'Add two more slices anywhere on the pizza',
       'Move a slice that is already on the pizza: press it and drag it somewhere else',
       'Change a slice\'s size: press it and hold still, then let go when it is the size you want', 'Remove a slice: drag it from the pizza off the edge'],
@@ -445,6 +452,18 @@
       ident: ['To what extent does {x} on your pizza reflect who you are?', 'Not at all', 'Very much']
     },
     neverTasted: "I've never tasted it",
+    strongQ: 'Do you have strong feelings about any of these ingredients?',
+    strongSub: 'Tap every one you do: good or bad. Tap again to undo.',
+    strongNone: 'None of these',
+    strongProgress: 'Ingredient {i} of {n}',
+    feel: {
+      feel: ['How do you feel about {x}?', false, [['love', 'I love it'], ['like', 'I like it'], ['mixed', 'Mixed feelings'], ['dislike', 'I dislike it'], ['cant', "I can't stand it"]]],
+      about: ['What is it about {x}? Choose all that apply.', true, [['texture', 'Its texture'], ['smell', 'Its smell'], ['taste', 'Its taste'],
+        ['look', 'How it looks'], ['touching', 'It touching other food'], ['other', 'Something else']]],
+      safe: ['Is {x} a "safe food" for you, one you can nearly always eat?', false, [['yes', 'Yes'], ['sometimes', 'Sometimes'], ['no', 'No']]],
+      sameway: ['Does {x} have to be a certain way for you to eat it (a brand, how it is cut or cooked)?', false, [['yes', 'Yes'], ['sometimes', 'Sometimes'], ['no', 'No']]],
+      crave: ['Do you crave {x} or go looking for it?', false, [['often', 'Often'], ['sometimes', 'Sometimes'], ['never', 'Never']]]
+    },
     reasonsQ: 'You did not put {x} on your pizza. Why not? Choose all that apply.',
     reasons: [['taste', "I don't like the taste or texture"], ['diet', 'My diet (e.g. vegetarian, vegan)'], ['culture', 'Religious or cultural reasons'],
       ['allergy', 'Allergy or intolerance'], ['health', 'Health or calories'], ['safety', 'Worried it might not be safe to eat'],
@@ -1002,14 +1021,21 @@
 
   var FOLLOW_DEFAULTS = {
     mode: 'followup', prefix: 'pzf_', ingredients: DEFAULT_INGREDIENTS, shuffle: true,
-    counts: null, countsFrom: 'pz_', askPizza: true, askDiet: true, askReasons: true, askIdentity: true, force: true,
+    // style 'strong': one tappable list ("strong feelings?"), then five questions per ingredient tapped.
+    // style 'ratings': every ingredient rated on scales, reasons for those left off. askPizza / askDiet default to on only there.
+    style: 'strong', feelQuestions: ['feel', 'about', 'safe', 'sameway', 'crave'],
+    counts: null, countsFrom: 'pz_', askPizza: null, askDiet: null, askReasons: true, askIdentity: true, force: true,
     scales: ['like', 'fam', 'safe', 'disg', 'norm'], pizzaItems: null, names: null, text: null, onSave: null, onFinish: null
   };
 
   function Followup(root, opts) {
     injectOnce();
     var o = this.o = extend({}, FOLLOW_DEFAULTS, opts);
+    var strong = o.style !== 'ratings';
+    if (o.askPizza == null) o.askPizza = !strong;
+    if (o.askDiet == null) o.askDiet = !strong;
     this.T = extend({}, TEXT, o.text);
+    if (o.text && o.text.feel) this.T.feel = extend({}, TEXT.feel, o.text.feel);
     if (o.text && o.text.scales) this.T.scales = extend({}, TEXT.scales, o.text.scales);
     this.counts = parseCounts(o.counts);
     if (!Object.keys(this.counts).length) {     // piping gave nothing: use what the build page left in this tab
@@ -1018,9 +1044,11 @@
     this.haveCounts = Object.keys(this.counts).length > 0;
     this.order = o.shuffle ? shuffle(o.ingredients) : o.ingredients.slice();
     this.root = root; this.t0 = now();
-    this.res = { v: VERSION, start: new Date().toISOString(), countsKnown: this.haveCounts, order: this.order, pizza: {},
+    this.res = { v: VERSION, style: strong ? 'strong' : 'ratings', start: new Date().toISOString(), countsKnown: this.haveCounts, order: this.order, pizza: {},
       diet: [], dietOther: '', health: [], healthOther: '', freq: null, items: {} };
-    this.screens = (o.askPizza ? ['@pizza'] : []).concat(this.order, o.askDiet ? ['@diet'] : []);
+    if (strong) { this.res.strong = []; this.res.none = false; }
+    this.screens = strong ? ['@pick'].concat(o.askPizza ? ['@pizza'] : [], o.askDiet ? ['@diet'] : [])
+      : (o.askPizza ? ['@pizza'] : []).concat(this.order, o.askDiet ? ['@diet'] : []);
     this.w = el('div', 'pzb pzb-mode-followup');
     root.appendChild(this.w);
     var self = this;
@@ -1034,7 +1062,8 @@
     this.w.innerHTML = '';
     this.cardT = now();
     var sc = this.screens[this.i];
-    if (sc === '@diet') this._diet(); else if (sc === '@pizza') this._pizza(); else this._item(sc);
+    if (sc === '@diet') this._diet(); else if (sc === '@pizza') this._pizza(); else if (sc === '@pick') this._pick();
+    else if (sc.indexOf('f:') === 0) this._feel(sc.slice(2)); else this._item(sc);
     try { this.w.scrollIntoView({ block: 'start' }); } catch (e) { /* old browsers */ }
   };
 
@@ -1171,9 +1200,70 @@
     this.w.appendChild(card);
   };
 
+  // One screen: every ingredient as a tile to tap, "do you have strong feelings about any of these?"
+  Followup.prototype._pick = function () {
+    var T = this.T, o = this.o, r = this.res, self = this, card = el('div', 'pzb-card'), upd;
+    card.appendChild(el('h3', null, esc(T.strongQ)));
+    card.appendChild(el('p', 'pzb-sub', esc(T.strongSub)));
+    var grid = el('div', 'pzb-tiles'), noneBtn;
+    this.order.forEach(function (code) {
+      var b = el('button', 'pzb-tile', '<div class="pzb-bowl">' + iconMarkup(code) + '</div><span>' + esc(iname(o, code)) + '</span>');
+      b.type = 'button'; b.setAttribute('aria-pressed', 'false'); b.setAttribute('data-ing', code);
+      b.onclick = function () {
+        var i = r.strong.indexOf(code);
+        if (i >= 0) r.strong.splice(i, 1); else { r.strong.push(code); r.none = false; noneBtn.setAttribute('aria-pressed', 'false'); }
+        b.setAttribute('aria-pressed', String(i < 0));
+        if (r.firstTapMs == null) r.firstTapMs = Math.round(now() - self.cardT);
+        upd();
+      };
+      grid.appendChild(b);
+    });
+    card.appendChild(grid);
+    noneBtn = el('button', 'pzb-check pzb-opt', esc(T.strongNone)); noneBtn.type = 'button'; noneBtn.setAttribute('aria-pressed', 'false');
+    noneBtn.onclick = function () {
+      r.none = !r.none; noneBtn.setAttribute('aria-pressed', String(r.none));
+      if (r.none) { r.strong.length = 0; [].forEach.call(grid.children, function (t) { t.setAttribute('aria-pressed', 'false'); }); }
+      upd();
+    };
+    card.appendChild(noneBtn);
+    upd = this._nav(card, function () { return r.strong.length > 0 || r.none; }, T.next);
+    this.w.appendChild(card);
+  };
+
+  // Up to five questions about one ingredient the participant has strong feelings about.
+  Followup.prototype._feel = function (code) {
+    var T = this.T, o = this.o, self = this, card = el('div', 'pzb-card'), name = iname(o, code), upd;
+    var picked = this.screens.filter(function (x) { return x.indexOf('f:') === 0; });
+    var it = this.res.items[code] = { placed: this.haveCounts ? (this.counts[code] || 0) : null, t: {} };
+    card.appendChild(el('div', 'pzb-prog', esc(fmt(T.strongProgress, { i: picked.indexOf('f:' + code) + 1, n: picked.length }))));
+    card.appendChild(el('div', 'pzb-head', '<div class="pzb-bowl">' + iconMarkup(code) + '</div><h3>' + esc(name) + '</h3>'));
+    var qs = o.feelQuestions.filter(function (k) { return T.feel[k]; }).slice(0, 5);
+    qs.forEach(function (k) {
+      var def = T.feel[k], multi = def[1], sel = [];
+      it[k] = multi ? [] : null;
+      var q = el('div', 'pzb-q'); q.appendChild(el('p', null, esc(fmt(def[0], { x: name.toLowerCase() }))));
+      q.appendChild(self._checks(def[2], multi, multi ? it[k] : sel, function () {
+        if (!multi) it[k] = sel[0];
+        if (it.t[k] == null) it.t[k] = Math.round(now() - self.cardT);
+        upd();
+      }));
+      card.appendChild(q);
+    });
+    var last = this.i === this.screens.length - 1;
+    upd = this._nav(card, function () {
+      return qs.every(function (k) { return T.feel[k][1] ? it[k].length > 0 : it[k] != null; });
+    }, last ? T.finish : T.next);
+    this.w.appendChild(card);
+  };
+
   Followup.prototype._next = function () {
     var ms = Math.round(now() - this.cardT), sc = this.screens[this.i];
-    if (sc === '@diet') this.res.dietMs = ms; else if (sc === '@pizza') this.res.pizza.ms = ms; else this.res.items[sc].ms = ms;
+    if (sc === '@diet') this.res.dietMs = ms; else if (sc === '@pizza') this.res.pizza.ms = ms;
+    else if (sc === '@pick') {
+      this.res.pickMs = ms;
+      var picked = this.order.filter(function (k) { return this.res.strong.indexOf(k) >= 0; }, this);   // asked in the list's order
+      this.screens.splice.apply(this.screens, [this.i + 1, 0].concat(picked.map(function (k) { return 'f:' + k; })));
+    } else this.res.items[sc.indexOf('f:') === 0 ? sc.slice(2) : sc].ms = ms;
     this.i++;
     this.save();
     if (this.i >= this.screens.length) {

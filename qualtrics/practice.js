@@ -22,7 +22,7 @@ Qualtrics.SurveyEngine.addOnReady(function () {
     PizzaBuilder.mount(box, {
       mode: 'practice',
       onSave: save,
-      onFinish: function () { q.showNextButton(); }
+      onFinish: function () { q.showNextButton(); q.clickNextButton(); }   // the task's own button moves on
     });
   }
   if (window.PizzaBuilder) start();

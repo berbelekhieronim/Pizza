@@ -74,7 +74,18 @@ def person(style, pid):
     sauce = R.choices(['tomato', 'white', 'bbq', 'none'], [.82, .06, .09, .03])[0]
     if diet == 'vegan' and sauce == 'white': sauce = 'tomato'
     summ = {'finished': True, 'cond': 'simulated', 'sauce': sauce, 'cheese': cheese, 'tray': TRAY, 'hiddenMs': 0}
-    fol = {'diet': [diet] if diet != 'none' else ['none'], 'health': ['none'], 'freq': '1-3m', 'items': {}, 'pizza': {}}
+    # follow-up (default style): strong feelings about a few ingredients, five answers about each
+    strong = R.sample(TRAY, R.choice([0, 1, 1, 2, 2, 3, 4] if style == 'A' else [0, 0, 1, 1, 2, 3]))
+    items = {}
+    for k in strong:
+        on = k in chosen
+        items[k] = {'feel': R.choice(['love', 'like'] if on else ['dislike', 'cant', 'mixed']),
+                    'about': R.sample(['texture', 'smell', 'taste', 'look', 'touching'], R.randint(1, 3 if style == 'A' else 2)),
+                    'safe': R.choice(['yes', 'sometimes', 'no'] if on else ['no', 'no', 'sometimes']),
+                    'sameway': R.choice(['yes', 'sometimes', 'no', 'no'] if style == 'A' else ['sometimes', 'no', 'no', 'no']),
+                    'crave': R.choice(['often', 'sometimes', 'never'] if on else ['never']), 'placed': plan.count(k)}
+    fol = {'style': 'strong', 'strong': strong, 'none': not strong, 'items': items,
+           'diet': [diet] if diet != 'none' else ['none'], 'health': ['none'], 'freq': '1-3m', 'pizza': {}, 'finished': True}
     return {'pz_final': json.dumps(final), 'pz_events': json.dumps(ev), 'pz_summary': json.dumps(summ), 'pzf_data': json.dumps(fol)}
 out, n, styles = sys.argv[1], int(sys.argv[3]), sys.argv[4]
 os.makedirs(out, exist_ok=True)

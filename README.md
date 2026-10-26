@@ -61,9 +61,24 @@ python3 tests/smoke_test.py           # check that everything works on this mach
    pulse smoothly between half and 2.5 times normal (one full cycle every 3 s) for as long as it is held; letting go
    keeps the size of that moment. Every piece's size is recorded.
    Pieces can be moved, dragged off to remove, undone, or cleared. "I'm done" asks for confirmation, then the pizza
-   "bakes" (a short visual) and the Next button appears.
+   "bakes" (a short visual) and the survey moves on by itself. Each part's own button ("Continue", "I'm done", "Finish")
+   is the only button needed: there is no separate Next step (in Qualtrics the scripts press Next for the participant).
 3. **Optional perceived-norm build** (`build-typical.js`): the same task, "make the pizza a typical participant would choose".
-4. **Follow-up** (`followup.js`), in this order, so the diet and health questions cannot prime the ratings:
+4. **Follow-up** (`followup.js`). By default it is short:
+   - **One list:** all the ingredients as tiles, with *Do you have strong feelings about any of these ingredients?*
+     Participants tap every one they do (or *None of these*).
+   - **For each ingredient tapped, five questions** chosen for ASD, ADHD and AuDHD food experiences:
+     1. *How do you feel about it?* love / like / mixed / dislike / can't stand
+     2. *What is it about it?* texture, smell, taste, how it looks, it touching other food, something else (sensory aspects)
+     3. *Is it a "safe food" for you, one you can nearly always eat?* yes / sometimes / no
+     4. *Does it have to be a certain way for you to eat it (a brand, how it is cut or cooked)?* yes / sometimes / no (sameness)
+     5. *Do you crave it or go looking for it?* often / sometimes / never
+
+     Reword them with `text: { feel: {...} }`, or drop some with `feelQuestions`.
+
+   Two more parts can be switched on (`askPizza: true`, `askDiet: true`), and `style: 'ratings'` replaces the list with
+   the detailed version: every ingredient rated on scales, plus reasons for each one left off. In that version, in
+   this order, so the diet and health questions cannot prime the ratings:
    - **About your pizza**: six 1-7 agreement items: *My pizza expresses who I am* · *...is different from the pizza most
      people would make* · *I made my pizza exactly the way I wanted to* · *...I felt in control of the result* ·
      *I followed a rule or system when arranging the toppings* · *I chose toppings I was confident would be safe for me to eat*.
@@ -144,8 +159,10 @@ practice, build, ratings, completion code) and saves each participant as they go
 3. Send participants a link from **Links to send** on the researcher page. A link can carry `?group=ASD` (or `NT`, etc.)
    to record their group, and `&pid=...` to use your own IDs; Prolific's `PROLIFIC_PID` is picked up too. Conditions
    listed in `server/study.json` are assigned in turn.
-4. Watch sessions arrive on the researcher page. **Build reports** runs the analysis on everyone so far (dashboard,
-   profiles and clusters, symmetry and contact); **Download all data** gives a zip of every session.
+4. Watch sessions arrive on the researcher page. The **Dashboard**, **Profiles and clusters** and **Symmetry and contact**
+   buttons open the reports, rebuilt automatically from everyone so far whenever new sessions have arrived (**Rebuild now**
+   forces it). **Download all data** gives a zip of every session. Keep the researcher link to yourself: the password is
+   part of it, which is what lets the page work even inside the codespace's preview panel.
 
 Edit `server/study.json` for the title, intro text, consent sentence, completion message or a redirect URL (e.g. a
 Prolific completion link), the conditions, the groups that get a ready-made link, and whether to add the "typical
@@ -212,7 +229,7 @@ rest of the sample) and `--clusters <k>` fixes the number of clusters. It writes
 | `events_long.csv` | every interaction, for sequence analyses |
 | `profiles.csv` | each participant's standardised profile and cluster |
 | **`dashboard.html`** | the data at a glance, for proposals and for checking data as it comes in: diet breakdown, stated diet against the pizza, the normality distribution with the most unusual pizzas, space / size / time by group, a sortable table of every participant with a thumbnail |
-| **`profiles.html`** | every participant as a profile of 27 measures; compare any two side by side (with each person's most similar participants); hierarchical clusters with plain-language descriptions, how the groups spread across them (χ²), a map of all profiles, and a heatmap ordered by the clustering tree |
+| **`profiles.html`** | every participant as a profile of 29 measures; compare any two side by side (with each person's most similar participants); hierarchical clusters with plain-language descriptions, how the groups spread across them (χ²), a map of all profiles, and a heatmap ordered by the clustering tree |
 | **`arrangement.html`** | symmetry and contact drawn on every pizza: the best mirror axis, the best rotation (rings mark where each topping's symmetric partner would have to be: green = a matching topping is there, red = none nearby), and touching and stacked pieces, with group comparisons |
 | `pizzas/`, `gallery.html` | every pizza redrawn from its coordinates |
 
@@ -254,7 +271,7 @@ The measures are defined in `CODEBOOK.md`. In short:
 - **Timing:** decision time (end of one action to picking up the next, excluding the drag itself), gaps between
   placements, drag time, time away from the tab, and **time to completion**: when "I'm done" was first pressed, when the
   pizza was confirmed and submitted, and how often the participant pressed it but went back to edit.
-- **Profiles and clusters:** 27 measures across composition, normality, space, size, order, time and faces, each
+- **Profiles and clusters:** 29 measures across composition, normality, space, size, order, time, faces and strong feelings, each
   standardised in the sample and signed so that higher means more of the named trait. Participants are compared by the
   distance between their profiles and grouped by Ward clustering, with the number of clusters chosen by silhouette.
 - **Norm deviation:**

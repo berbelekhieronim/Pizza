@@ -86,6 +86,9 @@ R_VALID = 0.9          # topping centres lie within this radius (pizza radius = 
 SECTORS = 8
 REASONS = ['taste', 'diet', 'culture', 'allergy', 'health', 'safety', 'disgust', 'unfamiliar', 'notpizza', 'nofit', 'noreason', 'other']
 SCALES = ['like', 'fam', 'safe', 'disg', 'norm', 'ident']
+# the follow-up's default style: strong feelings about an ingredient, then five questions about each one tapped
+FEEL_POS, FEEL_NEG = {'love', 'like'}, {'dislike', 'cant'}
+ABOUT = ['texture', 'smell', 'taste', 'look', 'touching', 'other']
 
 
 # ------------------------------------------------------------------ reading
@@ -678,9 +681,16 @@ def ingredient_rows(pid, prefix, summary, events, counts, follow, diet, pieces=(
              'n_on_top': sum(1 for i in per.get('on_top', ()) if pieces[i]['ing'] == ing),
              'n_covered': sum(1 for i in per.get('under', ()) if pieces[i]['ing'] == ing),
              'diet_conflict': int(ing in excluded) if diet else None}
+        ratings = (follow or {}).get('style') != 'strong'     # the 1-7 ratings exist only in the 'ratings' follow-up
         for s in SCALES:
-            r[s] = it.get(s)
-        r['never_tasted'] = int(bool(it.get('never'))) if it else None
+            r[s] = it.get(s) if ratings else None
+        r['never_tasted'] = int(bool(it.get('never'))) if (it and ratings) else None
+        if (follow or {}).get('style') == 'strong':
+            r['strong'] = int(ing in (follow.get('strong') or []))
+            r['feel'] = it.get('feel')
+            for a in ABOUT:
+                r['about_' + a] = (int(a in (it.get('about') or [])) if it else None)
+            r['safe_food'], r['same_way'], r['crave'] = it.get('safe'), it.get('sameway'), it.get('crave')
         rs = it.get('reasons')
         for reason in REASONS:
             r['why_' + reason] = (int(reason in rs) if rs is not None else None)
@@ -802,12 +812,14 @@ def dot_plot(title, values, ref=None, ref_label='', lo=0.0, hi=None, fmt='%.2f')
         mag = 10 ** math.floor(math.log10(raw))
         step = next(m * mag for m in (1, 2, 2.5, 5, 10) if m * mag >= raw)
         hi = lo + step * math.ceil((top - lo) / step - 1e-9)
+    if hi - lo <= 1e-9:                 # every value the same (e.g. all 0): give the axis some width
+        lo, hi, step = (lo - 1, lo + 1, None) if lo != 0 else (0.0, 1.0, None)
     W, right, row = 640, 20, 34
     left = min(300, 24 + 7 * max(len(str(g)) + 5 for g in groups))
     H = 44 + row * len(groups)
     X = lambda v: left + (min(max(v, lo), hi) - lo) / (hi - lo) * (W - left - right)
     s = ['<svg viewBox="0 0 %d %d" class="dots" role="img" aria-label="%s">' % (W, H, esc(title))]
-    n_ticks = round((hi - lo) / step) if step else 5
+    n_ticks = max(1, round((hi - lo) / step)) if step else 5
     for t in range(n_ticks + 1):
         v = lo + (hi - lo) * t / n_ticks
         s.append('<line class="grid" x1="%.1f" x2="%.1f" y1="18" y2="%d"/><text class="tick" x="%.1f" y="%d">%s</text>' % (X(v), X(v), H - 20, X(v), H - 6, fmt % v))
@@ -917,6 +929,46 @@ def stacked_bars(title, rows, classes):
     return '<figure><figcaption>%s</figcaption>%s</svg></figure>' % (esc(title), ''.join(s))
 
 
+def strong_feelings_chart(entries, groups):
+    """For each ingredient: how many participants have strong positive / negative feelings about it, by group."""
+    recs = [r for r, _ in entries if r.get('strong_list') is not None or r.get('strong_none') is not None]
+    if not recs:
+        return ''
+    pos, neg = Counter(), Counter()
+    for r in recs:
+        for kv in (r.get('strong_list') or '').split():
+            k, f = kv.split(':', 1)
+            if f in FEEL_POS:
+                pos[(r['_group'], k)] += 1
+            elif f in FEEL_NEG:
+                neg[(r['_group'], k)] += 1
+    ings = sorted({k for _, k in list(pos) + list(neg)}, key=lambda k: -sum(pos[(g, k)] + neg[(g, k)] for g in groups))
+    if not ings:
+        return '<p class="note">Nobody reported strong feelings about any ingredient.</p>'
+    W, left, mid, right, rowh = 680, 130, 400, 16, 14 * max(1, len(groups)) + 8
+    top = max(max(pos.values() or [1]), max(neg.values() or [1]), 1)
+    half = (W - left - right) / 2
+    X = lambda v: half * v / top
+    H = 34 + rowh * len(ings)
+    s = ['<svg viewBox="0 0 %d %d" class="dots" role="img" aria-label="Strong feelings by ingredient">' % (W, H),
+         '<text class="val" x="%.1f" y="12" text-anchor="end">negative (dislike, can\'t stand) &larr;</text>' % (left + half - 6),
+         '<text class="val" x="%.1f" y="12">&rarr; positive (love, like)</text>' % (left + half + 6),
+         '<line class="grid" x1="%.1f" x2="%.1f" y1="18" y2="%d"/>' % (left + half, left + half, H)]
+    for i, k in enumerate(ings):
+        y = 24 + i * rowh
+        s.append('<text class="lab" x="%d" y="%.1f" text-anchor="end">%s</text>' % (left - 8, y + rowh / 2 + 2, esc(NAMES.get(k, k))))
+        for gi, g in enumerate(groups):
+            n_neg, n_pos = neg[(g, k)], pos[(g, k)]
+            yy = y + gi * 14
+            op = '1' if gi == 0 else '.55'
+            if n_neg:
+                s.append('<rect x="%.1f" y="%.1f" width="%.1f" height="11" rx="2" class="meat" opacity="%s"/>' % (left + half - X(n_neg), yy, X(n_neg), op))
+            if n_pos:
+                s.append('<rect x="%.1f" y="%.1f" width="%.1f" height="11" rx="2" class="vegan" opacity="%s"/>' % (left + half, yy, X(n_pos), op))
+            s.append('<text class="val" x="%.1f" y="%.1f">%d / %d%s</text>' % (left + half + X(n_pos) + 4, yy + 9.5, n_neg, n_pos, (' ' + esc(g)) if len(groups) > 1 and i == 0 else ''))
+    return '<figure><figcaption>Strong feelings about each ingredient (number of participants: negative / positive)</figcaption>%s</svg></figure>' % ''.join(s)
+
+
 def topping_rates(recs, groups, toppings):
     """Share of pizzas in each group that include each topping, coloured by the topping's diet class."""
     W, left, right, rowh = 680, 130, 50, 14 * max(1, len(groups)) + 8
@@ -991,6 +1043,7 @@ DASH_COLS = [  # (key, heading, group, format)
     ('coverage', 'Coverage', 'space', '%.2f'), ('prop_touching', 'Touching', 'space', '%.2f'), ('max_stack_depth', 'Pile', 'space', '%d'),
     ('topping_area_cm2', 'Area cm²', 'size', '%.0f'), ('n_grown', 'Enlarged', 'size', '%d'), ('n_shrunk', 'Shrunk', 'size', '%d'), ('size_max', 'Max size', 'size', '%.1f'),
     ('t_first_pick', 'First pick s', 'time', 's'), ('decision_median', 'Decision s', 'time', 's'), ('t_submit', 'Done s', 'time', 's'),
+    ('n_strong', 'Strong feelings', 'follow-up', '%d'), ('n_safe_foods', 'Safe foods', 'follow-up', '%d'),
     ('n_on_crust', 'On crust', 'space', '%d'), ('n_over_edge', 'Over edge', 'space', '%d'), ('face_detected', 'Face', 'figurative', '%d'),
 ]
 
@@ -998,7 +1051,9 @@ DASH_COLS = [  # (key, heading, group, format)
 def dashboard_report(entries, ref_info, group_label):
     recs = [r for r, _ in entries]
     if not recs:
-        return '<!doctype html><title>Pizza Data Preview</title><p>No pizzas to show.</p>'
+        return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+                '<title>Pizza Data Preview</title></head><body style="font:16px system-ui,sans-serif;max-width:640px;margin:0 auto;padding:24px 16px">'
+                '<h1>Pizza data preview</h1><p>No finished pizzas yet.</p></body></html>')
     groups = []
     for r in recs:
         if r['_group'] not in groups:
@@ -1056,6 +1111,9 @@ def dashboard_report(entries, ref_info, group_label):
              dot_plot('Total build time, seconds (time on other tabs removed)', vals('t_active', 1000), lo=0.0, fmt='%.0f') +
              dot_plot('Time to first topping, seconds', vals('t_first_pick', 1000), lo=0.0, fmt='%.1f') +
              dot_plot('Time to completion: confirmed "I\'m done", seconds', vals('t_submit', 1000), lo=0.0, fmt='%.0f'))
+    feel_plots = (dot_plot('Ingredients with strong feelings, per participant', vals('n_strong'), lo=0.0, fmt='%.0f') +
+                  dot_plot('Sensory reasons given (texture, smell, taste, look, touching other food)', vals('n_sensory_reasons'), lo=0.0, fmt='%.0f') +
+                  dot_plot('"Safe foods" among them', vals('n_safe_foods'), lo=0.0, fmt='%.0f'))
     head = '<tr><th class="l">Pizza</th><th class="l">Participant</th><th class="l">Group</th>%s</tr>' % ''.join(
         '<th%s>%s<span class="grp">%s</span></th>' % (' class="l"' if f is None else '', esc(h), g) for _, h, g, f in DASH_COLS)
     body = []
@@ -1105,11 +1163,13 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
             'Each becomes a percentile of the reference, and the band uses the more extreme of the two: under 75 is <b>typical</b>, 75-95 <b>uncommon</b>, above 95 <b>unusual</b>.</p>'
             '<figure><figcaption>Which toppings: reference distribution (bars) and this sample (dots; bar = median)</figcaption>%s</figure>%s'
             '<h3>Most unusual pizzas</h3><div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">%s</div>'
+            '<h2>Strong feelings</h2><p class="muted">From the follow-up: which ingredients people have strong feelings about, and why '
+            '(texture, smell, taste, look, touching other food), whether they are safe foods, must be a certain way, or are craved.</p>%s%s'
             '<h2>Space</h2>%s<h2>Size and amount</h2>%s<h2>Time</h2>%s'
             '<h2>Every participant</h2><p class="muted">Click a column to sort.</p><div class="tablewrap"><table class="people"><thead>%s</thead><tbody>%s</tbody></table></div>'
             '</div>%s</body></html>'
             % (REPORT_CSS, DASH_TOKENS, DASH_CSS, len(recs), esc(group_label), kpis, legend, diet, pieces, cross,
-               esc(ref_txt), hist, bands, examples, space, size, time_, head, ''.join(body), sort_js))
+               esc(ref_txt), hist, bands, examples, strong_feelings_chart(entries, groups), feel_plots, space, size, time_, head, ''.join(body), sort_js))
 
 
 def fmtv(v, f='%.2f'):
@@ -1232,6 +1292,7 @@ PROFILE_FEATURES = [
     ('Time', 't_first_pick', 'Time to start', 'log', 1), ('Time', 'decision_median', 'Decision time', 'log', 1),
     ('Time', 't_submit', 'Time to completion', 'log', 1),
     ('Figurative', 'face_score', 'Face-like', None, 1),
+    ('Feelings', 'n_strong', 'Strong feelings about toppings', None, 1), ('Feelings', 'n_sensory_reasons', 'Sensory reasons given', None, 1),
 ]
 
 
@@ -1483,7 +1544,10 @@ def profiles_report(entries, prof, group_label):
     recs = [r for r, _ in entries]
     n = len(recs)
     if n < 4:
-        return '<!doctype html><title>Pizza Profiles</title><p>Profiles and clusters need at least 4 pizzas.</p>'
+        return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+                '<title>Pizza Profiles</title></head><body style="font:16px system-ui,sans-serif;max-width:640px;margin:0 auto;padding:24px 16px">'
+                '<h1>Profiles and clusters</h1><p>These need at least 4 finished pizzas; there %s %d so far. The dashboard and the '
+                'symmetry report already work.</p></body></html>' % ('is' if n == 1 else 'are', n))
     Z, labels, k, order = prof['Z'], prof['labels'], prof['k'], prof['order']
     groups = []
     for r in recs:
@@ -1612,7 +1676,7 @@ var D = %s;
     return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
             '<title>Pizza Profiles</title><style>%s%s%s</style></head><body><div class="wrap">'
             '<h1>Pizza profiles and clusters</h1>'
-            '<p class="muted">Each participant\'s pizza is summarised as a profile of %d measures in seven areas. Each score is standardised across these %d '
+            '<p class="muted">Each participant\'s pizza is summarised as a profile of %d measures in %d areas. Each score is standardised across these %d '
             'participants (0 = sample average, ±1 = one standard deviation) and signed so that higher always means <i>more</i> of the named trait. '
             'Profiles are compared by their Euclidean distance and grouped with hierarchical clustering (Ward\'s method). The number of clusters, %d, is the one with the best '
             'average silhouette (%s); higher is better, and values under about 0.25 mean the clusters overlap.</p>'
@@ -1621,7 +1685,7 @@ var D = %s;
             '<h2>All profiles</h2><p class="muted">One row per participant, ordered by the clustering tree; the coloured band is the cluster. '
             'Orange = above the sample average, blue = below.</p>%s'
             '</div>%s</body></html>'
-            % (REPORT_CSS, DASH_CSS, PROFILE_CSS, len(PROFILE_FEATURES), n, k, esc(sil), compare, ''.join(cards), cross, scatter, heat, script))
+            % (REPORT_CSS, DASH_CSS, PROFILE_CSS, len(PROFILE_FEATURES), len({f[0] for f in PROFILE_FEATURES}), n, k, esc(sil), compare, ''.join(cards), cross, scatter, heat, script))
 
 
 def bar_style(z):
@@ -1712,6 +1776,24 @@ def analyse(rows, builds, out_dir, seed, group_col=None, ref_rows=None, k_force=
                 rec['health_' + h] = (int(h in health) if health is not None else None)
             rec['health_any'] = (int(any(h in health for h in HEALTH)) if health is not None else None)
             rec['health_other'] = follow.get('healthOther') or None
+            if follow.get('style') == 'strong':
+                items = follow.get('items') or {}
+                strong = follow.get('strong') or []
+                rec['strong_none'] = int(bool(follow.get('none')))
+                rec['n_strong'] = len(strong)
+                rec['n_strong_positive'] = sum((items.get(k) or {}).get('feel') in FEEL_POS for k in strong)
+                rec['n_strong_negative'] = sum((items.get(k) or {}).get('feel') in FEEL_NEG for k in strong)
+                rec['n_safe_foods'] = sum((items.get(k) or {}).get('safe') == 'yes' for k in strong)
+                rec['n_same_way'] = sum((items.get(k) or {}).get('sameway') == 'yes' for k in strong)
+                rec['n_crave_often'] = sum((items.get(k) or {}).get('crave') == 'often' for k in strong)
+                for a in ABOUT:
+                    rec['n_about_' + a] = sum(a in ((items.get(k) or {}).get('about') or []) for k in strong)
+                rec['n_sensory_reasons'] = sum(rec['n_about_' + a] for a in ('texture', 'smell', 'taste', 'look', 'touching'))
+                pos = [k for k in strong if (items.get(k) or {}).get('feel') in FEEL_POS]
+                neg = [k for k in strong if (items.get(k) or {}).get('feel') in FEEL_NEG]
+                rec['strong_pos_on_pizza'] = (sum(counts.get(k, 0) > 0 for k in pos) / len(pos)) if pos else None
+                rec['strong_neg_on_pizza'] = (sum(counts.get(k, 0) > 0 for k in neg) / len(neg)) if neg else None
+                rec['strong_list'] = ' '.join('%s:%s' % (k, (items.get(k) or {}).get('feel') or '?') for k in strong) or None
             pz = follow.get('pizza') or {}
             for k in PIZZA_ITEMS:
                 rec['pz_' + k] = pz.get(k)
@@ -1720,7 +1802,7 @@ def analyse(rows, builds, out_dir, seed, group_col=None, ref_rows=None, k_force=
             rec['flag_fast'] = int(rec['t_finish'] is not None and rec['t_finish'] < 15000)
             rec['flag_empty'] = int(n == 0)
             ings = ingredient_rows(pid, prefix, summary, events, counts, follow, diet, pieces)
-            if follow.get('items'):
+            if follow.get('items') and follow.get('style') != 'strong':
                 inc = [r['included'] for r in ings]
                 norm = [r['norm'] for r in ings]
                 rec['norm_incl_corr'] = corr(inc, norm)

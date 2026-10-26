@@ -14,6 +14,7 @@
   label.consent { display:flex; gap:10px; align-items:flex-start; margin:16px 0; max-width:62ch; cursor:pointer; }
   label.consent input { width:22px; height:22px; margin-top:2px; flex:none; }
   .next { display:flex; justify-content:flex-end; margin-top:16px; }
+  .next[hidden] { display:none; }   /* without this the display rule above keeps a hidden Next button on screen */
   button.go { font:inherit; font-weight:600; padding:12px 24px; border-radius:10px; border:0; background:var(--accent); color:#fff; cursor:pointer; }
   button.go:disabled { opacity:.45; cursor:default; }
   .code { font:600 1.6rem/1.2 ui-monospace, Menlo, Consolas, monospace; letter-spacing:.06em; background:#f4efe9; border-radius:10px; padding:10px 14px; display:inline-block; user-select:all; }
@@ -76,17 +77,13 @@
     if (name === 'done') return done();
     var box = document.createElement('div');
     stage.appendChild(box);
-    var opts = { mode: name === 'typical' ? 'build' : name, onSave: onSave, condition: S.cond, onFinish: function () { send(true); showNext(o[i + 1]); } };
+    var opts = { mode: name === 'typical' ? 'build' : name, onSave: onSave, condition: S.cond, onFinish: function () { send(true); go(o[i + 1]); } };
     if (name === 'typical') {
       opts.prefix = 'pzt_';
       opts.prompt = 'Now make the pizza you think a typical person taking part in this study would choose. Drag toppings onto the pizza; drag a topping off to remove it.';
     }
     if (name === 'followup') opts.counts = S.fields.pz_counts || null;
     widget = PizzaBuilder.mount(box, opts);
-  }
-  function showNext(to) {
-    next.hidden = false;
-    next.querySelector('button').onclick = function () { go(to); };
   }
   function intro() {
     var st = S.study;

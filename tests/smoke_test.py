@@ -59,8 +59,17 @@ def main():
             check(os.path.getsize(os.path.join(out, f)) > 0 if os.path.exists(os.path.join(out, f)) else False, 'writes ' + f)
         rows = list(csv.DictReader(open(os.path.join(out, 'participants.csv'), encoding='utf-8')))
         check(len(rows) == 24, 'one row per participant')
-        for col in ('diet_class', 'atypicality_pct', 'sym_mirror', 'n_on_crust', 'face_detected', 'size_match_same', 't_submit', 'cluster'):
+        for col in ('diet_class', 'atypicality_pct', 'sym_mirror', 'n_on_crust', 'face_detected', 'size_match_same', 't_submit', 'cluster',
+                    'n_strong', 'n_safe_foods', 'n_sensory_reasons'):
             check(col in rows[0], 'column ' + col)
+
+        # a pilot's first sessions: one participant with a plain pizza, then two; every chart must cope with all-equal values
+        first = sorted(glob.glob(os.path.join(tmp, 'sample', '*.json')))[:2]
+        plain = json.load(open(first[0], encoding='utf-8'))
+        plain.update(pz_final='[]', pz_events=json.dumps([[0, 'start', ''], [3000, 'done'], [3400, 'finish']]))
+        json.dump(plain, open(os.path.join(tmp, 'plain.json'), 'w'))
+        check(run('analysis/analyse.py', os.path.join(tmp, 'plain.json'), '--group', 'group', '--out', os.path.join(tmp, 'o1')), 'one participant with a plain pizza')
+        check(run('analysis/analyse.py', os.path.join(tmp, 'plain.json'), first[1], '--group', 'group', '--out', os.path.join(tmp, 'o2')), 'two participants')
 
         print('study server')
         with socket.socket() as s:

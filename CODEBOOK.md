@@ -76,6 +76,25 @@ Practice only: `targetErr` (distance from the target centre for each attempt, ma
 
 ### `pzf_data` - follow-up
 
+The default (`style: 'strong'`):
+
+```
+{ v, style: 'strong', start, countsKnown, order: [codes in the order shown],
+  strong: [codes the participant has strong feelings about], none: true if they chose "None of these",
+  firstTapMs, pickMs,
+  items: { <code>: { placed, feel, about: [...], safe, sameway, crave, t: {<question>: ms to first answer}, ms } },
+  finished, tTotal }
+```
+
+- `feel`: `love` / `like` / `mixed` / `dislike` / `cant` (can't stand it)
+- `about`: any of `texture`, `smell`, `taste`, `look`, `touching` (it touching other food), `other`
+- `safe`: a "safe food", one they can nearly always eat: `yes` / `sometimes` / `no`
+- `sameway`: it has to be a certain way (brand, cut, cooking) to eat it: `yes` / `sometimes` / `no`
+- `crave`: crave it or go looking for it: `often` / `sometimes` / `never`
+- `placed`: pieces of it on their pizza (`null` if the counts did not reach the follow-up page)
+
+With `style: 'ratings'` (and optionally `askPizza`, `askDiet`):
+
 ```
 { v, start, countsKnown, order: [codes in the order rated],
   pizza: { express, distinct, auton, control, system, safety, t: {...}, ms },
@@ -152,6 +171,11 @@ Scales run 1-7:
 | `n_on_crust`, `n_over_edge`, `border_share`, `n_centre_on_crust`, `max_overhang_mm` | pieces whose outline reaches the crust (beyond r = 0.86) / hangs over the outer edge (beyond r = 1); their share of all pieces; pieces centred on the crust; the furthest overhang in mm on a 30 cm pizza |
 | `face_detected`, `face_score`, `face_eyes`, `face_mouth`, `face_nose`, `face_up_deg` | a face made of toppings: found or not, how clean it is (0.6-1), the eye topping, the mouth (a long piece or "row of n ..."), whether there is a nose, and which way the face points (degrees, 90 = up). Rules in `face_detect()` in the analysis script |
 | `cluster` | the participant's cluster in `profiles.html` (blank if there are too few pizzas) |
+| `n_strong`, `strong_none`, `strong_list` | ingredients with strong feelings; whether they chose "None of these"; the list as `code:feeling` |
+| `n_strong_positive`, `n_strong_negative` | of those, loved or liked / disliked or can't stand |
+| `n_safe_foods`, `n_same_way`, `n_crave_often` | of those, "safe foods"; ones that must be a certain way; ones craved often |
+| `n_about_<texture/smell/taste/look/touching/other>`, `n_sensory_reasons` | how often each reason was given; the sensory reasons added up |
+| `strong_pos_on_pizza`, `strong_neg_on_pizza` | share of the loved/liked ingredients that are on their pizza, and of the disliked ones (expected near 1 and 0) |
 | `topping_area_cm2` | total area covered by toppings' outlines (overlaps counted twice), on a 30 cm pizza |
 | `coverage` | share of the sauced area under toppings |
 | `sym_mirror`, `sym_axis_deg` | best mirror symmetry: mean distance from each reflected piece to the nearest piece of the same topping, at the best of 18 axes, ÷ the same for 40 random layouts of the same toppings. <1 = more symmetric than chance |
@@ -186,6 +210,7 @@ Scales run 1-7:
 `first_pick_ms`, `first_add_ms`, `hover_ms`, `decision_ms_mean` (mean time from the previous action to picking this topping up),
 `area_cm2` and `size_mean` (amount of this topping, and its mean size factor), `n_touching`, `n_on_top`, `n_covered`
 (pieces of this topping touching another piece, lying on another, lying under another),
+`strong` (they have strong feelings about it), `feel`, `about_<reason>` (0/1), `safe_food`, `same_way`, `crave` (default follow-up),
 `diet_conflict` (the stated diet usually excludes this topping:
 - vegetarian → meats, anchovies, shrimp
 - vegan → those plus egg and blue cheese
@@ -198,7 +223,7 @@ the ratings (`like`, `fam`, `safe`, `disg`, `norm`, `ident`), `never_tasted`, `w
 
 ### `profiles.csv`
 
-`pid`, `group`, `cluster`, then `z_<measure>` for each of the 27 profile measures: the measure standardised across the
+`pid`, `group`, `cluster`, then `z_<measure>` for each of the 29 profile measures: the measure standardised across the
 sample (mean 0, SD 1, capped at ±3; missing values take the sample median), signed so that higher means *more* of the
 named trait. Measures marked log are log(1 + x) first. In order:
 - **Composition:** pieces (log), different toppings, variety (Shannon), unusual toppings share, animal products (0 vegan … 3 meat)
@@ -209,6 +234,7 @@ named trait. Measures marked log are log(1 + x) first. In order:
 - **Order:** grouped by topping, placed in a sweep
 - **Time:** time to start, decision time, time to completion (each log)
 - **Figurative:** face-like (`face_score`)
+- **Feelings:** strong feelings about toppings (`n_strong`), sensory reasons given (`n_sensory_reasons`)
 
 Clusters: Ward's hierarchical clustering on the Euclidean distances between profiles; the number of clusters (2-8) is the one
 with the highest mean silhouette, unless `--clusters` fixes it.
