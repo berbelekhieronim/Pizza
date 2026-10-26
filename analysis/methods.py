@@ -32,12 +32,12 @@ SLOTS = {'ing': '|'.join(sorted(set(A.CATS) | {'tom'})), 'reason': '|'.join(A.RE
 # the hold-to-resize factor g). Keep the text short: what is counted, and how.
 SECTIONS = [
     ('Identifiers and raw counts', None, [
-        ('pid, build, condition, finished, group', 'As recorded: participant, which build (pz = own pizza, pzt = "typical" pizza), condition, finished (true/false), group from the study link.', 'analyse'),
+        ('pid, build, condition, finished, group', 'As recorded: participant, which build (pz = own pizza, pzt = "typical" pizza), condition, finished (1/0), group from the study link.', 'analyse'),
         ('sauce, cheese', 'The base chosen: sauce none / tomato / white / bbq; cheese none / light / normal / extra.', 'analyse'),
         ('n_pieces, n_{ing}', 'Pieces on the finished pizza, in total and per topping.', 'analyse'),
         ('n_ev_{ev}', 'Number of events of that type in the log (pick, add, reject, tap, move, remove, resize, undo, clear, hover).', 'analyse'),
-        ('pointer, coarse, layout, pizzaPx, vw, vh, dpr, hiddenMs, hides', 'Device record: pointer used first (mouse / touch / pen), coarse pointer (true/false), task layout, pizza width in px, window size, pixel ratio, ms the tab was hidden, times hidden.', 'analyse'),
-        ('t_ms, type, a, b, x, y, drag_ms, snapped', '<b>events_long.csv</b>: one row per logged event: time since the task started (ms), event type, its first two fields (topping, piece id), drop position, drag duration, snapped (0/1).', 'analyse'),
+        ('pointer, coarse, layout, pizzaPx, vw, vh, dpr, hiddenMs, hides', 'Device record: pointer used first (mouse / touch / pen), coarse pointer (1/0), task layout, pizza width in px, window size, pixel ratio, ms the tab was hidden, times hidden.', 'analyse'),
+        ('pid, build, t_ms, type, a, b, x, y, drag_ms, snapped', '<b>events_long.csv</b>: one row per logged event: time since the task started (ms), event type, its first two fields (topping, piece id), drop position, drag duration, snapped (0/1).', 'analyse'),
     ]),
     ('Composition and variety', None, [
         ('n_distinct', 'Toppings with ≥ 1 piece.', 'analyse'),
@@ -129,6 +129,7 @@ SECTIONS = [
         ('mv_straight', 'Straight-line distance start→drop / path length (1 = straight); median.', 'movement_measures'),
         ('mv_pauses, mv_paused_share, mv_longest_pause', 'Stops of ≥ 250 ms (pointer within 8 px) after the piece first moved: mean per drag; share of drags with one; longest (ms).', 'movement_measures'),
         ('mv_dwell, mv_hold, mv_crossings, mv_n', 'Median still time before letting go; median time from press to first movement; mean crossings of the pizza edge; drags with a record.', 'movement_measures'),
+        ('mv_path, mv_straight, mv_pauses, mv_longest_pause, mv_dwell, mv_crossings, mv_hold', '<b>events_long</b>: the same for this one drag (no medians): path, straightness, pauses, longest pause (ms), dwell (ms), edge crossings, hold before moving (ms).', 'movement_measures'),
     ]),
     ('Follow-up: strong feelings', 'Ingredients tapped in "Do you have strong feelings about any of these?", then up to five questions each.', [
         ('n_strong, strong_none, strong_list', 'Ingredients tapped; chose "None of these" (0/1); the list as code:feeling.', 'analyse'),
@@ -154,6 +155,15 @@ SECTIONS = [
         ('nd_identified', 'formal if every ticked autism / ADHD identity is formally diagnosed, else "self or waiting".', 'about_measures'),
         ('eat_{eat}, eat_any', 'Eating history ticked (0/1); any of picky, ARFID, eating disorder, allergy.', 'about_measures'),
         ('self_picky, self_sensory_food, age_band, gender', '1-7 self-ratings; demographics (prefer not to say → empty).', 'about_measures'),
+    ]),
+    ('Pieces (pieces_long.csv: one row per piece on the finished pizza)', None, [
+        ('pid, build, ing, x, y', '<b>pieces_long</b>: participant, build, topping code, centre position (pizza radii, y up).', 'piece_rows'),
+        ('piece_id, place_order', 'The piece\'s id in the task; its place in the order pieces were added (1 = first).', 'piece_rows'),
+        ('r, angle_deg', 'Distance of the piece\'s centre from the pizza centre (pizza radii); angle anticlockwise from 3 o\'clock (0-360°).', 'piece_rows'),
+        ('rot, g, s', 'Rotation of the drawing (°); hold-to-resize factor g; drawn size s = random 0.9-1.1 × g.', 'piece_rows'),
+        ('zone', 'inside the sauce / on the crust / over the edge, as for n_on_crust.', 'border_measures'),
+        ('touching, on_top, covered, pile_depth', 'In any contact pair (0/1); lies on top of / under another piece in a stacked pair (0/1); height of the pile ending at this piece.', 'contact_measures'),
+        ('mirror_matched, rot_matched', 'Has a partner at the pizza\'s best mirror axis / rotation (the green rings; their mean = mirror_match / rot_match).', 'sym_match'),
     ]),
     ('Data-quality flags', None, [
         ('flag_tab_away, flag_fast, flag_empty', 'Tab hidden > 30 s; submitted in &lt; 15 s; no pieces.', 'analyse'),
@@ -196,6 +206,31 @@ def column_patterns():
                     rx = rx.replace(re.escape('{%s}' % k), '(?:%s)' % v)
                 pats.append(re.compile('^%s$' % rx))
     return pats
+
+
+def describe(column, file=None):
+    """(section, plain-text description) of a column from this page, or (None, None). Entries that name the file
+    (in the section title or the text) are preferred, so a column shared by several files gets that file's meaning."""
+    entries = [(title, cols, how) for title, _, rows in SECTIONS for cols, how, _ in rows]
+    if file:
+        entries.sort(key=lambda e: file not in e[0] + e[2])        # stable: the file's own entries first
+    for title, cols, how in entries:
+        if True:
+            pats = []
+            for c in cols.split(','):
+                c = c.strip()
+                if c.startswith('('):
+                    continue
+                rx = re.escape(c)
+                for k, v in SLOTS.items():
+                    rx = rx.replace(re.escape('{%s}' % k), '(?:%s)' % v)
+                pats.append(re.compile('^%s$' % rx))
+            if any(p.match(column) for p in pats):
+                text = re.sub(r'<sub>(.*?)</sub>', r'_\1', how)
+                text = re.sub(r'<sup>(.*?)</sup>', r'^\1', text)
+                text = re.sub(r'<[^>]+>', '', text).replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+                return title, text
+    return None, None
 
 
 def undocumented(columns):

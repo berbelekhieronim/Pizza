@@ -11,4 +11,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - name: R, to check load_pizza.R
+        run: which Rscript || (sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends r-base-core)
       - run: python tests/smoke_test.py

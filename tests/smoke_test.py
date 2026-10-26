@@ -6,6 +6,7 @@ server, play one session through it, and use the researcher page. Exits non-zero
 """
 import csv
 import glob
+import io
 import json
 import os
 import shutil
@@ -16,6 +17,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = sys.executable
@@ -55,7 +57,8 @@ def main():
         check(run('analysis/analyse.py', *sorted(glob.glob(os.path.join(tmp, 'sample', '*.json'))), '--group', 'group',
                   '--reference', *sorted(glob.glob(os.path.join(tmp, 'ref', '*.json'))), '--out', out), 'analyse.py runs')
         for f in ('participants.csv', 'ingredients_long.csv', 'events_long.csv', 'profiles.csv',
-                  'dashboard.html', 'profiles.html', 'arrangement.html', 'gallery.html', 'explore.html', 'explore.csv', 'methods.html'):
+                  'dashboard.html', 'profiles.html', 'arrangement.html', 'gallery.html', 'explore.html', 'explore.csv', 'methods.html',
+                  'pieces_long.csv', 'variables.csv', 'load_pizza.R'):
             check(os.path.getsize(os.path.join(out, f)) > 0 if os.path.exists(os.path.join(out, f)) else False, 'writes ' + f)
         rows = list(csv.DictReader(open(os.path.join(out, 'participants.csv'), encoding='utf-8')))
         check(len(rows) == 24, 'one row per participant')
@@ -66,9 +69,21 @@ def main():
         # every output column must be described on the Methods page (analysis/methods.py)
         sys.path[:0] = [os.path.join(ROOT, 'analysis')]
         import methods
-        for f in ('participants', 'ingredients_long', 'events_long', 'profiles', 'explore'):
+        for f in ('participants', 'ingredients_long', 'events_long', 'profiles', 'explore', 'pieces_long'):
             missing = methods.undocumented(next(csv.reader(open(os.path.join(out, f + '.csv'), encoding='utf-8'))))
             check(not missing, 'Methods page describes every column of %s.csv%s' % (f, (' - missing: ' + ', '.join(missing)) if missing else ''))
+        var = list(csv.DictReader(open(os.path.join(out, 'variables.csv'), encoding='utf-8')))
+        check(all(v['description'] and v['type'] for v in var), 'variables.csv gives every column a type and a description')
+        check(all(v != '' for r in rows for v in r.values()), 'participants.csv writes missing values as NA, never blank')
+        if shutil.which('Rscript'):
+            r_code = ('source("load_pizza.R"); pz <- load_pizza("."); w <- pizza_wide(pz); '
+                      'stopifnot(is.factor(pz$participants$neurotype), is.ordered(pz$participants$diet_class), is.integer(pz$participants$n_pieces), '
+                      'nrow(w) == length(unique(pz$participants$pid)), nrow(pz$pieces_long) == sum(pz$participants$n_pieces)); cat("R-OK")')
+            res = subprocess.run(['Rscript', '-e', r_code], cwd=out, capture_output=True, text=True)
+            check(res.returncode == 0 and 'R-OK' in res.stdout and 'Warning' not in res.stderr, 'R: load_pizza() reads every table with its types%s' % (
+                '' if res.returncode == 0 else ' - ' + res.stderr[-300:]))
+        else:
+            print('  skip  R checks (Rscript not installed)')
         ex = open(os.path.join(out, 'explore.html'), encoding='utf-8').read()
         tests = list(csv.DictReader(open(os.path.join(out, 'explore.csv'), encoding='utf-8')))
         check('Neurotype (self-described)' in ex and 'Recruitment group' in ex and {'neurotype', 'group'} <= {t['grouping'] for t in tests},
@@ -115,6 +130,10 @@ def main():
             check(os.path.exists(os.path.join(data, 'reports', 'explore.html')), 'builds the explore report')
             code, page = http('GET', base + '/admin/methods?key=smoke-key')
             check(code == 200 and b'how every number is counted' in page and b'Researcher page' in page, 'serves the Methods page')
+            code, z = http('GET', base + '/admin/r.zip?key=smoke-key')
+            names = zipfile.ZipFile(io.BytesIO(z)).namelist() if code == 200 and z[:2] == b'PK' else []
+            check({'pizza-data/variables.csv', 'pizza-data/load_pizza.R', 'pizza-data/pieces_long.csv', 'pizza-data/README.txt',
+                   'pizza-data/raw/SMOKE001.json'} <= set(names), 'downloads the data for R as a zip')
             code, z = http('GET', base + '/admin/data.zip?key=smoke-key')
             check(code == 200 and z[:2] == b'PK', 'downloads all data as a zip')
             saved = json.load(open(os.path.join(data, 'participants', 'SMOKE001.json'), encoding='utf-8'))

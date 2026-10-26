@@ -255,6 +255,8 @@ rest of the sample) and `--clusters <k>` fixes the number of clusters. It writes
 | `participants.csv` | one row per pizza: every measure below |
 | `ingredients_long.csv` | participant × topping, ready for mixed models |
 | `events_long.csv` | every interaction, for sequence analyses |
+| `pieces_long.csv` | one row per piece: position, size, order, zone, contacts, symmetry partner |
+| `variables.csv`, `load_pizza.R` | data dictionary and R loader (below) |
 | `profiles.csv` | each participant's standardised profile and cluster |
 | **`dashboard.html`** | the data at a glance, for proposals and for checking data as it comes in: diet breakdown, stated diet against the pizza, the normality distribution with the most unusual pizzas, space / size / time by group, a sortable table of every participant with a thumbnail |
 | **`explore.html`** | for discovering patterns: every measure, and every topping (used / named with strong feelings), compared between the groups of every grouping, largest effects first with the data drawn, Cliff's δ with bootstrap intervals, p and false-discovery-rate q; each measure's correlation with each self-rating and covariate; how all the measures correlate with each other; and the profile clusters against every grouping. `explore.csv` holds every comparison |
@@ -262,6 +264,24 @@ rest of the sample) and `--clusters <k>` fixes the number of clusters. It writes
 | **`arrangement.html`** | symmetry and contact drawn on every pizza: the best mirror axis, the best rotation (rings mark where each topping's symmetric partner would have to be: green = a matching topping is there, red = none nearby), and touching and stacked pieces, with group comparisons |
 | `pizzas/`, `gallery.html` | every pizza redrawn from its coordinates |
 | **`methods.html`** | how every column and test is counted: one formula per measure with the function that computes it (and its line number), and worked examples computed by that code and checked against the hand calculation. The researcher page has it under **Methods** |
+
+### Analysing in R
+
+Every table is R-ready: UTF-8, `NA` for missing values, `1`/`0` for yes/no, and `variables.csv` describes every column
+(type, factor levels, unit, description). The analysis folder (and the researcher page's **Download for R** zip) also
+holds `load_pizza.R`, which needs no packages:
+
+```r
+source("load_pizza.R")
+pz <- load_pizza("results")          # list of data frames with the right types, factor levels and column labels
+people <- pizza_wide(pz)             # one row per participant: own pizza (+ typical pizza) + profile scores
+pizza_describe("mirror_score", pz)   # what a column means
+```
+
+Factors have a sensible reference level (e.g. `neurotype` "Not ND") and ordered factors are ordered (`age_band`,
+`diet_class`, `normality_band`, `cheese`, `feel`, ...). `pieces_long` has one row per piece, for spatial models;
+`ingredients_long` one row per participant × topping, for mixed models (e.g. `lme4::glmer(included ~ neurotype * tier +
+(1 | pid) + (1 | ing), family = binomial)`).
 
 The measures are defined in `CODEBOOK.md`. In short:
 

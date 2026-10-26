@@ -190,6 +190,30 @@ class Study:
         return out
 
 
+R_FILES = ['participants.csv', 'ingredients_long.csv', 'pieces_long.csv', 'events_long.csv', 'profiles.csv', 'explore.csv',
+           'variables.csv', 'load_pizza.R', 'methods.html']
+R_README = """Pizza study data, ready for R
+=============================
+
+In R (no packages needed):
+
+    setwd("pizza-data")                  # this folder
+    source("load_pizza.R")
+    pz <- load_pizza(".")                # a list of data frames, read with the right types and factor levels
+    people <- pizza_wide(pz)             # one row per participant: own pizza (+ typical pizza) + profile scores
+    pizza_describe("mirror_score", pz)   # what a column means
+
+Tables (UTF-8 CSV, missing values = NA, yes/no = 1/0, times in ms, positions in pizza radii):
+    participants.csv      one row per pizza (pid + build: pz = own pizza, pzt = typical-participant pizza)
+    ingredients_long.csv  one row per participant x build x topping on the tray
+    pieces_long.csv       one row per piece on a finished pizza
+    events_long.csv       one row per logged action
+    profiles.csv          one row per participant: standardised profile scores and cluster
+    explore.csv           one row per group comparison shown in explore.html
+    variables.csv         every column of every table: type, factor levels, unit, description
+    methods.html          how every number is counted (open in a browser)
+    raw/                  each participant's session exactly as the study saved it (JSON)
+"""
 NEURO_NAMES = {'autistic': 'Autistic', 'adhd': 'ADHD', 'dys': 'Dyslexic etc.', 'otherND': 'Other ND', 'none': 'None', 'pnts': 'Prefer not to say'}
 
 
@@ -262,6 +286,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if route == '/admin':
                 q = self.query()
                 return self.send(200, self.admin_page(q.get('msg', [''])[0]))
+            if route == '/admin/r.zip':
+                built, msg = self.study.build_reports()
+                folder = os.path.join(self.study.data, 'reports')
+                if not os.path.exists(os.path.join(folder, 'variables.csv')):
+                    return self.send(200, self.admin_page(msg or 'No finished pizzas yet, so there is nothing to analyse.'))
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+                    z.writestr('pizza-data/README.txt', R_README)
+                    for name in R_FILES:
+                        if os.path.exists(os.path.join(folder, name)):
+                            z.write(os.path.join(folder, name), 'pizza-data/' + name)
+                    raw = os.path.join(self.study.data, 'participants')
+                    for name in sorted(os.listdir(raw)):
+                        if name.endswith('.json'):
+                            z.write(os.path.join(raw, name), 'pizza-data/raw/' + name)
+                return self.send(200, buf.getvalue(), 'application/zip', {'Content-Disposition': 'attachment; filename="pizza-data-R-%s.zip"' % time.strftime('%Y%m%d-%H%M')})
             if route == '/admin/data.zip':
                 buf = io.BytesIO()
                 with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
@@ -362,7 +402,8 @@ button,.btn{font:inherit;padding:8px 14px;border-radius:9px;border:1px solid var
 <div class="card"><h2>Reports</h2><div class="row">%s</div><p class="muted" style="margin:4px 0">Tables: %s</p>
 <p class="muted" style="margin:4px 0">%s</p>
 <div class="row"><form method="post" action="/admin/reports?key=%s" style="margin:0"><button class="alt" type="submit">Rebuild now</button></form>
-<a class="btn alt" href="/admin/data.zip?key=%s">Download all data (.zip)</a></div>%s</div>
+<a class="btn" href="/admin/r.zip?key=%s">Download for R (.zip)</a>
+<a class="btn alt" href="/admin/data.zip?key=%s">Download raw sessions (.zip)</a></div>%s</div>
 <div class="card"><h2>Sessions</h2><table><tr><th>Participant</th><th>Group</th><th>Says they are</th><th>Condition</th><th>Stage</th><th>Pieces</th><th>Started (UTC)</th><th>Last saved</th></tr>%s</table></div>
 </div><script>
 document.querySelectorAll('.copy').forEach(function (b) {
@@ -372,7 +413,7 @@ document.querySelectorAll('.copy').forEach(function (b) {
     if (navigator.clipboard) navigator.clipboard.writeText(i.value).then(ok, function () { document.execCommand('copy'); ok(); }); else { document.execCommand('copy'); ok(); }
   };
 });
-</script></body></html>""" % (len(rows), done, k, self.links_card(), report_btns, table_links, status, k, k, note,
+</script></body></html>""" % (len(rows), done, k, self.links_card(), report_btns, table_links, status, k, k, k, note,
                                trs or '<tr><td colspan="7" class="muted">No sessions yet.</td></tr>')
 
 

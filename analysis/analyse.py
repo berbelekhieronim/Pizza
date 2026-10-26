@@ -914,6 +914,32 @@ def ingredient_rows(pid, prefix, summary, events, counts, follow, diet, pieces=(
     return rows
 
 
+PIECE_COLUMNS = ['pid', 'build', 'piece_id', 'ing', 'place_order', 'x', 'y', 'r', 'angle_deg', 'rot', 'g', 's', 'zone',
+                 'touching', 'on_top', 'covered', 'pile_depth', 'mirror_matched', 'rot_matched']
+
+
+def piece_rows(pid, prefix, final, pieces, rec):
+    """pieces_long.csv: one row per piece on the finished pizza, with where it is, its size, when it was placed,
+    its zone, its contacts, and whether it has a partner at the pizza's best mirror axis / rotation."""
+    if not pieces:
+        return []
+    zones = border_measures(pieces)[1]
+    per = contact_measures(pieces)[1] if len(pieces) > 1 else {}
+    mm = rm = set()
+    if rec.get('mirror_axis_deg') is not None:
+        mm = {i for i, _, _ in sym_match(pieces, mirror_about(rec['mirror_cx'], rec['mirror_cy'], math.radians(rec['mirror_axis_deg'])))[1]}
+        rm = {i for i, _, _ in sym_match(pieces, rotate_about(rec['rot_cx'], rec['rot_cy'], 2 * math.pi / rec['rot_k']))[1]}
+    rows = []
+    for i, (f, p) in enumerate(zip(final, pieces)):
+        rows.append({'pid': pid, 'build': prefix.rstrip('_'), 'piece_id': f[0], 'ing': p['ing'], 'place_order': f[7] if len(f) > 7 else None,
+                     'x': p['x'], 'y': p['y'], 'r': math.hypot(p['x'], p['y']), 'angle_deg': math.degrees(math.atan2(p['y'], p['x'])) % 360,
+                     'rot': p['rot'], 'g': p['g'], 's': p['s'], 'zone': zones[i],
+                     'touching': int(i in per.get('touching', ())), 'on_top': int(i in per.get('on_top', ())),
+                     'covered': int(i in per.get('under', ())), 'pile_depth': per['depth'][i] if per else 1,
+                     'mirror_matched': int(i in mm) if len(pieces) > 1 else None, 'rot_matched': int(i in rm) if len(pieces) > 1 else None})
+    return rows
+
+
 def corr(a, b):
     pairs = [(x, y) for x, y in zip(a, b) if x is not None and y is not None]
     if len(pairs) < 3:
@@ -2317,7 +2343,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
 
 def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force=None, covariates=None):
     rnd = random.Random(seed)
-    people, ing_long, ev_long, svgs, arrangement = [], [], [], [], []
+    people, ing_long, ev_long, svgs, arrangement, piece_long = [], [], [], [], [], []
     for row in rows:
         pid = row['_pid']
         follow = loads(field(row, 'pzf_data'), {}) or {}
@@ -2450,6 +2476,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
                                 **dict(zip(('mv_path', 'mv_straight', 'mv_pauses', 'mv_longest_pause', 'mv_dwell', 'mv_crossings', 'mv_hold'),
                                            e[9] if len(e) > 9 and isinstance(e[9], list) else [None] * 7))})
             svgs.append((pid, prefix, pizza_svg(pieces, summary, '%s %s (%d)' % (pid, prefix.rstrip('_'), n))))
+            piece_long.extend(piece_rows(pid, prefix, final, pieces, rec))
             for c in (group_cols or []) + ['group']:          # grouping columns from the export / study server
                 if c not in rec:
                     rec[c] = field(row, c) or row.get(c) or None
@@ -2514,6 +2541,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
     write_csv(os.path.join(out_dir, 'participants.csv'), people)
     write_csv(os.path.join(out_dir, 'ingredients_long.csv'), ing_long)
     write_csv(os.path.join(out_dir, 'events_long.csv'), ev_long)
+    write_csv(os.path.join(out_dir, 'pieces_long.csv'), piece_long, PIECE_COLUMNS)
     cells = []
     for pid, prefix, svg in svgs:
         name = ''.join(ch if ch.isalnum() or ch in '-_' else '_' for ch in '%s_%s' % (pid, prefix.rstrip('_')))
@@ -2558,23 +2586,37 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
     write_csv(os.path.join(out_dir, 'participants.csv'), people)
     import methods                                    # the Methods page: how every number above is counted
     methods.write(os.path.join(out_dir, 'methods.html'))
+    import r_export                                   # data dictionary and loader for R
+    r_export.write(out_dir)
     with open(os.path.join(out_dir, 'gallery.html'), 'w', encoding='utf-8') as f:
         f.write('<!doctype html><meta charset="utf-8"><title>Pizza gallery</title>'
                 '<body style="font-family:sans-serif;display:flex;flex-wrap:wrap;gap:8px">' + ''.join(cells) + '</body>')
     return people
 
 
-def write_csv(path, rows):
-    keys = []
+def csv_value(v):
+    """How a value is written for R (and any other reader): missing = NA, yes/no = 1/0, numbers to 6 decimals."""
+    if v is None or v == '':
+        return 'NA'
+    if isinstance(v, bool):
+        return int(v)
+    if isinstance(v, float):
+        return 'NA' if v != v else round(v, 6)
+    return v
+
+
+def write_csv(path, rows, columns=()):
+    """UTF-8, one header row, every row with every column; missing values are NA (R's read.csv reads them as NA)."""
+    keys = list(columns)
     for r in rows:
         for k in r:
             if k not in keys:
                 keys.append(k)
     with open(path, 'w', encoding='utf-8', newline='') as f:
-        w = csv.DictWriter(f, fieldnames=keys)
+        w = csv.DictWriter(f, fieldnames=keys, restval='NA')
         w.writeheader()
         for r in rows:
-            w.writerow({k: r4(v) for k, v in r.items()})
+            w.writerow({k: csv_value(v) for k, v in r.items()})
 
 
 def main():

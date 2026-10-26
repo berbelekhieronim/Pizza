@@ -6,6 +6,10 @@
   Sauce covers `r < 0.86`. A topping stays where it is dropped, including on the crust (`0.86 < r ≤ 1`); dropped beyond
   `r = 1` it is off the pizza. (With the `snapIn` option, centres beyond `r = 0.9` are pulled in to 0.9 and `snapped = 1`.)
 - **Times**: milliseconds since the page's task appeared.
+- **Output tables** (`analysis/analyse.py`): UTF-8 CSV; missing values are written `NA`; yes/no values are `1`/`0`;
+  numbers have up to 6 decimals. `variables.csv` lists every column of every table with its type (integer, double,
+  character, factor, ordered), factor levels (first = reference level), unit and description, and `load_pizza.R`
+  reads the tables into R with those types.
 - **Topping codes**:
 
 | code | topping | category | tier | perishable | | code | topping | category | tier | perishable |
@@ -248,6 +252,14 @@ Scales run 1-7:
 - no beef → pepperoni
 - dairy-free → blue cheese),
 the ratings (`like`, `fam`, `safe`, `disg`, `norm`, `ident`), `never_tasted`, `why_<reason>` (0/1; empty when the question was not asked), `why_other_text`, `rating_ms`.
+
+### `pieces_long.csv` (one row per piece on a finished pizza)
+
+`pid`, `build`, `piece_id`, `ing`, `place_order` (1 = first added), `x`, `y` (pizza radii, y up), `r` (distance from
+the centre), `angle_deg` (anticlockwise from 3 o'clock), `rot` (drawing rotation, °), `g` (hold-to-resize factor),
+`s` (drawn size), `zone` (inside / crust / over), `touching`, `on_top`, `covered` (0/1), `pile_depth`,
+`mirror_matched`, `rot_matched` (0/1: has a partner at the pizza's best mirror axis / rotation; their means are
+`mirror_match` / `rot_match`).
 
 ### `profiles.csv`
 
