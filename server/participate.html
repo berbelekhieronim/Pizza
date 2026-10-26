@@ -111,11 +111,17 @@
     stage.innerHTML = '<h1>' + esc(PizzaBuilder.text.desktopTitle) + '</h1><p>' + esc(PizzaBuilder.text.desktopBody) + '</p>';
     return;
   }
+  // ?i=<invite> (a personal link), or ?study=<id>&group=..&source=.. (an open study link), or nothing (the main study)
+  var link = { i: params.get('i') || '', study: params.get('study') || '', source: params.get('source') || '' };
   Promise.all([
-    fetch('study.json').then(function (r) { return r.json(); }).catch(function () { return {}; }),
-    fetch('api/start?' + new URLSearchParams({ pid: params.get('pid') || params.get('PROLIFIC_PID') || sessionStorage.getItem('pz-pid') || '',
-      group: params.get('group') || '', cond: params.get('cond') || '' })).then(function (r) { return r.json(); })
+    fetch('study.json?' + new URLSearchParams({ i: link.i, study: link.study })).then(function (r) { return r.json(); }).catch(function () { return {}; }),
+    fetch('api/start?' + new URLSearchParams({ pid: link.i ? '' : (params.get('pid') || params.get('PROLIFIC_PID') || sessionStorage.getItem('pz-pid') || ''),
+      group: params.get('group') || '', cond: params.get('cond') || '', i: link.i, study: link.study, source: link.source })).then(function (r) { return r.json(); })
   ]).then(function (res) {
+    if (res[1].error) {                    // a mistyped or unknown link: never start an unlabelled session
+      stage.innerHTML = '<h1>This link does not work</h1><p>' + esc(res[1].error) + '</p>';
+      return;
+    }
     S.study = res[0] || {};
     S.pid = res[1].pid; S.cond = res[1].cond || '';
     try { sessionStorage.setItem('pz-pid', S.pid); } catch (e) {}

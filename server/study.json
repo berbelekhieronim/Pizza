@@ -8,7 +8,23 @@
   "completion_message": "Thank you, you are done. Your completion code is below.",
   "completion_redirect": "",
   "conditions": [],
-  "groups": ["ASD", "NT"],
+  "groups": [
+    "ASD",
+    "NT"
+  ],
   "typical_build": false,
-  "about_you": true
+  "about_you": true,
+  "studies": {
+    "pilot-asd": {
+      "description": "Pilot: autistic adults (ASD), recruited through community organisations",
+      "groups": [
+        "ASD",
+        "AuDHD"
+      ],
+      "intro": [
+        "In this short study you will make a virtual pizza by dragging toppings onto it, and then answer a few questions about it and about yourself. Nothing is eaten.",
+        "It is part of a pilot study on how autistic people choose food. It takes about 10 minutes and needs a desktop or laptop computer with a mouse or trackpad. Your answers are stored without your name."
+      ]
+    }
+  }
 }

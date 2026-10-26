@@ -33,6 +33,7 @@ SLOTS = {'ing': '|'.join(sorted(set(A.CATS) | {'tom'})), 'reason': '|'.join(A.RE
 SECTIONS = [
     ('Identifiers and raw counts', None, [
         ('pid, build, condition, finished, group', 'As recorded: participant, which build (pz = own pizza, pzt = "typical" pizza), condition, finished (1/0), group from the study link.', 'analyse'),
+        ('study, source', 'Study server: the study the participant\'s link belongs to (study.json "studies"), and the recruitment source written on their invite link (or ?source= on an open link).', 'analyse'),
         ('sauce, cheese', 'The base chosen: sauce none / tomato / white / bbq; cheese none / light / normal / extra.', 'analyse'),
         ('n_pieces, n_{ing}', 'Pieces on the finished pizza, in total and per topping.', 'analyse'),
         ('n_ev_{ev}', 'Number of events of that type in the log (pick, add, reject, tap, move, remove, resize, undo, clear, hover).', 'analyse'),
@@ -181,6 +182,8 @@ SECTIONS = [
         ('p', 'Mann-Whitney: rank sum R of the group (mid-ranks), two-sided. Smaller group &lt; 8: permutation, (hits + 1) / 4001 with 4000 random relabellings. Else normal approximation with tie correction and 0.5 continuity correction. Spearman: t = ρ √((n − 2) / (1 − ρ²)), df = n − 2.', 'mw_p'),
         ('q', 'Benjamini-Hochberg within the grouping: q<sub>(i)</sub> = min<sub>j ≥ i</sub> p<sub>(j)</sub> m / j.', 'bh'),
         ('(95% CI)', 'Percentile bootstrap of δ, 600 resamples within each group.', 'boot_ci'),
+        ('n_per_group_80, n_per_group_80_half', 'People per group a new two-group study needs for 80% power at α = .05 (two-sided Mann-Whitney) if the true δ equals the observed / half the observed δ (Noether): n = 2 (z<sub>.975</sub> + z<sub>.80</sub>)² / (3 δ²). For covariate rows (ρ): total n = ((z<sub>.975</sub> + z<sub>.80</sub>) / atanh ρ)² + 3.', 'n_per_group'),
+        ('(against chance)', 'Rows with grouping = chance: one group against a chance level (e.g. mirror_score 0, sweep_consistency 0.5, clark_evans 1). delta = dominance = (#above − #below) / n; m1 = median, m0 = chance; p = sign-flip permutation of the differences from chance, (hits + 1) / 4001; q = BH over all chance rows.', 'chance_test'),
     ]),
 ]
 
@@ -325,6 +328,9 @@ def small_examples():
     q = A.bh(ps)
     hand = [min(min(ps[j] * 4 / (j + 1) for j in range(i, 4)), 1) for i in range(4)]
     assert all(abs(a - b) < 1e-12 for a, b in zip(q, hand))
+    nn = A.n_per_group(0.5)
+    assert nn == math.ceil(2 * (1.959964 + 0.841621) ** 2 / (3 * 0.25))
+    rows.append(('n_per_group_80', 'δ = 0.5', '2 × (1.960 + 0.842)² / (3 × 0.5²) = 20.9 → <b>%d</b> per group' % nn))
     rows.append(('q (BH)', 'p = 0.001, 0.02, 0.03, 0.2', 'q = ' + ', '.join('%.3g' % v for v in q)))
     ref = [frozenset('a'), frozenset('ab'), frozenset('b'), frozenset('a')]
     bits, _ = A.atypicality(frozenset('b'), ref, ['a', 'b'])

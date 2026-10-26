@@ -19,6 +19,7 @@ to add the "typical participant" build and the "About you" questions (about_you)
 Standard library only.
 """
 import argparse
+import csv
 import http.server
 import io
 import json
@@ -43,12 +44,26 @@ LOCK = threading.Lock()
 BUILD_LOCK = threading.Lock()
 
 
-def load_study():
+STUDY_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
+STUDY_KEYS = ('title', 'intro', 'consent', 'completion_message', 'completion_redirect', 'typical_build', 'about_you', 'conditions', 'groups')
+INVITE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789'     # no 0/o, 1/l/i: easy to read out or type
+
+
+def load_study(study_id=''):
+    """study.json; with a study id, that study's settings ("studies": {id: {...}}) override the main ones."""
     try:
         with open(os.path.join(HERE, 'study.json'), encoding='utf-8') as f:
-            return json.load(f)
+            cfg = json.load(f)
     except (OSError, ValueError):
-        return {}
+        cfg = {}
+    if study_id:
+        cfg = dict(cfg, **{k: v for k, v in (cfg.get('studies') or {}).get(study_id, {}).items() if k in STUDY_KEYS + ('description',)})
+    return cfg
+
+
+def studies():
+    """{id: settings} of the studies in study.json (the main study, id '', is always there)."""
+    return {k: v for k, v in (load_study().get('studies') or {}).items() if STUDY_RE.match(k)}
 
 
 def write_json(path, obj):
@@ -75,20 +90,58 @@ class Study:
     def path(self, pid):
         return os.path.join(self.data, 'participants', pid + '.json')
 
-    def new_session(self, pid, group, cond):
-        """Start (or resume) a participant: assigns a condition in turn when study.json lists any."""
-        study = load_study()
+    # ---- invite links: one personal link per participant, tied to a study, group and recruitment source
+    def invites(self):
+        return read_json(os.path.join(self.data, 'invites.json'), {})
+
+    def create_invites(self, study, group, source, note, count):
         with LOCK:
+            inv = self.invites()
+            made = []
+            for _ in range(count):
+                tok = ''.join(secrets.choice(INVITE_CHARS) for _ in range(8))
+                while tok in inv or os.path.exists(self.path(tok)):
+                    tok = ''.join(secrets.choice(INVITE_CHARS) for _ in range(8))
+                inv[tok] = {'study': study, 'group': group[:60], 'source': source[:80], 'note': note[:200],
+                            'created': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
+                made.append(tok)
+            write_json(os.path.join(self.data, 'invites.json'), inv)
+        return made
+
+    def resolve(self, invite, study):
+        """(study id, invite record or None, error message or None) for a link's ?i= / ?study=."""
+        if invite:
+            inv = self.invites().get(invite)
+            return (inv['study'], inv, None) if inv else ('', None, 'This personal link is not valid. Please check that you copied all of it.')
+        if study and study not in studies():
+            return '', None, 'This study link is not valid. Please check that you copied all of it.'
+        return study or '', None, None
+
+    def new_session(self, pid, group, cond, invite='', study='', source=''):
+        """Start (or resume) a participant: assigns a condition in turn when the study lists any. A personal invite
+        link is the participant's id, so opening it again (on any device) resumes the same session."""
+        study, inv, err = self.resolve(invite, study)
+        if err:
+            return {'error': err}
+        cfg = load_study(study)
+        with LOCK:
+            if inv:
+                pid, group, source = invite, inv['group'], inv['source']
             pid = pid if (pid and PID_RE.match(pid)) else 'P' + secrets.token_hex(4)
             rec = read_json(self.path(pid), None)
+            if rec is not None and not inv and rec.get('study', '') != study:     # an id from another study: start afresh
+                pid = 'P' + secrets.token_hex(4)
+                rec = None
             if rec is None:
-                conds = study.get('conditions') or []
+                conds = cfg.get('conditions') or []
                 if not cond and conds:
-                    state = read_json(os.path.join(self.data, '_state.json'), {'next': 0})
-                    cond = conds[state['next'] % len(conds)]
-                    state['next'] += 1
+                    state = read_json(os.path.join(self.data, '_state.json'), {})
+                    nxt = state.get(study or 'next', 0)
+                    cond = conds[nxt % len(conds)]
+                    state[study or 'next'] = nxt + 1
                     write_json(os.path.join(self.data, '_state.json'), state)
-                rec = {'pid': pid, 'group': (group or '')[:60], 'cond': (cond or '')[:60], 'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
+                rec = {'pid': pid, 'study': study, 'group': (group or '')[:60], 'source': (source or '')[:80], 'invite': invite if inv else '',
+                       'cond': (cond or '')[:60], 'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
                 write_json(self.path(pid), rec)
             return rec
 
@@ -119,12 +172,20 @@ class Study:
         with open(path, encoding='utf-8') as f:
             return f.read()
 
-    def build_reports(self, force=False):
-        """Runs the analysis on every session into data/reports. Skipped when nothing changed since the last build.
-        Returns (built: bool, message)."""
+    def session_files(self, study=None):
+        """Session files, all of them (study None) or one study's ('' = the main study)."""
         folder = os.path.join(self.data, 'participants')
-        out = os.path.join(self.data, 'reports')
         files = [os.path.join(folder, n) for n in sorted(os.listdir(folder)) if n.endswith('.json')]
+        return files if study is None else [f for f in files if read_json(f, {}).get('study', '') == study]
+
+    def reports_dir(self, study=None):
+        return os.path.join(self.data, 'reports' if study is None else 'reports-' + (study or 'main'))
+
+    def build_reports(self, force=False, study=None):
+        """Runs the analysis on every session (or one study's) into data/reports(-<study>). Skipped when nothing
+        changed since the last build. Returns (built: bool, message)."""
+        out = self.reports_dir(study)
+        files = self.session_files(study)
         if not files:
             return False, 'No sessions yet.'
         stamp = os.path.join(out, '.built')
@@ -150,8 +211,8 @@ class Study:
                 f.write(time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
             return True, r.stdout.strip().split('\n')[-1]
 
-    def reports_info(self):
-        stamp = os.path.join(self.data, 'reports', '.built')
+    def reports_info(self, study=None):
+        stamp = os.path.join(self.reports_dir(study), '.built')
         try:
             with open(stamp) as f:
                 when = f.read().strip()
@@ -159,7 +220,7 @@ class Study:
             return None
         n = 0
         try:
-            with open(os.path.join(self.data, 'reports', 'participants.csv'), encoding='utf-8') as f:
+            with open(os.path.join(self.reports_dir(study), 'participants.csv'), encoding='utf-8') as f:
                 n = max(0, sum(1 for _ in f) - 1)
         except OSError:
             pass
@@ -185,6 +246,7 @@ class Study:
                 except (ValueError, AttributeError):
                     neuro = []
                 out.append({'pid': r.get('pid', name[:-5]), 'group': r.get('group', ''), 'cond': r.get('cond', ''),
+                            'study': r.get('study', ''), 'source': r.get('source', ''), 'invite': r.get('invite', ''),
                             'started': r.get('started', ''), 'updated': r.get('updated', ''), 'stage': r.get('stage', 'intro'),
                             'pieces': pieces, 'done': r.get('stage') == 'done', 'about': ', '.join(NEURO_NAMES.get(v, v) for v in neuro)})
         return out
@@ -257,6 +319,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 '<p>This page needs the researcher link, which ends in <code>/admin?key=...</code>. Find it in the codespace terminal, '
                 'or print it with <code>python3 server/server.py --links</code>.</p></body>')
 
+    def study_filter(self):
+        """?study= on admin pages: None = every study, '' = the main study ('main'), else a study id."""
+        v = self.query().get('study', [None])[0]
+        return None if v in (None, '', 'all') else '' if v == 'main' else v if STUDY_RE.match(v) else None
+
+    def body_form(self):
+        n = int(self.headers.get('Content-Length') or 0)
+        if n <= 0 or n > 10000:
+            return {}
+        return {k: v[0] for k, v in urllib.parse.parse_qs(self.rfile.read(n).decode('utf-8', 'replace')).items()}
+
     def body_json(self):
         n = int(self.headers.get('Content-Length') or 0)
         if n <= 0 or n > MAX_BODY:
@@ -274,21 +347,42 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route in ('/pizza-builder.js', '/preview.js'):
             return self.file(os.path.join(ROOT, route[1:]), 'application/javascript; charset=utf-8')
         if route == '/study.json':
-            s = load_study()
+            q = self.query()
+            sid, _, _ = self.study.resolve(q.get('i', [''])[0], q.get('study', [''])[0])
+            s = load_study(sid)
             return self.send(200, json.dumps({k: s.get(k) for k in ('title', 'intro', 'consent', 'completion_message', 'completion_redirect', 'typical_build', 'about_you')}), 'application/json')
         if route == '/api/start':
             q = self.query()
-            rec = self.study.new_session(q.get('pid', [''])[0] or q.get('PROLIFIC_PID', [''])[0], q.get('group', [''])[0], q.get('cond', [''])[0])
+            g = lambda k: q.get(k, [''])[0]
+            rec = self.study.new_session(g('pid') or g('PROLIFIC_PID'), g('group'), g('cond'), g('i'), g('study'), g('source'))
+            if 'error' in rec:
+                return self.send(200, json.dumps({'error': rec['error']}), 'application/json')
             return self.send(200, json.dumps({'pid': rec['pid'], 'cond': rec.get('cond', ''), 'stage': rec.get('stage', 'intro')}), 'application/json')
         if route.startswith('/admin'):
             if not self.is_admin():
                 return self.send(403, self.denied_page())
+            sf = self.study_filter()
+            tag = '' if sf is None else '-' + (sf or 'main')
             if route == '/admin':
                 q = self.query()
-                return self.send(200, self.admin_page(q.get('msg', [''])[0]))
+                return self.send(200, self.admin_page(q.get('msg', [''])[0], sf))
+            if route == '/admin/invites.csv':
+                buf = io.StringIO()
+                w = csv.writer(buf)
+                w.writerow(['invite', 'link', 'study', 'group', 'source', 'note', 'created', 'status', 'started', 'last_saved'])
+                base = self.base_url() + '/?i='
+                for tok, inv in sorted(self.study.invites().items(), key=lambda kv: kv[1]['created']):
+                    if sf is not None and inv['study'] != sf:
+                        continue
+                    rec = read_json(self.study.path(tok), {})
+                    status = 'finished' if rec.get('stage') == 'done' else 'started' if rec else 'not opened'
+                    w.writerow([tok, base + tok, inv['study'] or 'main', inv['group'], inv['source'], inv['note'], inv['created'], status,
+                                rec.get('started', ''), rec.get('updated', '')])
+                return self.send(200, '\ufeff' + buf.getvalue(), 'text/csv; charset=utf-8',
+                                 {'Content-Disposition': 'attachment; filename="invite-links%s.csv"' % tag})
             if route == '/admin/r.zip':
-                built, msg = self.study.build_reports()
-                folder = os.path.join(self.study.data, 'reports')
+                built, msg = self.study.build_reports(study=sf)
+                folder = self.study.reports_dir(sf)
                 if not os.path.exists(os.path.join(folder, 'variables.csv')):
                     return self.send(200, self.admin_page(msg or 'No finished pizzas yet, so there is nothing to analyse.'))
                 buf = io.BytesIO()
@@ -297,31 +391,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     for name in R_FILES:
                         if os.path.exists(os.path.join(folder, name)):
                             z.write(os.path.join(folder, name), 'pizza-data/' + name)
-                    raw = os.path.join(self.study.data, 'participants')
-                    for name in sorted(os.listdir(raw)):
-                        if name.endswith('.json'):
-                            z.write(os.path.join(raw, name), 'pizza-data/raw/' + name)
-                return self.send(200, buf.getvalue(), 'application/zip', {'Content-Disposition': 'attachment; filename="pizza-data-R-%s.zip"' % time.strftime('%Y%m%d-%H%M')})
+                    for path in self.study.session_files(sf):
+                        z.write(path, 'pizza-data/raw/' + os.path.basename(path))
+                return self.send(200, buf.getvalue(), 'application/zip', {'Content-Disposition': 'attachment; filename="pizza-data-R%s-%s.zip"' % (tag, time.strftime('%Y%m%d-%H%M'))})
             if route == '/admin/data.zip':
                 buf = io.BytesIO()
                 with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
-                    folder = os.path.join(self.study.data, 'participants')
-                    for name in sorted(os.listdir(folder)):
-                        if name.endswith('.json'):
-                            z.write(os.path.join(folder, name), 'participants/' + name)
-                return self.send(200, buf.getvalue(), 'application/zip', {'Content-Disposition': 'attachment; filename="pizza-data-%s.zip"' % time.strftime('%Y%m%d-%H%M')})
+                    for path in self.study.session_files(sf):
+                        z.write(path, 'participants/' + os.path.basename(path))
+                return self.send(200, buf.getvalue(), 'application/zip', {'Content-Disposition': 'attachment; filename="pizza-data%s-%s.zip"' % (tag, time.strftime('%Y%m%d-%H%M'))})
             if route == '/admin/methods':
                 return self.send(200, self.with_bar(self.study.methods_page()))
             m = re.match(r'^/admin/reports/([A-Za-z0-9_.-]+)$', route)
             if m and not m.group(1).startswith('.'):
-                built, msg = self.study.build_reports()          # brings the reports up to date with the newest sessions
-                path = os.path.join(self.study.data, 'reports', m.group(1))
+                built, msg = self.study.build_reports(study=sf)  # brings the reports up to date with the newest sessions
+                path = os.path.join(self.study.reports_dir(sf), m.group(1))
                 if not os.path.exists(path):
-                    return self.send(200, self.admin_page(msg or 'That report has not been made yet.'))
+                    return self.send(200, self.admin_page(msg or 'That report has not been made yet.', sf))
                 if m.group(1).endswith('.html'):
                     with open(path, encoding='utf-8') as f:
                         html = f.read()
-                    return self.send(200, self.with_bar(html))
+                    return self.send(200, self.with_bar(html, sf))
                 return self.file(path, 'text/csv; charset=utf-8')
                 self.send(404, 'Not found', 'text/plain')
 
@@ -333,12 +423,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(400, '{"ok":false}', 'application/json')
             ok = self.study.save(body.get('pid'), body['fields'], body.get('stage'))
             return self.send(200 if ok else 404, json.dumps({'ok': ok}), 'application/json')
-        if route == '/admin/reports':
+        if route in ('/admin/reports', '/admin/invites'):
             if not self.is_admin():
                 return self.send(403, self.denied_page())
-            built, msg = self.study.build_reports(force=True)
-            # redirect so that reloading the page does not build again
-            return self.send(303, '', headers={'Location': '/admin?' + urllib.parse.urlencode({'key': self.study.key, 'msg': msg or 'Reports are up to date.'})})
+            sf = self.study_filter()
+            if route == '/admin/reports':
+                built, msg = self.study.build_reports(force=True, study=sf)
+            else:
+                form = self.body_form()
+                sid = form.get('study', '')
+                sid = '' if sid == 'main' else sid
+                try:
+                    count = max(1, min(500, int(form.get('count') or 0)))
+                except ValueError:
+                    count = 0
+                if sid and sid not in studies():
+                    msg = 'Unknown study %s: add it to "studies" in server/study.json first.' % sid
+                elif not count:
+                    msg = 'Say how many links to make (1-500).'
+                else:
+                    self.study.create_invites(sid, form.get('group', '').strip(), form.get('source', '').strip(), form.get('note', '').strip(), count)
+                    msg = 'Made %d personal link%s for %s. Download them with "Invite links (.csv)".' % (count, '' if count == 1 else 's', sid or 'the main study')
+                    sf = sid
+            # redirect so that reloading the page does not repeat the action
+            q = {'key': self.study.key, 'msg': msg or 'Reports are up to date.'}
+            if sf is not None:
+                q['study'] = sf or 'main'
+            return self.send(303, '', headers={'Location': '/admin?' + urllib.parse.urlencode(q)})
         self.send(404, 'Not found', 'text/plain')
 
     def base_url(self):
@@ -348,63 +459,104 @@ class Handler(http.server.BaseHTTPRequestHandler):
         proto = self.headers.get('X-Forwarded-Proto') or ('https' if host.endswith('.app.github.dev') else 'http')
         return '%s://%s' % (proto, host)
 
-    def links_card(self):
+    def open_links(self, sid):
+        """(label, url) of the open links of a study: one for anyone, one per group listed for that study."""
         base = self.base_url() + '/'
-        groups = load_study().get('groups') or []
-        items = [('Participant link', base)] + [('Group %s' % g, base + '?' + urllib.parse.urlencode({'group': g})) for g in groups]
-        rows = ''.join('<div class="link"><span>%s</span><input readonly value="%s" aria-label="%s"><button type="button" class="copy">Copy</button></div>'
-                       % (escape(label), escape(url, quote=True), escape(label, quote=True)) for label, url in items)
-        return ('<div class="card"><h2>Links to send</h2>%s<p class="muted">The link stays the same every time you start this server in this '
-                'codespace. It only works while the server is running and the port is public. To use your own IDs, add <code>&amp;pid=...</code> '
-                '(or Prolific\'s <code>PROLIFIC_PID</code>). Add groups in <code>server/study.json</code> to get a link for each.</p></div>' % rows)
+        cfg = load_study(sid)
+        q = {'study': sid} if sid else {}
+        return [('Anyone', base + ('?' + urllib.parse.urlencode(q) if q else ''))] + \
+               [('Group %s' % g, base + '?' + urllib.parse.urlencode(dict(q, group=g))) for g in cfg.get('groups') or []]
 
-    def with_bar(self, html):
+    def studies_card(self, rows, sf, k):
+        inv = self.study.invites()
+        ids = [''] + sorted(studies())
+        trs, opts = [], []
+        for sid in ids:
+            cfg = load_study(sid)
+            mine = [r for r in rows if r['study'] == sid]
+            invs = [t for t, v in inv.items() if v['study'] == sid]
+            opened = sum(1 for t in invs if os.path.exists(self.study.path(t)))
+            fin = sum(1 for r in mine if r['invite'] and r['done'])
+            links = ''.join('<div class="link"><span>%s</span><input readonly value="%s" aria-label="%s"><button type="button" class="copy">Copy</button></div>'
+                            % (escape(label), escape(url, quote=True), escape(label, quote=True)) for label, url in self.open_links(sid))
+            qs = 'key=%s&study=%s' % (k, urllib.parse.quote(sid or 'main'))
+            trs.append('<tr><td><b>%s</b><br><span class="muted">%s</span></td><td>%d</td><td>%d</td><td>%d / %d / %d</td>'
+                       '<td style="white-space:normal;min-width:320px">%s</td><td><a href="/admin?%s">Show</a><br><a href="/admin/invites.csv?%s">Invite links (.csv)</a></td></tr>'
+                       % (escape(sid or 'main'), escape(cfg.get('description') or cfg.get('title') or ''), len(mine), sum(r['done'] for r in mine),
+                          len(invs), opened, fin, links, qs, qs))
+            opts.append('<option value="%s"%s>%s</option>' % (escape(sid or 'main'), ' selected' if sf == sid else '', escape(sid or 'main')))
+        form = ('<form method="post" action="/admin/invites?key=%s" class="row" style="align-items:end">'
+                '<label>Study<br><select name="study">%s</select></label>'
+                '<label>Group<br><input name="group" size="8" placeholder="e.g. ASD"></label>'
+                '<label>Recruitment source<br><input name="source" size="22" placeholder="e.g. autism charity newsletter"></label>'
+                '<label>Note<br><input name="note" size="14" placeholder="optional"></label>'
+                '<label>How many<br><input name="count" type="number" min="1" max="500" value="10" style="width:5em"></label>'
+                '<button type="submit">Make personal links</button></form>' % (k, ''.join(opts)))
+        return ('<div class="card"><h2>Studies and links</h2><table><tr><th>Study</th><th>Sessions</th><th>Finished</th>'
+                '<th>Personal links<br><span class="muted">made / opened / finished</span></th><th>Open links</th><th></th></tr>%s</table>'
+                '<h2 style="margin-top:14px">Make personal links</h2>%s<p class="muted">A personal link (<code>/?i=…</code>) belongs to one '
+                'participant: it records the study, group and recruitment source, and opening it again resumes their session. Download the '
+                'links as a spreadsheet to send them out, and to see who has opened or finished. Open links can be posted anywhere; '
+                'anyone using one is recorded under that study (and group). Add studies, each with its own intro, consent and completion '
+                'text if you like, under <code>"studies"</code> in <code>server/study.json</code>.</p></div>' % (''.join(trs), form))
+
+    def with_bar(self, html, sf=None):
+        q = urllib.parse.urlencode(dict({'key': self.study.key}, **({} if sf is None else {'study': sf or 'main'})))
         bar = ('<div style="position:sticky;top:0;z-index:50;background:#2a2421;color:#fff;font:14px system-ui,sans-serif;padding:8px 16px">'
-               '<a href="/admin?key=%s" style="color:#fff">&larr; Researcher page</a></div>' % urllib.parse.quote(self.study.key))
+               '<a href="/admin?%s" style="color:#fff">&larr; Researcher page</a>%s</div>' % (q, '' if sf is None else ' · study: <b>%s</b>' % escape(sf or 'main')))
         return re.sub(r'(<body[^>]*>)', lambda mm: mm.group(1) + bar, html, count=1)
 
-    def admin_page(self, message=''):
-        rows = self.study.sessions()
+    def admin_page(self, message='', sf=None):
+        allrows = self.study.sessions()
+        rows = allrows if sf is None else [r for r in allrows if r['study'] == sf]
         done = sum(r['done'] for r in rows)
         k = urllib.parse.quote(self.study.key)
-        info = self.study.reports_info()
+        sq = '' if sf is None else '&study=' + urllib.parse.quote(sf or 'main')
+        info = self.study.reports_info(sf)
         reports = [('dashboard.html', 'Dashboard'), ('explore.html', 'Explore patterns'), ('profiles.html', 'Profiles and clusters'), ('arrangement.html', 'Symmetry and contact')]
-        tables = [('participants.csv', 'participants.csv'), ('ingredients_long.csv', 'ingredients_long.csv'), ('profiles.csv', 'profiles.csv'),
-                  ('explore.csv', 'explore.csv'), ('events_long.csv', 'events_long.csv')]
+        tables = [('participants.csv', 'participants.csv'), ('ingredients_long.csv', 'ingredients_long.csv'), ('pieces_long.csv', 'pieces_long.csv'),
+                  ('profiles.csv', 'profiles.csv'), ('explore.csv', 'explore.csv'), ('events_long.csv', 'events_long.csv')]
         if info:
             status = 'Last built %s UTC from %d pizza%s. Opening a report brings it up to date with any newer sessions.' % (
                 escape(info[0].replace('T', ' ')[:16]), info[1], '' if info[1] == 1 else 's')
         else:
             status = 'Not built yet. Opening a report builds it.'
-        report_btns = ''.join('<a class="btn" href="/admin/reports/%s?key=%s">%s</a>' % (f, k, label) for f, label in reports) + \
+        report_btns = ''.join('<a class="btn" href="/admin/reports/%s?key=%s%s">%s</a>' % (f, k, sq, label) for f, label in reports) + \
             '<a class="btn alt" href="/admin/methods?key=%s">Methods: how each number is counted</a>' % k
-        table_links = ' · '.join('<a href="/admin/reports/%s?key=%s">%s</a>' % (f, k, label) for f, label in tables)
-        trs = ''.join('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (
-            escape(r['pid']), escape(r['group']), escape(r['about']), escape(r['cond']), escape(r['stage']), '' if r['pieces'] is None else r['pieces'],
-            escape(r['started'].replace('T', ' ')[:16]), escape(r['updated'].replace('T', ' ')[:16])) for r in rows)
+        table_links = ' · '.join('<a href="/admin/reports/%s?key=%s%s">%s</a>' % (f, k, sq, label) for f, label in tables)
+        chips = ''.join('<a class="chip%s" href="/admin?key=%s%s">%s</a>' % (' on' if sf == sid else '', k, '' if sid is None else '&study=' + urllib.parse.quote(sid or 'main'),
+                                                                            escape('All studies' if sid is None else sid or 'main'))
+                        for sid in [None, ''] + sorted(set(studies()) | {r['study'] for r in allrows if r['study']}))
+        trs = ''.join('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (
+            escape(r['pid']), escape(r['study'] or 'main'), escape(r['group']), escape(r['source']), escape(r['about']), escape(r['cond']), escape(r['stage']),
+            '' if r['pieces'] is None else r['pieces'], escape(r['started'].replace('T', ' ')[:16]), escape(r['updated'].replace('T', ' ')[:16])) for r in rows)
         note = ('<pre class="note">%s</pre>' % escape(message)) if message else ''
+        scope = 'all studies' if sf is None else 'study <b>%s</b>' % escape(sf or 'main')
         return """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pizza Study Admin</title><style>
 :root{--bg:#f6f2ed;--fg:#2a2421;--muted:#6e635b;--line:#dcd2c7;--panel:#fff;--accent:#a8361d;--accent-ink:#fff}
 @media (prefers-color-scheme: dark){:root{--bg:#1d1916;--fg:#eee6de;--muted:#b0a398;--line:#3a322c;--panel:#26211d;--accent:#e0765b;--accent-ink:#1d1916;color-scheme:dark}}
 body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
-.wrap{max-width:1000px;margin:0 auto;padding:20px 16px}h1{font-size:1.4rem;margin:0 0 4px}.muted{color:var(--muted)}
+.wrap{max-width:1100px;margin:0 auto;padding:20px 16px}h1{font-size:1.4rem;margin:0 0 4px}.muted{color:var(--muted)}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0;overflow-x:auto}
-table{border-collapse:collapse;width:100%%;font-size:.9rem}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
-h2{font-size:1.05rem;margin:0 0 8px}.link{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap}
-.link span{min-width:130px;color:var(--muted)}.link input{flex:1;min-width:220px;font:inherit;font-size:.9rem;padding:7px 9px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
-.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+table{border-collapse:collapse;width:100%%;font-size:.9rem}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:top}
+h2{font-size:1.05rem;margin:0 0 8px}.link{display:flex;gap:8px;align-items:center;margin:4px 0;flex-wrap:wrap}
+.link span{min-width:90px;color:var(--muted)}.link input{flex:1;min-width:200px;font:inherit;font-size:.85rem;padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}label{font-size:.85rem;color:var(--muted)}
+input,select{font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
 button,.btn{font:inherit;padding:8px 14px;border-radius:9px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);cursor:pointer;text-decoration:none;display:inline-block}
-.btn.alt,button.alt{background:transparent;color:var(--fg);border-color:var(--line)}a{color:var(--accent)}
+.link button{padding:5px 10px}.btn.alt,button.alt{background:transparent;color:var(--fg);border-color:var(--line)}a{color:var(--accent)}
+.chip{display:inline-block;padding:4px 12px;border-radius:999px;border:1px solid var(--line);text-decoration:none;color:var(--fg);margin:0 6px 6px 0}.chip.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .note{white-space:pre-wrap;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0 0}
-</style></head><body><div class="wrap"><h1>Pizza study</h1><p class="muted">%d sessions, %d finished. <a href="/admin?key=%s">Refresh</a></p>
-%s
-<div class="card"><h2>Reports</h2><div class="row">%s</div><p class="muted" style="margin:4px 0">Tables: %s</p>
+</style></head><body><div class="wrap"><h1>Pizza study</h1><p class="muted">Showing %s: %d sessions, %d finished. <a href="/admin?key=%s%s">Refresh</a></p>
+<div>%s</div>%s
+<div class="card"><h2>Reports for %s</h2><div class="row">%s</div><p class="muted" style="margin:4px 0">Tables: %s</p>
 <p class="muted" style="margin:4px 0">%s</p>
-<div class="row"><form method="post" action="/admin/reports?key=%s" style="margin:0"><button class="alt" type="submit">Rebuild now</button></form>
-<a class="btn" href="/admin/r.zip?key=%s">Download for R (.zip)</a>
-<a class="btn alt" href="/admin/data.zip?key=%s">Download raw sessions (.zip)</a></div>%s</div>
-<div class="card"><h2>Sessions</h2><table><tr><th>Participant</th><th>Group</th><th>Says they are</th><th>Condition</th><th>Stage</th><th>Pieces</th><th>Started (UTC)</th><th>Last saved</th></tr>%s</table></div>
+<div class="row"><form method="post" action="/admin/reports?key=%s%s" style="margin:0"><button class="alt" type="submit">Rebuild now</button></form>
+<a class="btn" href="/admin/r.zip?key=%s%s">Download for R (.zip)</a>
+<a class="btn alt" href="/admin/data.zip?key=%s%s">Download raw sessions (.zip)</a></div>%s</div>
+%s
+<div class="card"><h2>Sessions</h2><table><tr><th>Participant</th><th>Study</th><th>Group</th><th>Source</th><th>Says they are</th><th>Condition</th><th>Stage</th><th>Pieces</th><th>Started (UTC)</th><th>Last saved</th></tr>%s</table></div>
 </div><script>
 document.querySelectorAll('.copy').forEach(function (b) {
   b.onclick = function () {
@@ -413,8 +565,8 @@ document.querySelectorAll('.copy').forEach(function (b) {
     if (navigator.clipboard) navigator.clipboard.writeText(i.value).then(ok, function () { document.execCommand('copy'); ok(); }); else { document.execCommand('copy'); ok(); }
   };
 });
-</script></body></html>""" % (len(rows), done, k, self.links_card(), report_btns, table_links, status, k, k, k, note,
-                               trs or '<tr><td colspan="7" class="muted">No sessions yet.</td></tr>')
+</script></body></html>""" % (scope, len(rows), done, k, sq, chips, note, scope, report_btns, table_links, status, k, sq, k, sq, k, sq, note and '',
+                               self.studies_card(allrows, sf, k), trs or '<tr><td colspan="10" class="muted">No sessions yet.</td></tr>')
 
 
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):

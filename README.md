@@ -205,6 +205,37 @@ Things to know:
 - The researcher password is made on first start and kept in `server/data/.admin_key`; set `PIZZA_ADMIN_KEY` to choose your own.
 - Your organisation may not allow public ports; then use Qualtrics, or ask for that setting to be changed.
 
+### Running a pilot with a specific group (study-specific, filterable data)
+
+For a pilot with, say, autistic adults recruited through community organisations, keep its data apart from everything
+else and labelled with where each person came from:
+
+1. **Define the study** in `server/study.json` under `"studies"` (an example, `pilot-asd`, is there). A study can have
+   its own `intro`, `consent`, `completion_message` / `completion_redirect`, `groups`, `conditions` and `about_you`;
+   anything not given comes from the main settings. Ids are lower-case letters, digits and dashes.
+2. **Make personal links** on the researcher page (*Studies and links* → *Make personal links*): choose the study,
+   a group (e.g. ASD) and the recruitment source (e.g. "autism charity newsletter"), and how many. Download them with
+   *Invite links (.csv)* and send one link per person. A personal link (`/?i=…`) is that person's id: it records
+   study, group and source, opening it again resumes their session (on any computer), and the spreadsheet shows who
+   has not opened, started or finished. Unknown or mistyped links are refused, so no unlabelled data comes in.
+3. **Or post an open link** (`/?study=pilot-asd&group=ASD`, listed per study) where personal links are impractical,
+   e.g. a forum. Add `&source=forum` to record where it was posted.
+4. **Filter by study**: the chips at the top of the researcher page show one study's sessions; its reports, the
+   *Download for R* zip and the raw sessions then hold that study only. *All studies* puts everything together, and
+   the analysis then compares studies (`study`) and recruitment sources (`source`) like any other grouping.
+
+What a pilot gives for the larger study (in `explore.html`):
+- **Against chance** – with one group only, each systematic measure (mirror and rotational symmetry, same-topping
+  neighbours, placing in blocks, size matching, sweeping round, even spread) is tested against its chance level,
+  for everyone and for each self-described neurotype (autistic, AuDHD, ADHD … within the pilot).
+- **Within-group differences** – formally diagnosed vs self-identified, with or without ADHD, eating difficulties,
+  the 1-7 self-ratings and any questionnaire scores (`--covariates`).
+- **Leads for a larger study** – the largest differences, one per measure, each with the number of people per group a
+  confirmatory study would need for 80% power, at the effect seen and at half of it (plan with the second: effects
+  found by screening many measures in a small sample are usually overestimated).
+- To compare the pilot with a non-autistic sample, run a second study (e.g. `general`, recruited the same way, or
+  via Prolific) on the same server and look at *All studies*.
+
 ### Where the script comes from
 
 The paste-in files load `pizza-builder.js` from this repository through jsDelivr, pinned to a specific commit

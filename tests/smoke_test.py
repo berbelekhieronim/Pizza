@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 
@@ -124,7 +125,7 @@ def main():
             check(http('POST', base + '/api/save', {'pid': '../../etc', 'fields': {'pz_final': '[]'}})[0] == 404, 'rejects a bad participant id')
             check(http('GET', base + '/admin')[0] == 403, 'researcher page needs the password')
             code, page = http('GET', base + '/admin?key=smoke-key')
-            check(code == 200 and b'SMOKE001' in page and b'Links to send' in page, 'researcher page lists the session and links')
+            check(code == 200 and b'SMOKE001' in page and b'Studies and links' in page and b'Make personal links' in page, 'researcher page lists the session, studies and links')
             code, page = http('POST', base + '/admin/reports?key=smoke-key')
             check(code == 200 and os.path.exists(os.path.join(data, 'reports', 'dashboard.html')), 'builds the reports')
             check(os.path.exists(os.path.join(data, 'reports', 'explore.html')), 'builds the explore report')
@@ -136,6 +137,29 @@ def main():
                    'pizza-data/raw/SMOKE001.json'} <= set(names), 'downloads the data for R as a zip')
             code, z = http('GET', base + '/admin/data.zip?key=smoke-key')
             check(code == 200 and z[:2] == b'PK', 'downloads all data as a zip')
+            # a study-specific pilot: personal invite links and an open study link, kept apart and filterable
+            body = urllib.parse.urlencode({'study': 'pilot-asd', 'group': 'ASD', 'source': 'charity', 'count': '3'}).encode()
+            req = urllib.request.Request(base + '/admin/invites?key=smoke-key', data=body, method='POST')
+            try:
+                urllib.request.urlopen(req)
+            except urllib.error.HTTPError:
+                pass
+            code, inv_csv = http('GET', base + '/admin/invites.csv?key=smoke-key&study=pilot-asd')
+            invites = list(csv.DictReader(io.StringIO(inv_csv.decode('utf-8-sig'))))
+            check(code == 200 and len(invites) == 3 and invites[0]['link'].endswith('?i=' + invites[0]['invite']), 'makes personal invite links')
+            started = [json.loads(http('GET', base + '/api/start?i=' + i['invite'])[1]) for i in invites]
+            check(all(st.get('pid') == i['invite'] for st, i in zip(started, invites)), 'an invite link is its participant\'s id')
+            check('error' in json.loads(http('GET', base + '/api/start?i=nosuchone')[1]) and 'error' in json.loads(http('GET', base + '/api/start?study=nosuchstudy')[1]),
+                  'refuses unknown invite and study links')
+            for st in started:
+                http('POST', base + '/api/save', {'pid': st['pid'], 'stage': 'done', 'fields': fields})
+            code, page = http('GET', base + '/admin?key=smoke-key&study=pilot-asd')
+            check(code == 200 and b'Showing study <b>pilot-asd</b>: 3 sessions' in page, 'researcher page filters by study')
+            code, z = http('GET', base + '/admin/r.zip?key=smoke-key&study=pilot-asd')
+            zf = zipfile.ZipFile(io.BytesIO(z))
+            pc = list(csv.DictReader(io.StringIO(zf.read('pizza-data/participants.csv').decode('utf-8'))))
+            check(len(pc) == 3 and {r['study'] for r in pc} == {'pilot-asd'} and {r['source'] for r in pc} == {'charity'},
+                  'per-study data download holds only that study, with group and source')
             saved = json.load(open(os.path.join(data, 'participants', 'SMOKE001.json'), encoding='utf-8'))
             check(saved.get('group') == 'ASD' and 'pz_final' in saved, 'session file has the group and the pizza')
         finally:

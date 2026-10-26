@@ -1962,7 +1962,7 @@ EXPLORE_GROUPINGS = [
     ('neurotype', 'Neurotype (self-described)'), ('nd_autistic', 'Autistic, incl. AuDHD (yes / no)'), ('nd_adhd', 'ADHD, incl. AuDHD (yes / no)'),
     ('nd_identified', 'Autism / ADHD: formally diagnosed or not'), ('eat_any', 'Any eating difficulty, allergy or intolerance (yes / no)'),
     ('eat_picky', 'Picky eating since childhood (yes / no)'), ('gender', 'Gender'), ('age_band', 'Age'), ('pointer', 'Device (touch / mouse)'),
-    ('group', 'Recruitment group (study link)'), ('condition', 'Condition'),
+    ('group', 'Recruitment group (study link)'), ('source', 'Recruitment source'), ('study', 'Study'), ('condition', 'Condition'),
 ]
 EXPLORE_COVARIATES = [('self_picky', '"I am a picky eater" (1-7)'), ('self_sensory_food', '"Food textures, smells or looks bother me" (1-7)')]
 
@@ -2220,6 +2220,40 @@ details.more { margin: 8px 0 14px; } details.more summary { cursor: pointer; fon
 """
 
 
+# Measures with a known chance level: a single group can be tested against it (does this group arrange more
+# symmetrically / in more grouped blocks / ... than chance?). (key, chance value, label)
+CHANCE_LEVELS = [('mirror_score', 0.0, 'Mirror symmetry beyond chance'), ('rot_score', 0.0, 'Rotational symmetry beyond chance'),
+                 ('segregation', 0.0, 'Same-topping neighbours beyond chance'), ('blockiness', 0.0, 'Placed in blocks of one topping'),
+                 ('size_match_index', 0.0, 'Size matching within a topping, beyond other categories'),
+                 ('sweep_consistency', 0.5, 'Placed in a steady sweep round the pizza'), ('clark_evans', 1.0, 'Spread out more evenly than random')]
+Z_A, Z_B = 1.959964, 0.841621          # two-sided alpha .05, power .80
+
+
+def n_per_group(delta):
+    """People per group a two-group study needs for 80% power at alpha .05 (two-sided Mann-Whitney), if the true
+    Cliff's delta is this (Noether 1987, equal groups): n = 2 (z_a + z_b)^2 / (3 delta^2)."""
+    return math.ceil(2 * (Z_A + Z_B) ** 2 / (3 * delta * delta)) if delta else None
+
+
+def n_for_rho(rho):
+    """People a correlational study needs for 80% power at alpha .05 (two-sided): n = ((z_a + z_b) / atanh(rho))^2 + 3."""
+    return math.ceil(((Z_A + Z_B) / math.atanh(min(abs(rho), 0.999))) ** 2 + 3) if rho else None
+
+
+def chance_test(x, c, rnd, draws=4000):
+    """One group against a chance level c: dominance = (#above - #below) / n, and a two-sided sign-flip permutation
+    p on the differences from c, (hits + 1) / (draws + 1)."""
+    d = [v - c for v in x if v != c]
+    if not x:
+        return None, None
+    dom = (sum(v > c for v in x) - sum(v < c for v in x)) / len(x)
+    if not d:
+        return dom, 1.0
+    obs = abs(sum(d)) - 1e-12
+    hits = sum(abs(sum(v if rnd.random() < 0.5 else -v for v in d)) >= obs for _ in range(draws))
+    return dom, (hits + 1) / (draws + 1)
+
+
 def explore_report(recs, tray, groupings, covariates, seed=1):
     """explore.html: screens every measure for differences between the groups of every grouping available, and for
     links with continuous self-reports, to find patterns worth following up. Writes the tests to explore.csv too."""
@@ -2324,6 +2358,54 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
             cl_html.append('<h3>%s</h3><div class="tbl"><table class="small"><tr><th class="l">Cluster</th>%s</tr>%s</table></div><p class="muted">χ²(%d) = %.2f, p = %.3f (rough with small counts).</p>'
                            % (esc(glabel), ''.join('<th>%s</th>' % esc(lv) for lv in levels),
                               ''.join('<tr><td class="l">%d</td>%s</tr>' % (c + 1, ''.join('<td>%d</td>' % v for v in tab[c])) for c in range(k)), df, chi, chi2_sf(chi, df)))
+    # against chance: everyone, and each group of the first grouping
+    ch_rows, ch_tests = [], []
+    sets = [('Everyone', [True] * n)]
+    if used:
+        sets += [('%s: %s' % (used[0][1], lv), [g == lv for g in used[0][3]]) for lv in used[0][2]]
+    for key, c, label in CHANCE_LEVELS:
+        for name, mask in sets:
+            x = [r[key] for r, m in zip(recs, mask) if m and isinstance(r.get(key), (int, float))]
+            if len(x) < 5:
+                continue
+            dom, p = chance_test(x, c, rnd)
+            ch_tests.append({'grouping': 'chance', 'area': 'Against chance', 'key': key, 'label': label, 'level': name, 'vs': 'chance = %g' % c,
+                             'n1': len(x), 'n0': None, 'm1': statistics.median(x), 'm0': c, 'delta': dom, 'p': p})
+    for t, q in zip(ch_tests, bh([t['p'] for t in ch_tests])):
+        t['q'] = q
+        all_tests.append(t)
+        ch_rows.append('<tr><td class="l">%s</td><td class="l">%s</td><td>%d</td><td>%.2f / %g</td><td><b>%+.2f</b></td><td>%.3f</td><td>%.3f</td></tr>'
+                       % (esc(t['label']), esc(t['level']), t['n1'], t['m1'], t['m0'], t['delta'], t['p'], t['q']))
+    chance_html = ('<h2 id="chance">Against chance</h2><p class="muted">Does a group do this more than chance would give? Useful when a pilot has '
+                   'one group only. Dominance = (people above chance − people below) / n, from −1 to 1; p from a sign-flip permutation test; '
+                   'q over all rows of this table.</p><div class="tbl"><table><tr><th class="l">Measure</th><th class="l">Who</th><th>n</th>'
+                   '<th>median / chance</th><th>dominance</th><th>p</th><th>q</th></tr>%s</table></div>' % ''.join(ch_rows)) if ch_rows else ''
+    # leads for a larger study: the largest group differences, one per measure, with the sample size to confirm them
+    for t in all_tests:
+        if t.get('grouping') not in ('chance',) and t.get('level') != 'Spearman rho' and t.get('delta'):
+            t['n_per_group_80'], t['n_per_group_80_half'] = n_per_group(t['delta']), n_per_group(t['delta'] / 2)
+        elif t.get('level') == 'Spearman rho' and t.get('delta'):
+            t['n_per_group_80'], t['n_per_group_80_half'] = n_for_rho(t['delta']), n_for_rho(t['delta'] / 2)
+    seen, leads = set(), []
+    for t in sorted((t for t in all_tests if t.get('grouping') != 'chance' and t.get('level') != 'Spearman rho' and min(t['n1'], t['n0'] or 0) >= 3),
+                    key=lambda t: (-abs(t['delta']), t['p'])):
+        if t['key'] in seen:
+            continue
+        seen.add(t['key'])
+        leads.append(t)
+        if len(leads) == 10:
+            break
+    lead_rows = []
+    for t in leads:
+        word = ('more often' if t['binary'] else 'higher') if t['delta'] > 0 else ('less often' if t['binary'] else 'lower')
+        lead_rows.append('<tr><td class="l"><b>%s</b> %s: %s %s than %s</td><td>%d / %d</td><td><b>%+.2f</b></td><td>%.3f</td><td>%.3f</td><td>%s</td><td>%s</td></tr>'
+                         % (esc(t['level']), esc(dict(groupings).get(t['grouping'], t['grouping'])), esc(t['label']), word, esc(t['vs']),
+                            t['n1'], t['n0'], t['delta'], t['p'], t['q'], t['n_per_group_80'] or '', t['n_per_group_80_half'] or ''))
+    leads_html = ('<h2 id="leads">Leads for a larger study</h2><p class="muted">The largest group differences in these data, one per measure. Each could '
+                  'become a hypothesis. The last two columns give how many people per group a two-group study needs for 80%% power at α = .05 '
+                  '(two-sided), if the true δ is as large as seen here, and if it is half that size (effects found by screening many measures '
+                  'in a small sample are usually overestimated; plan with the second).</p><div class="tbl"><table class="leads"><tr><th class="l">Pattern</th><th>n</th>'
+                  '<th>δ</th><th>p</th><th>q</th><th>n/group (δ as seen)</th><th>n/group (δ halved)</th></tr>%s</table></div>' % ''.join(lead_rows)) if lead_rows else ''
     nav = ''.join('<span><a href="#g-%s">%s</a></span>' % (esc(k_), esc(l_)) for k_, l_, _, _ in used)
     html = (head + '<p class="lead"><b>For exploring, not confirming.</b> This page screens %d measures (%d main, the rest per topping) across every '
             'way of grouping people that the data allow, so some differences will look large by chance. Effect sizes are Cliff\'s δ (−1 to 1: how often a value '
@@ -2332,6 +2414,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
             'intervals are bootstrap 95%% intervals. Treat what stands out as a lead to test in a new sample or a preregistered analysis.</p>'
             '<p class="muted">%d pizzas.</p><div class="chips">%s</div>'
             % (len(defs), len([d for d in defs if not d[0].startswith(('Toppings', 'Strong '))]), n, nav or '<span>No grouping has two groups of 3+ people yet.</span>')
+            + leads_html + chance_html
             + ''.join(body)
             + ('<h2>Links with self-reports</h2><p class="muted">Spearman correlations (ρ) of each measure with each continuous self-report.</p>' + ''.join(cov_html) if cov_html else '')
             + '<h2>How the measures go together</h2><p class="muted">Spearman correlations between the main measures across all participants '
@@ -2477,9 +2560,11 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
                                            e[9] if len(e) > 9 and isinstance(e[9], list) else [None] * 7))})
             svgs.append((pid, prefix, pizza_svg(pieces, summary, '%s %s (%d)' % (pid, prefix.rstrip('_'), n))))
             piece_long.extend(piece_rows(pid, prefix, final, pieces, rec))
-            for c in (group_cols or []) + ['group']:          # grouping columns from the export / study server
+            for c in (group_cols or []) + ['study', 'source', 'group']:     # grouping columns from the export / study server
                 if c not in rec:
                     rec[c] = field(row, c) or row.get(c) or None
+            if rec['study'] is None and 'study' in row:       # study server sessions outside any named study
+                rec['study'] = 'main'
             for c in covariates or []:                        # numeric columns from the export (e.g. questionnaire scores)
                 if c not in rec:
                     try:
@@ -2578,7 +2663,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
     with open(os.path.join(out_dir, 'explore.html'), 'w', encoding='utf-8') as f:
         f.write(html)
     write_csv(os.path.join(out_dir, 'explore.csv'), [
-        dict({k: t.get(k) for k in ('grouping', 'level', 'vs', 'area', 'key', 'label', 'n1', 'n0', 'm1', 'm0', 'delta')},
+        dict({k: t.get(k) for k in ('grouping', 'level', 'vs', 'area', 'key', 'label', 'n1', 'n0', 'm1', 'm0', 'delta', 'n_per_group_80', 'n_per_group_80_half')},
              p='%.3g' % t['p'], q='%.3g' % t['q']) for t in tests]
         or [{'grouping': None}])
     for rec, _ in arrangement:
