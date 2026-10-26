@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pizza Builder demo</title>
+<style>
+  :root { --ink:#2b2622; --muted:#6d655d; --line:#e3dbd2; --bg:#f6f2ed; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  .wrap { max-width:980px; margin:0 auto; padding:16px; }
+  header { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:baseline; justify-content:space-between; margin-bottom:12px; }
+  h1 { font-size:1.2rem; margin:0; }
+  nav { display:flex; gap:6px; flex-wrap:wrap; }
+  nav button, .tools button { font:inherit; font-size:.85rem; padding:6px 10px; border-radius:8px; border:1px solid var(--line); background:#fff; color:var(--ink); cursor:pointer; }
+  nav button[aria-current=true] { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .stage { background:#fff; border:1px solid var(--line); border-radius:14px; padding:16px; }
+  .next { margin-top:16px; text-align:right; display:none; }
+  .next button { font:inherit; padding:10px 22px; border-radius:10px; border:0; background:#2b2622; color:#fff; cursor:pointer; }
+  details { margin-top:16px; background:#fff; border:1px solid var(--line); border-radius:14px; padding:10px 14px; }
+  summary { cursor:pointer; font-weight:600; }
+  .tools { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0; }
+  pre { margin:0; max-height:320px; overflow:auto; background:#faf8f5; border:1px solid var(--line); border-radius:8px; padding:8px; font-size:12px; white-space:pre-wrap; word-break:break-all; }
+  .muted { color:var(--muted); font-size:.85rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Pizza Builder demo</h1>
+    <nav id="nav">
+      <button data-step="practice">1 Practice</button>
+      <button data-step="build">2 Build</button>
+      <button data-step="followup">3 Ratings</button>
+    </nav>
+  </header>
+  <div class="stage" id="stage"></div>
+  <div class="next" id="next"><button type="button">Next page &rarr;</button></div>
+  <details id="dataBox">
+    <summary>Recorded data (what Qualtrics would store)</summary>
+    <p class="muted">Every change is written to these embedded-data fields as it happens. Nothing leaves this page.</p>
+    <div class="tools"><button id="dl" type="button">Download JSON</button><button id="reset" type="button">Start again</button></div>
+    <pre id="out">Nothing recorded yet.</pre>
+  </details>
+</div>
+<script src="pizza-builder.js"></script>
+<script>
+  // Stands in for Qualtrics: the fields each page saves, in one object.
+  var store = {};
+  try { store = JSON.parse(sessionStorage.getItem('pzb-demo-store') || '{}'); } catch (e) {}
+  var steps = ['practice', 'build', 'followup'];
+  var params = new URLSearchParams(location.search);
+  var current = null, widget = null;
+
+  function saveField(k, v) {
+    store[k] = v;
+    try { sessionStorage.setItem('pzb-demo-store', JSON.stringify(store)); } catch (e) {}
+    showData();
+  }
+  function showData() {
+    var pretty = {};
+    Object.keys(store).sort().forEach(function (k) {
+      var v = store[k];
+      try { v = JSON.parse(v); } catch (e) {}
+      pretty[k] = v;
+    });
+    document.getElementById('out').textContent = Object.keys(pretty).length ? JSON.stringify(pretty, null, 1) : 'Nothing recorded yet.';
+  }
+  function go(step) {
+    current = step;
+    if (widget && widget.destroy) widget.destroy();
+    var stage = document.getElementById('stage');
+    stage.innerHTML = '';
+    document.getElementById('next').style.display = 'none';
+    [].forEach.call(document.querySelectorAll('#nav button'), function (b) { b.setAttribute('aria-current', String(b.dataset.step === step)); });
+    var box = document.createElement('div');
+    stage.appendChild(box);
+    var opts = { mode: step, onSave: saveField, onFinish: finished, condition: params.get('cond') || 'demo' };
+    if (step === 'build' && params.get('typical')) {
+      opts.prefix = 'pzt_';
+      opts.prompt = 'Now make the pizza you think a typical participant in this study would choose. Drag toppings onto the pizza; drag a topping off to remove it.';
+    }
+    if (step === 'followup') opts.counts = store.pz_counts || null;
+    if (params.get('minSeconds')) opts.minSeconds = +params.get('minSeconds');
+    widget = PizzaBuilder.mount(box, opts);
+  }
+  function finished() {
+    var i = steps.indexOf(current);
+    if (i < steps.length - 1) {
+      var n = document.getElementById('next');
+      n.style.display = 'block';
+      n.querySelector('button').onclick = function () { go(steps[i + 1]); window.scrollTo(0, 0); };
+    } else {
+      document.getElementById('stage').innerHTML = '<p>All done - thank you! Open <b>Recorded data</b> below to see what was stored.</p>';
+      document.getElementById('dataBox').open = true;
+    }
+  }
+  document.getElementById('nav').onclick = function (e) { var s = e.target.dataset && e.target.dataset.step; if (s) go(s); };
+  document.getElementById('dl').onclick = function () {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(store, null, 1)], { type: 'application/json' }));
+    a.download = 'pizza-demo-' + Date.now() + '.json';
+    a.click();
+  };
+  document.getElementById('reset').onclick = function () {
+    store = {}; try { sessionStorage.removeItem('pzb-demo-store'); } catch (e) {}
+    showData(); go('practice');
+  };
+  showData();
+  go(steps.indexOf(params.get('mode')) >= 0 ? params.get('mode') : 'practice');
+</script>
+</body>
+</html>
