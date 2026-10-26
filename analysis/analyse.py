@@ -801,6 +801,92 @@ def movement_measures(events):
             'mv_dwell': med(4), 'mv_crossings': statistics.mean(m[5] for m in mv), 'mv_hold': med(6)}
 
 
+CONSIDER_MS = 500    # a tray topping the mouse rested on this long in total counts as considered
+
+
+def action_history(events):
+    """Replays the log to follow every piece: added, moved, removed (dragged off, undone, or wiped by "Start over")
+    and restored (undo of a removal or of "Start over"). Returns (pieces still on the pizza {id: piece},
+    removals [dict], moves [dict]). Works with logs from before "clear"/"undo" recorded piece ids (then a cleared
+    pizza is restored as a whole)."""
+    on, removals, moves, clears = {}, [], [], []
+    def remove(pid, t, how):
+        pc = on.pop(pid)
+        removals.append({'piece_id': pid, 'ing': pc['ing'], 'how': how, 't_added': pc['t'], 't_removed': t,
+                         'ms_on_pizza': t - pc['t'], 'x': pc['x'], 'y': pc['y'], 'restored': 0, '_piece': pc})
+    for e in events:
+        t, typ = e[0], e[1]
+        if typ == 'add' and len(e) > 5:
+            on[e[3]] = {'ing': e[2], 't': t, 'x': e[4], 'y': e[5]}
+        elif typ == 'move' and len(e) > 5 and e[3] in on:
+            pc = on[e[3]]
+            moves.append({'piece_id': e[3], 'ing': pc['ing'], 't': t, 'dist': math.hypot(e[4] - pc['x'], e[5] - pc['y'])})
+            pc['x'], pc['y'] = e[4], e[5]
+        elif typ == 'remove' and len(e) > 3 and e[3] in on:
+            remove(e[3], t, 'dragged off')
+        elif typ == 'clear':
+            ids = list(on)
+            for pid in ids:
+                remove(pid, t, 'start over')
+            clears.append(removals[len(removals) - len(ids):])
+        elif typ == 'undo' and len(e) > 3:
+            act, ref = e[2], e[3]
+            if act == 'add' and ref in on:
+                remove(ref, t, 'undo')
+            elif act == 'remove':
+                for r in reversed(removals):
+                    if r['piece_id'] == ref and r['how'] == 'dragged off' and not r['restored']:
+                        r['restored'] = 1
+                        on[ref] = r['_piece']
+                        break
+            elif act == 'clear' and clears:
+                for r in clears.pop():
+                    r['restored'] = 1
+                    on[r['piece_id']] = r['_piece']
+            elif act == 'move' and moves and moves[-1]['piece_id'] == ref:
+                moves[-1]['undone'] = 1
+    for r in removals:
+        r.pop('_piece', None)
+    return on, removals, moves
+
+
+def action_measures(events, final):
+    """Changes of mind and other actions, per pizza (see the Methods page)."""
+    on, removals, moves = action_history(events)
+    gone = [r for r in removals if not r['restored']]
+    adds = [e for e in events if e[1] == 'add']
+    added = Counter(e[2] for e in adds)
+    final_ing = Counter(f[1] for f in final)
+    dropped = sorted(k for k in added if not final_ing.get(k))
+    first_add = adds[0][0] if adds else None
+    first_done = next((e[0] for e in events if e[1] == 'done'), None)
+    edits = ('add', 'remove', 'move', 'resize', 'undo', 'clear')
+    hover, picked = Counter(), {e[2] for e in events if e[1] == 'pick'}
+    for e in events:
+        if e[1] == 'hover' and len(e) > 3:
+            hover[e[2]] += e[3]
+    considered = sorted(k for k, ms in hover.items() if ms >= CONSIDER_MS and k not in picked)
+    rejected = Counter(e[2] for e in events if e[1] == 'reject')
+    lst = lambda c: ' '.join('%s:%d' % kv for kv in sorted(c.items())) or None
+    out = {'n_added_pieces': len(adds), 'n_removed_pieces': len(gone),
+           'n_removed_dragged': sum(r['how'] == 'dragged off' for r in gone), 'n_removed_undo': sum(r['how'] == 'undo' for r in gone),
+           'n_removed_start_over': sum(r['how'] == 'start over' for r in gone), 'n_restored': sum(r['restored'] for r in removals),
+           'removed_list': lst(Counter(r['ing'] for r in gone)),
+           'revision_rate': len(gone) / len(adds) if adds else None,
+           'removal_ms_median': statistics.median([r['ms_on_pizza'] for r in gone if r['how'] != 'start over']) if any(r['how'] != 'start over' for r in gone) else None,
+           'n_dropped_toppings': len(dropped), 'dropped_list': ' '.join(dropped) or None,
+           'n_start_over': sum(e[1] == 'clear' for e in events), 'n_start_over_declined': sum(e[1] == 'clearno' for e in events),
+           'n_moved_pieces': len({m['piece_id'] for m in moves}), 'move_dist_total': sum(m['dist'] for m in moves),
+           'n_edits_after_done': sum(e[1] in edits for e in events if first_done is not None and e[0] > first_done),
+           'n_sauce_changes': sum(e[1] == 'sauce' for e in events), 'n_cheese_changes': sum(e[1] == 'cheese' for e in events),
+           'base_changed_after_toppings': int(any(e[1] in ('sauce', 'cheese') and first_add is not None and e[0] > first_add for e in events)),
+           'hover_total_ms': sum(hover.values()), 'n_considered_not_picked': len(considered), 'considered_list': ' '.join(considered) or None,
+           'rejected_list': lst(rejected), 'replay_matches_final': int(set(on) == {f[0] for f in final})}
+    per = {'added': added, 'removed': Counter(r['ing'] for r in gone), 'moves': Counter(m['ing'] for m in moves),
+           'resizes': Counter(e[2] for e in events if e[1] == 'resize'), 'considered': set(considered), 'dropped': set(dropped), 'hover': hover}
+    return out, per, removals
+
+
 AB_NEURO = ['autistic', 'adhd', 'dys', 'otherND', 'none', 'pnts']
 AB_EATING = ['picky', 'arfid', 'ed', 'allergy', 'none', 'pnts']
 
@@ -1532,6 +1618,7 @@ PROFILE_FEATURES = [
     ('Figurative', 'face_score', 'Face-like', None, 1),
     ('Feelings', 'n_strong', 'Strong feelings about toppings', None, 1), ('Feelings', 'n_sensory_reasons', 'Sensory reasons given', None, 1),
     ('Movement', 'mv_straight', 'Direct drags', None, 1), ('Movement', 'mv_pauses', 'Pauses while dragging', None, 1),
+    ('Process', 'revision_rate', 'Changes of mind', None, 1),
 ]
 
 
@@ -1948,6 +2035,11 @@ EXPLORE_EXTRA = [
     ('Process', 'n_ev_reject', 'Dropped off the pizza'), ('Process', 'n_never_picked', 'Toppings never touched'),
     ('Process', 'n_picked_not_kept', 'Toppings tried, then left off'), ('Process', 'n_done_presses', "Presses of I'm done"),
     ('Process', 't_after_done', "Time between I'm done and submitting"),
+    ('Process', 'n_removed_pieces', 'Pieces removed (not restored)'), ('Process', 'n_dropped_toppings', 'Toppings added, then left off'),
+    ('Process', 'n_start_over', 'Start overs'), ('Process', 'n_start_over_declined', 'Start over opened, then declined'),
+    ('Process', 'n_moved_pieces', 'Pieces moved'), ('Process', 'move_dist_total', 'Distance pieces were moved'),
+    ('Process', 'n_edits_after_done', "Edits after the first I'm done"), ('Process', 'base_changed_after_toppings', 'Sauce or cheese changed after toppings'),
+    ('Process', 'n_considered_not_picked', 'Toppings considered (hovered), never picked'), ('Process', 'hover_total_ms', 'Time resting on tray toppings'),
     ('Movement', 'mv_straight', 'Direct drags'), ('Movement', 'mv_pauses', 'Pauses per drag'), ('Movement', 'mv_paused_share', 'Drags with a pause'),
     ('Movement', 'mv_dwell', 'Dwell before letting go'), ('Movement', 'mv_hold', 'Hold before moving'),
     ('Movement', 'mv_crossings', 'Crossings of the pizza edge'), ('Movement', 'mv_path', 'Drag path length'),
@@ -2067,6 +2159,9 @@ def t_sf2(t, df):
     return min(1.0, front * f)
 
 
+TOPPING_AREAS = ('Toppings', 'Strong ', 'Changed mind', 'Considered')      # per-topping rows of explore.html
+
+
 def explore_measures(recs, tray):
     """Every measure screened: the profile measures, EXPLORE_EXTRA, base choices, diet class, and per-topping
     indicators (on the pizza; named with strong positive / negative feelings). Returns [(area, key, label)], {key: [values]}."""
@@ -2089,6 +2184,11 @@ def explore_measures(recs, tray):
         k = 'inc_' + ing
         defs.append(('Toppings used', k, NAMES.get(ing, ing)))
         vals[k] = [int((r.get('n_' + ing) or 0) > 0) for r in recs]
+    for prefix, label, col in (('drop', 'Changed mind: added, then left off', 'dropped_list'), ('cons', 'Considered (hovered), never picked', 'considered_list')):
+        for ing in tray:
+            k = '%s_%s' % (prefix, ing)
+            defs.append((label, k, NAMES.get(ing, ing)))
+            vals[k] = [int(ing in (r.get(col) or '').split()) for r in recs]
     for sign, word in (('neg', 'negative'), ('pos', 'positive')):
         for ing in tray:
             k = '%s_%s' % (sign, ing)
@@ -2286,8 +2386,8 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
                         % (esc(t['label']), esc(t['area']), esc(t['level']), esc(t['vs']), t['n1'], t['n0'], fmt_m(t['m1'], t['binary']), fmt_m(t['m0'], t['binary']),
                            t['delta'], lo, hi, t['p'], t['q'], strip_svg(t['x'], t['y'], t['binary'], t['level'], t['vs'])))
         by = {(t['key'], t['level']): t for t in tests}
-        main = [d for d in defs if not d[0].startswith(('Toppings', 'Strong '))]
-        tops = [d for d in defs if d[0].startswith(('Toppings', 'Strong '))]
+        main = [d for d in defs if not d[0].startswith(TOPPING_AREAS)]
+        tops = [d for d in defs if d[0].startswith(TOPPING_AREAS)]
         def heat_rows(ds):
             out, last = [], None
             for dom, k, label in ds:
@@ -2307,7 +2407,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
                     '<p class="muted">%d comparisons; %d with q &lt; 0.10 (false discovery rate). Largest differences first:</p>'
                     '<div class="tbl"><table class="leads"><tr><th class="l">Measure</th><th class="l">Group</th><th>n</th><th>%s</th><th>δ</th><th>95%% CI</th><th>p</th><th>q</th><th class="l">Data (orange = group)</th></tr>%s</table></div>'
                     '<details class="more"><summary>Every measure (Cliff\'s δ; orange = higher in %s; outlined = q &lt; 0.10)</summary><div class="tbl"><table>%s%s</table></div></details>'
-                    '<details class="more"><summary>Every topping: used, and named with strong feelings</summary><div class="tbl"><table>%s%s</table></div></details>'
+                    '<details class="more"><summary>Every topping: used, changed mind about, considered, named with strong feelings</summary><div class="tbl"><table>%s%s</table></div></details>'
                     % (esc(key), esc(glabel), counts, len(tests), sig, 'group / rest' if len(levels) > 2 else '%s / %s' % (esc(levels[0]), esc(levels[1])),
                        ''.join(rows), 'the group' if len(levels) > 2 else esc(levels[0]), thead, heat_rows(main), thead, heat_rows(tops)))
     # links with continuous self-reports and covariates
@@ -2333,7 +2433,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
                            ''.join('<tr><td class="l">%s <span class="muted">· %s</span></td><td>%d</td><td><b>%+.2f</b></td><td>%.3f</td><td>%.3f</td></tr>'
                                    % (esc(t['label']), esc(t['area']), t['n'], t['rho'], t['p'], t['q']) for t in top)))
     # how the measures go together
-    cm = [d for d in defs if d[0] not in ('Toppings used',) and not d[0].startswith(('Strong ', 'Base and diet'))]
+    cm = [d for d in defs if not d[0].startswith(TOPPING_AREAS + ('Base and diet',))]
     M = len(cm)
     grid = [[spearman(vals[a[1]], vals[b[1]])[0] if i != j else 1.0 for j, b in enumerate(cm)] for i, a in enumerate(cm)]
     corr_html = ('<div class="tbl corr"><table><tr><th></th>%s</tr>%s</table></div>'
@@ -2413,7 +2513,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
             'p comes from a Mann-Whitney test (by permutation for groups under 8), q is the Benjamini-Hochberg false discovery rate within each grouping, and the '
             'intervals are bootstrap 95%% intervals. Treat what stands out as a lead to test in a new sample or a preregistered analysis.</p>'
             '<p class="muted">%d pizzas.</p><div class="chips">%s</div>'
-            % (len(defs), len([d for d in defs if not d[0].startswith(('Toppings', 'Strong '))]), n, nav or '<span>No grouping has two groups of 3+ people yet.</span>')
+            % (len(defs), len([d for d in defs if not d[0].startswith(TOPPING_AREAS)]), n, nav or '<span>No grouping has two groups of 3+ people yet.</span>')
             + leads_html + chance_html
             + ''.join(body)
             + ('<h2>Links with self-reports</h2><p class="muted">Spearman correlations (ρ) of each measure with each continuous self-report.</p>' + ''.join(cov_html) if cov_html else '')
@@ -2426,7 +2526,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
 
 def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force=None, covariates=None):
     rnd = random.Random(seed)
-    people, ing_long, ev_long, svgs, arrangement, piece_long = [], [], [], [], [], []
+    people, ing_long, ev_long, svgs, arrangement, piece_long, rem_long = [], [], [], [], [], [], []
     for row in rows:
         pid = row['_pid']
         follow = loads(field(row, 'pzf_data'), {}) or {}
@@ -2486,12 +2586,16 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             rec['n_never_picked'] = sum(k not in picked for k in tray)
             rec['n_picked_not_kept'] = sum(k in picked and counts.get(k, 0) == 0 for k in tray)
             nev = Counter(e[1] for e in events)
-            for k in ('pick', 'add', 'reject', 'tap', 'move', 'remove', 'resize', 'undo', 'clear', 'hover'):
+            for k in ('pick', 'add', 'reject', 'tap', 'grab', 'move', 'remove', 'resize', 'abort', 'undo', 'clear', 'hover'):
                 rec['n_ev_' + k] = nev.get(k, 0)
             rec.update(spatial(pieces, rnd))
             rec.update(order_measures(events))
             rec.update(timing(events, summary))
             rec.update(movement_measures(events))
+            acts, act_per, removals = action_measures(events, final)
+            rec.update(acts)
+            for r in removals:
+                rem_long.append(dict({'pid': pid, 'build': prefix.rstrip('_')}, **r))
             rec.update(practice_measures(p_sum, p_ev))
             if rec.get('practice_drag_median') and rec.get('drag_median'):
                 rec['drag_vs_practice'] = rec['drag_median'] / rec['practice_drag_median']
@@ -2531,6 +2635,10 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             rec['flag_fast'] = int(rec['t_finish'] is not None and rec['t_finish'] < 15000)
             rec['flag_empty'] = int(n == 0)
             ings = ingredient_rows(pid, prefix, summary, events, counts, follow, diet, pieces)
+            for r in ings:
+                k = r['ing']
+                r.update({'added_pieces': act_per['added'][k], 'removed_pieces': act_per['removed'][k], 'dropped': int(k in act_per['dropped']),
+                          'moves': act_per['moves'][k], 'resizes': act_per['resizes'][k], 'considered_not_picked': int(k in act_per['considered'])})
             if follow.get('items') and follow.get('style') != 'strong':
                 inc = [r['included'] for r in ings]
                 norm = [r['norm'] for r in ings]
@@ -2627,6 +2735,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
     write_csv(os.path.join(out_dir, 'ingredients_long.csv'), ing_long)
     write_csv(os.path.join(out_dir, 'events_long.csv'), ev_long)
     write_csv(os.path.join(out_dir, 'pieces_long.csv'), piece_long, PIECE_COLUMNS)
+    write_csv(os.path.join(out_dir, 'removals_long.csv'), rem_long, ['pid', 'build', 'piece_id', 'ing', 'how', 't_added', 't_removed', 'ms_on_pizza', 'x', 'y', 'restored'])
     cells = []
     for pid, prefix, svg in svgs:
         name = ''.join(ch if ch.isalnum() or ch in '-_' else '_' for ch in '%s_%s' % (pid, prefix.rstrip('_')))

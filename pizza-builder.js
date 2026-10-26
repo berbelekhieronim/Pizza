@@ -906,7 +906,7 @@
     else if (a.a === 'resize') a.p.g = a.g;
     else if (a.a === 'remove') this.pieces.splice(a.i, 0, a.p);
     else if (a.a === 'clear') this.pieces = a.ps;
-    this.log('undo', a.a, a.p ? a.p.id : a.ps.length);
+    this.log('undo', a.a, a.p ? a.p.id : a.ps.length, a.p ? a.p.ing : a.ps.map(function (p) { return p.id; }).join(' '));
     this._render();
   };
 
@@ -914,9 +914,9 @@
     var self = this, T = this.T;
     if (!this.pieces.length || this.locked) return;
     this.modal(T.clearTitle, T.clearBody, T.clearYes, T.cancel, function (yes) {
-      if (!yes) return;
+      if (!yes) { self.log('clearno'); return; }          // opened "Start over", then kept the pizza
       self.stack.push({ a: 'clear', ps: self.pieces.slice() });
-      self.log('clear', self.pieces.length);
+      self.log('clear', self.pieces.length, self.pieces.map(function (p) { return p.id; }).join(' '));
       self.pieces = [];
       self._render();
     });

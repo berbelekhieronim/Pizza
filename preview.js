@@ -118,6 +118,23 @@
       rotMatch: ro.m / n, rotMatched: ro.m, k: ro.k, rc: ro.c, rotChance: r0, rotScore: symScore(ro.m / n, r0) };
   }
 
+  // Changes of mind: the same replay as action_history() in analyse.py (added, removed, restored).
+  function actions(ev) {
+    var on = {}, removed = [], clears = [];
+    function remove(id, t, how) { var pc = on[id]; delete on[id]; removed.push({ id: id, ing: pc.ing, how: how, ms: t - pc.t, restored: false, pc: pc }); }
+    ev.forEach(function (e) {
+      if (e[1] === 'add') on[e[3]] = { ing: e[2], t: e[0] };
+      else if (e[1] === 'remove' && on[e[3]]) remove(e[3], e[0], 'dragged off');
+      else if (e[1] === 'clear') { var ids = Object.keys(on), from = removed.length; ids.forEach(function (id) { remove(id, e[0], 'start over'); }); clears.push(removed.slice(from)); }
+      else if (e[1] === 'undo') {
+        if (e[2] === 'add' && on[e[3]]) remove(e[3], e[0], 'undo');
+        else if (e[2] === 'remove') { for (var i = removed.length - 1; i >= 0; i--) { var r = removed[i]; if (r.id == e[3] && r.how === 'dragged off' && !r.restored) { r.restored = true; on[r.id] = r.pc; break; } } }
+        else if (e[2] === 'clear' && clears.length) clears.pop().forEach(function (r) { r.restored = true; on[r.id] = r.pc; });
+      }
+    });
+    return removed.filter(function (r) { return !r.restored; });
+  }
+
   function border(ps) {
     var zones = ps.map(function (p) {
       var c = capsule(p), rOut = Math.max(Math.hypot(c[0][0], c[0][1]), Math.hypot(c[1][0], c[1][1])) + c[2];
@@ -460,6 +477,18 @@
       '<div class="pv-group"><h4>Time</h4>' + stat('First topping', sec(firstPick)) + stat('Median decision', sec(median(decisions)), 'end of one action to picking up the next topping') +
         stat('Placements', adds.length) + stat('Pressed "I\'m done"', sec(doneT), dones.length > 1 ? 'pressed ' + dones.length + ' times, went back to edit ' + (dones.length - 1) + '\u00d7' : '') +
         stat('Time to completion', sec(fin_t), 'confirmed and submitted') + (prac ? stat('Practice drag (motor baseline)', sec(prac.dragMsMedian)) : '') + '</div>' +
+      (function () {
+        var gone = actions(ev), adds = ev.filter(function (e) { return e[1] === 'add'; }).length, onPizza = {}, dropped = {}, hov = {}, picked = {};
+        ps.forEach(function (p) { onPizza[p.ing] = true; });
+        ev.forEach(function (e) { if (e[1] === 'add' && !onPizza[e[2]]) dropped[e[2]] = true; if (e[1] === 'hover') hov[e[2]] = (hov[e[2]] || 0) + e[3]; if (e[1] === 'pick') picked[e[2]] = true; });
+        var considered = Object.keys(hov).filter(function (k) { return hov[k] >= 500 && !picked[k]; });
+        var names = function (ks) { return ks.map(function (k) { return NAMES[k] || k; }).join(', '); };
+        return '<div class="pv-group"><h4>Changes of mind</h4>' + stat('Pieces taken back', gone.length + ' of ' + adds + ' added',
+            esc(gone.map(function (r) { return (NAMES[r.ing] || r.ing) + ' (' + r.how + ')'; }).join(' · '))) +
+          stat('Added, then left off', esc(names(Object.keys(dropped)) || 'none')) +
+          stat('Considered, never picked', esc(names(considered) || 'none'), 'mouse rested ≥ 0.5 s on the tray item') +
+          stat('Start over', ev.filter(function (e) { return e[1] === 'clear'; }).length + '×', ev.some(function (e) { return e[1] === 'clearno'; }) ? 'also opened and declined' : '') + '</div>';
+      })() +
       (mvs.length ? '<div class="pv-group"><h4>Movement</h4>' + stat('Direct drags', (function (v) { return v == null ? '-' : v.toFixed(2); })(fmedian(mvs.map(function (m) { return m[1]; }))), 'straight-line distance / path; 1 = straight') +
         stat('Pauses per drag', (mvs.reduce(function (a, m) { return a + m[2]; }, 0) / mvs.length).toFixed(2), Math.round(100 * mvs.filter(function (m) { return m[2] > 0; }).length / mvs.length) + '% of drags paused (250 ms+)') +
         stat('Dwell before letting go', sec(fmedian(mvs.map(function (m) { return m[4]; }))), 'median') +

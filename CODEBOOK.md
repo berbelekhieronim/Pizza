@@ -59,8 +59,9 @@ A JSON array of `[t, type, ...]`:
 | `resize` | code, id, size, hold_ms | placed topping pressed and held in place, released at a new size |
 | `remove` | code, id, x, y, drag_ms, -, -, movement | placed topping dragged off the pizza |
 | `abort` | code, id | drag interrupted by the browser (e.g. a system gesture) |
-| `undo` | undone action (`add`/`move`/`resize`/`remove`/`clear`), id or count | |
-| `clear` | number of pieces removed | "Start over" confirmed |
+| `undo` | undone action (`add`/`move`/`resize`/`remove`/`clear`), id or count, topping code (or the restored ids for `clear`) | |
+| `clear` | number of pieces removed, their ids (space-separated) | "Start over" confirmed |
+| `clearno` | | "Start over" opened, then declined |
 | `sauce`, `cheese` | new value | sauce: `none`/`tomato`/`white`/`bbq`; cheese: `none`/`light`/`normal`/`extra` |
 | `hover` | code, ms | mouse rested ≥150 ms on a tray item (desktop only) |
 | `hide`, `show` | | tab hidden or visible again |
@@ -236,19 +237,28 @@ Scales run 1-7:
 | `typical_jaccard`, `typical_count_dev`, `typical_d_*` | own pizza vs their "typical participant" pizza (if built) |
 | `flag_tab_away`, `flag_fast`, `flag_empty` | >30 s on another tab; finished in <15 s; no toppings |
 
+### `removals_long.csv` (one row per piece taken off the pizza)
+
+`pid`, `build`, `piece_id`, `ing`, `how` (`dragged off` / `undo` = the adding was undone / `start over`), `t_added`,
+`t_removed` (ms), `ms_on_pizza`, `x`, `y` (where it was), `restored` (1 = brought back by Undo later). Rows with
+`restored = 0` are the changes of mind that stuck; per pizza they are summarised in `n_removed_*`, `removed_list`,
+`revision_rate` and `dropped_list` (definitions on the Methods page).
+
 ### `ingredients_long.csv` (one row per participant × topping)
 
 `tier`, `perishable`, `tray_pos` (1 = first in the tray), `count`, `included`, `picks`, `rejects`, `removes`, `picked_not_kept`,
 `first_pick_ms`, `first_add_ms`, `hover_ms`, `decision_ms_mean` (mean time from the previous action to picking this topping up),
 `area_cm2` and `size_mean` (amount of this topping, and its mean size factor), `n_touching`, `n_on_top`, `n_covered`
 (pieces of this topping touching another piece, lying on another, lying under another),
+`added_pieces`, `removed_pieces` (taken back, not restored), `dropped` (added at some point, not on the final pizza), `moves`, `resizes`,
+`considered_not_picked` (mouse rested on it ≥ 0.5 s in total, never picked up),
 `strong` (they have strong feelings about it), `feel`, `about_<reason>` (0/1), `safe_food`, `same_way`, `crave` (default follow-up),
 `diet_conflict` (the stated diet usually excludes this topping:
-- vegetarian → meats, anchovies, shrimp
+- vegetarian → meats (incl. kangaroo), anchovies, shrimp, tuna
 - vegan → those plus egg and blue cheese
 - pescatarian → meats
-- no pork or halal → pepperoni, ham
-- kosher → pepperoni, ham, shrimp
+- no pork → pepperoni, ham; halal → pepperoni, ham, kangaroo
+- kosher → pepperoni, ham, shrimp, kangaroo
 - no beef → pepperoni
 - dairy-free → blue cheese),
 the ratings (`like`, `fam`, `safe`, `disg`, `norm`, `ident`), `never_tasted`, `why_<reason>` (0/1; empty when the question was not asked), `why_other_text`, `rating_ms`.
@@ -263,7 +273,7 @@ the centre), `angle_deg` (anticlockwise from 3 o'clock), `rot` (drawing rotation
 
 ### `profiles.csv`
 
-`pid`, `group` (the primary grouping), `cluster`, then `z_<measure>` for each of the 31 profile measures: the measure standardised across the
+`pid`, `group` (the primary grouping), `cluster`, then `z_<measure>` for each of the 32 profile measures: the measure standardised across the
 sample (mean 0, SD 1, capped at ±3; missing values take the sample median), signed so that higher means *more* of the
 named trait. Measures marked log are log(1 + x) first. In order:
 - **Composition:** pieces (log), different toppings, variety (Shannon), unusual toppings share, animal products (0 vegan … 3 meat)

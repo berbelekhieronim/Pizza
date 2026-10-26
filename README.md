@@ -287,11 +287,12 @@ rest of the sample) and `--clusters <k>` fixes the number of clusters. It writes
 | `ingredients_long.csv` | participant × topping, ready for mixed models |
 | `events_long.csv` | every interaction, for sequence analyses |
 | `pieces_long.csv` | one row per piece: position, size, order, zone, contacts, symmetry partner |
+| `removals_long.csv` | one row per piece taken off the pizza: topping, how, when, time on the pizza (changes of mind) |
 | `variables.csv`, `load_pizza.R` | data dictionary and R loader (below) |
 | `profiles.csv` | each participant's standardised profile and cluster |
 | **`dashboard.html`** | the data at a glance, for proposals and for checking data as it comes in: diet breakdown, stated diet against the pizza, the normality distribution with the most unusual pizzas, space / size / time by group, a sortable table of every participant with a thumbnail |
 | **`explore.html`** | for discovering patterns: every measure, and every topping (used / named with strong feelings), compared between the groups of every grouping, largest effects first with the data drawn, Cliff's δ with bootstrap intervals, p and false-discovery-rate q; each measure's correlation with each self-rating and covariate; how all the measures correlate with each other; and the profile clusters against every grouping. `explore.csv` holds every comparison |
-| **`profiles.html`** | every participant as a profile of 31 measures; compare any two side by side (with each person's most similar participants); hierarchical clusters with plain-language descriptions, how the groups spread across them (χ²), a map of all profiles, and a heatmap ordered by the clustering tree |
+| **`profiles.html`** | every participant as a profile of 32 measures; compare any two side by side (with each person's most similar participants); hierarchical clusters with plain-language descriptions, how the groups spread across them (χ²), a map of all profiles, and a heatmap ordered by the clustering tree |
 | **`arrangement.html`** | symmetry and contact drawn on every pizza: the best mirror axis, the best rotation (rings mark where each topping's symmetric partner would have to be: green = a matching topping is there, red = none nearby), and touching and stacked pieces, with group comparisons |
 | `pizzas/`, `gallery.html` | every pizza redrawn from its coordinates |
 | **`methods.html`** | how every column and test is counted: one formula per measure with the function that computes it (and its line number), and worked examples computed by that code and checked against the hand calculation. The researcher page has it under **Methods** |
@@ -372,7 +373,14 @@ The measures are defined in `CODEBOOK.md`. In short:
   Benjamini-Hochberg false discovery rate across all the comparisons for that grouping. Groups smaller than 3 are left
   out and listed. With hundreds of comparisons some large-looking differences are chance: treat the page as a source
   of leads to confirm, and report how many comparisons were looked at.
-- **Profiles and clusters:** 31 measures across composition, normality, space, size, order, time, faces, strong feelings and movement, each
+- **Changes of mind and other actions:** the log is replayed piece by piece, so every piece that was added and later
+  taken back is known: which topping, how (dragged off, undone, or wiped by *Start over*), when, and how long it was on
+  the pizza (`removals_long.csv`). Per pizza: pieces added and removed, `revision_rate`, toppings added then left off
+  (`dropped_list`), restored pieces, start overs (and *Start over* opened then declined), pieces moved and how far,
+  edits after the first *I'm done*, sauce or cheese changed after toppings were placed, and toppings the mouse rested
+  on (≥ 0.5 s) but never picked (`considered_list`), plus tray toppings dropped off the pizza (`rejected_list`).
+  Per topping in `ingredients_long`: added, removed, dropped, moved, resized, considered.
+- **Profiles and clusters:** 32 measures across composition, normality, space, size, order, time, faces, strong feelings, movement and changes of mind, each
   standardised in the sample and signed so that higher means more of the named trait. Participants are compared by the
   distance between their profiles and grouped by Ward clustering, with the number of clusters chosen by silhouette.
 - **Norm deviation:**

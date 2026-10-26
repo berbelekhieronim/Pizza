@@ -252,7 +252,7 @@ class Study:
         return out
 
 
-R_FILES = ['participants.csv', 'ingredients_long.csv', 'pieces_long.csv', 'events_long.csv', 'profiles.csv', 'explore.csv',
+R_FILES = ['participants.csv', 'ingredients_long.csv', 'pieces_long.csv', 'removals_long.csv', 'events_long.csv', 'profiles.csv', 'explore.csv',
            'variables.csv', 'load_pizza.R', 'methods.html']
 R_README = """Pizza study data, ready for R
 =============================
@@ -269,6 +269,7 @@ Tables (UTF-8 CSV, missing values = NA, yes/no = 1/0, times in ms, positions in 
     participants.csv      one row per pizza (pid + build: pz = own pizza, pzt = typical-participant pizza)
     ingredients_long.csv  one row per participant x build x topping on the tray
     pieces_long.csv       one row per piece on a finished pizza
+    removals_long.csv     one row per piece taken off the pizza: which topping, how, when (changes of mind)
     events_long.csv       one row per logged action
     profiles.csv          one row per participant: standardised profile scores and cluster
     explore.csv           one row per group comparison shown in explore.html
@@ -515,6 +516,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         info = self.study.reports_info(sf)
         reports = [('dashboard.html', 'Dashboard'), ('explore.html', 'Explore patterns'), ('profiles.html', 'Profiles and clusters'), ('arrangement.html', 'Symmetry and contact')]
         tables = [('participants.csv', 'participants.csv'), ('ingredients_long.csv', 'ingredients_long.csv'), ('pieces_long.csv', 'pieces_long.csv'),
+                  ('removals_long.csv', 'removals_long.csv'),
                   ('profiles.csv', 'profiles.csv'), ('explore.csv', 'explore.csv'), ('events_long.csv', 'events_long.csv')]
         if info:
             status = 'Last built %s UTC from %d pizza%s. Opening a report brings it up to date with any newer sessions.' % (

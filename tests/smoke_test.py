@@ -59,7 +59,7 @@ def main():
                   '--reference', *sorted(glob.glob(os.path.join(tmp, 'ref', '*.json'))), '--out', out), 'analyse.py runs')
         for f in ('participants.csv', 'ingredients_long.csv', 'events_long.csv', 'profiles.csv',
                   'dashboard.html', 'profiles.html', 'arrangement.html', 'gallery.html', 'explore.html', 'explore.csv', 'methods.html',
-                  'pieces_long.csv', 'variables.csv', 'load_pizza.R'):
+                  'pieces_long.csv', 'removals_long.csv', 'variables.csv', 'load_pizza.R'):
             check(os.path.getsize(os.path.join(out, f)) > 0 if os.path.exists(os.path.join(out, f)) else False, 'writes ' + f)
         rows = list(csv.DictReader(open(os.path.join(out, 'participants.csv'), encoding='utf-8')))
         check(len(rows) == 24, 'one row per participant')
@@ -70,7 +70,7 @@ def main():
         # every output column must be described on the Methods page (analysis/methods.py)
         sys.path[:0] = [os.path.join(ROOT, 'analysis')]
         import methods
-        for f in ('participants', 'ingredients_long', 'events_long', 'profiles', 'explore', 'pieces_long'):
+        for f in ('participants', 'ingredients_long', 'events_long', 'profiles', 'explore', 'pieces_long', 'removals_long'):
             missing = methods.undocumented(next(csv.reader(open(os.path.join(out, f + '.csv'), encoding='utf-8'))))
             check(not missing, 'Methods page describes every column of %s.csv%s' % (f, (' - missing: ' + ', '.join(missing)) if missing else ''))
         var = list(csv.DictReader(open(os.path.join(out, 'variables.csv'), encoding='utf-8')))

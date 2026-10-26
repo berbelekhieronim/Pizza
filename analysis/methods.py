@@ -24,7 +24,7 @@ import analyse as A  # noqa: E402
 # Placeholders in column names: {ing} = a topping code, {reason} = a reason code, and so on.
 SLOTS = {'ing': '|'.join(sorted(set(A.CATS) | {'tom'})), 'reason': '|'.join(A.REASONS), 'about': '|'.join(A.ABOUT),
          'health': '|'.join(A.HEALTH), 'item': '|'.join(A.PIZZA_ITEMS), 'scale': '|'.join(A.SCALES),
-         'nd': '|'.join(A.AB_NEURO), 'eat': '|'.join(A.AB_EATING), 'ev': 'pick|add|reject|tap|move|remove|resize|undo|clear|hover',
+         'nd': '|'.join(A.AB_NEURO), 'eat': '|'.join(A.AB_EATING), 'ev': 'pick|add|reject|tap|grab|move|remove|resize|abort|undo|clear|hover',
          'class': 'vegan|vegetarian|seafood|meat', 'tier': 'common|mid|unusual', 'feature': '[a-z_0-9]+'}
 
 # (section, intro, [(columns, how it is counted, function in analyse.py)]). Notation: n = pieces on the pizza; each piece
@@ -36,7 +36,7 @@ SECTIONS = [
         ('study, source', 'Study server: the study the participant\'s link belongs to (study.json "studies"), and the recruitment source written on their invite link (or ?source= on an open link).', 'analyse'),
         ('sauce, cheese', 'The base chosen: sauce none / tomato / white / bbq; cheese none / light / normal / extra.', 'analyse'),
         ('n_pieces, n_{ing}', 'Pieces on the finished pizza, in total and per topping.', 'analyse'),
-        ('n_ev_{ev}', 'Number of events of that type in the log (pick, add, reject, tap, move, remove, resize, undo, clear, hover).', 'analyse'),
+        ('n_ev_{ev}', 'Number of events of that type in the log (pick, add, reject, tap, grab, move, remove, resize, abort, undo, clear, hover).', 'analyse'),
         ('pointer, coarse, layout, pizzaPx, vw, vh, dpr, hiddenMs, hides', 'Device record: pointer used first (mouse / touch / pen), coarse pointer (1/0), task layout, pizza width in px, window size, pixel ratio, ms the tab was hidden, times hidden.', 'analyse'),
         ('pid, build, t_ms, type, a, b, x, y, drag_ms, snapped', '<b>events_long.csv</b>: one row per logged event: time since the task started (ms), event type, its first two fields (topping, piece id), drop position, drag duration, snapped (0/1).', 'analyse'),
     ]),
@@ -125,6 +125,21 @@ SECTIONS = [
         ('practice_drag_median, practice_target_err, practice_target_tries, practice_ms, practice_pointer, drag_vs_practice', 'Practice trial: median drag; first distance from the target; tries; duration; pointer; drag_median / practice_drag_median.', 'practice_measures'),
         ('first_pick_ms, first_add_ms, hover_ms, decision_ms_mean, picks, rejects, removes, picked_not_kept, tray_pos', '<b>ingredients_long</b>: per topping: first pick and add time; total mouse rest on its tray item; mean decision time before picking it; counts; lifted but not kept (0/1); position in the shuffled tray.', 'ingredient_rows'),
     ]),
+    ('Changes of mind and other actions', 'The log is replayed piece by piece: added, moved, removed (dragged off, undone, or wiped by "Start over"), restored (undo). The replay must end with exactly the pieces on the finished pizza (replay_matches_final).', [
+        ('n_added_pieces, n_removed_pieces', 'Pieces ever added; pieces removed and not restored.', 'action_measures'),
+        ('n_removed_dragged, n_removed_undo, n_removed_start_over, n_restored', 'Removed pieces by how (dragged off the pizza; Undo of their adding; "Start over"); removals undone again.', 'action_history'),
+        ('removed_list, removal_ms_median', 'Removed pieces per topping (code:count); median time a piece stayed on the pizza before being dragged off or undone.', 'action_measures'),
+        ('revision_rate', 'n_removed_pieces / n_added_pieces (0 = nothing taken back).', 'action_measures'),
+        ('n_dropped_toppings, dropped_list', 'Toppings added at some point but not on the finished pizza ("changed mind"), and which.', 'action_measures'),
+        ('n_start_over, n_start_over_declined', '"Start over" confirmed; opened, then declined.', 'action_measures'),
+        ('n_moved_pieces, move_dist_total', 'Distinct pieces moved; total distance moved (pizza radii).', 'action_measures'),
+        ('n_edits_after_done', 'Adds, removals, moves, resizes, undos and start overs after the first "I\'m done" press.', 'action_measures'),
+        ('n_sauce_changes, n_cheese_changes, base_changed_after_toppings', 'Sauce / cheese choices made; 1 if either was changed after the first topping was placed.', 'action_measures'),
+        ('hover_total_ms, n_considered_not_picked, considered_list', 'Total mouse rest on tray toppings (rests ≥ 150 ms are logged); toppings rested on ≥ 500 ms in total but never picked up, and which.', 'action_measures'),
+        ('rejected_list, replay_matches_final', 'Toppings lifted from the tray and dropped off the pizza (code:count); 1 if the replay ends with the finished pizza.', 'action_measures'),
+        ('added_pieces, removed_pieces, dropped, moves, resizes, considered_not_picked', '<b>ingredients_long</b>: the same per topping.', 'action_measures'),
+        ('piece_id, how, t_added, t_removed, ms_on_pizza, restored', '<b>removals_long</b>: one row per removed piece: how (dragged off / undo / start over), when added and removed (ms), time on the pizza, position when removed, restored later (0/1).', 'action_history'),
+    ]),
     ('Movement of each drag', 'Recorded per drag in the task (event field 10): path, straightness, pauses, longest pause, dwell, crossings, hold.', [
         ('mv_path', 'Pointer path length / pizza diameter; median over drags.', 'movement_measures'),
         ('mv_straight', 'Straight-line distance start→drop / path length (1 = straight); median.', 'movement_measures'),
@@ -156,6 +171,9 @@ SECTIONS = [
         ('nd_identified', 'formal if every ticked autism / ADHD identity is formally diagnosed, else "self or waiting".', 'about_measures'),
         ('eat_{eat}, eat_any', 'Eating history ticked (0/1); any of picky, ARFID, eating disorder, allergy.', 'about_measures'),
         ('self_picky, self_sensory_food, age_band, gender', '1-7 self-ratings; demographics (prefer not to say → empty).', 'about_measures'),
+    ]),
+    ('Removals (removals_long.csv: one row per piece taken off the pizza)', None, [
+        ('pid, build, ing, x, y', '<b>removals_long</b>: participant, build, topping code, position the piece had when removed.', 'action_history'),
     ]),
     ('Pieces (pieces_long.csv: one row per piece on the finished pizza)', None, [
         ('pid, build, ing, x, y', '<b>pieces_long</b>: participant, build, topping code, centre position (pizza radii, y up).', 'piece_rows'),
@@ -331,6 +349,13 @@ def small_examples():
     nn = A.n_per_group(0.5)
     assert nn == math.ceil(2 * (1.959964 + 0.841621) ** 2 / (3 * 0.25))
     rows.append(('n_per_group_80', 'δ = 0.5', '2 × (1.960 + 0.842)² / (3 × 0.5²) = 20.9 → <b>%d</b> per group' % nn))
+    ev = [[0, 'start', ''], [10, 'add', 'pep', 1, .1, .1], [20, 'add', 'mus', 2, -.2, .3], [30, 'add', 'oli', 3, .4, 0], [40, 'remove', 'mus', 2, .9, .9],
+          [50, 'clear', 2, '1 3'], [60, 'undo', 'clear', 2, '1 3'], [70, 'remove', 'oli', 3, -.95, .5], [80, 'done'], [90, 'finish']]
+    acts, _, rem = A.action_measures(ev, [[1, 'pep', .1, .1, 0, 1, 0, 1, 1]])
+    assert (acts['n_added_pieces'], acts['n_removed_pieces'], acts['n_restored'], acts['dropped_list'], acts['replay_matches_final']) == (3, 2, 2, 'mus oli', 1)
+    rows.append(('changes of mind', 'add pepperoni, mushroom, olive; drag the mushroom off; Start over; Undo (pepperoni and olive return); drag the olive off',
+                 'removed and not restored: mushroom, olive = <b>%d</b> of %d added (Start over undone: %d restored); dropped: %s; revision_rate = <b>%.2f</b>'
+                 % (acts['n_removed_pieces'], acts['n_added_pieces'], acts['n_restored'], acts['dropped_list'], acts['revision_rate'])))
     rows.append(('q (BH)', 'p = 0.001, 0.02, 0.03, 0.2', 'q = ' + ', '.join('%.3g' % v for v in q)))
     ref = [frozenset('a'), frozenset('ab'), frozenset('b'), frozenset('a')]
     bits, _ = A.atypicality(frozenset('b'), ref, ['a', 'b'])

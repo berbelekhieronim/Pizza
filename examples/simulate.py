@@ -65,6 +65,14 @@ def person(style, pid):
         r = math.hypot(x, y)
         if r > .98: x, y = x * .98 / r, y * .98 / r
         x, y = round(x, 3), round(y, 3)
+        for h in R.sample(TRAY, R.choice([0, 0, 1, 2])):          # resting the mouse on toppings on the way
+            t += int(R.lognormvariate(5.8, .5)); ev.append([t, 'hover', h, int(R.lognormvariate(6.2, .6))])
+        if R.random() < (.12 if style == 'A' else .06):            # a change of mind: a piece added, then taken back
+            j, other = 1000 + i, R.choice(TRAY)
+            t += int(R.lognormvariate(6.9, .5)); ev.append([t, 'pick', other, j, 'm'])
+            t += 600; ev.append([t, 'add', other, j, round(R.uniform(-.6, .6), 3), round(R.uniform(-.6, .6), 3), 600, 0, 1, None])
+            t += int(R.lognormvariate(7.5, .6))
+            ev.append([t, 'remove', other, j, .99, .99, 500, None, None, None] if R.random() < .6 else [t, 'undo', 'add', j, other])
         t += int(R.lognormvariate(6.9, .55) * slow); ev.append([t, 'pick', k, i + 1, 'm'])
         drag = int(R.lognormvariate(6.2, .3)); g = round(R.uniform(1.3, 2.3), 2) if grower and R.random() < .3 else 1
         if g > 1: drag += int((g - 1) / .8 * 1000) + 500
@@ -74,6 +82,13 @@ def person(style, pid):
               int(R.lognormvariate(5.9, .4)) if pauses else 0, int(R.lognormvariate(5.3, .6)), int(R.random() < .08), int(R.lognormvariate(4.8, .5))]
         t += drag; ev.append([t, 'add', k, i + 1, x, y, drag, 0, g, mv])
         final.append([i + 1, k, x, y, R.randrange(360), round(R.uniform(.9, 1.1), 2), R.randrange(3), i + 1, g])
+    if R.random() < .05:                                           # Start over, then undone
+        t += 2000; ev.append([t, 'clear', len(final), ' '.join(str(f[0]) for f in final)])
+        t += 1500; ev.append([t, 'undo', 'clear', len(final), ' '.join(str(f[0]) for f in final)])
+    elif R.random() < .05:
+        t += 2000; ev.append([t, 'clearno'])
+    if R.random() < .15:
+        t += 1200; ev.append([t, 'sauce', R.choice(['tomato', 'white', 'bbq'])])
     t += R.randint(1500, 6000); ev.append([t, 'done']); ev.append([t + 900, 'finish'])
     cheese = 'none' if diet == 'vegan' else R.choices(['light', 'normal', 'extra', 'none'], [.2, .6, .17, .03])[0]
     sauce = R.choices(['tomato', 'white', 'bbq', 'none'], [.82, .06, .09, .03])[0]

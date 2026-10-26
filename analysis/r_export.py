@@ -19,6 +19,7 @@ import methods  # noqa: E402
 TABLES = [('participants', 'one row per pizza (pid + build): every measure'),
           ('ingredients_long', 'one row per participant x build x tray topping'),
           ('pieces_long', 'one row per piece on a finished pizza'),
+          ('removals_long', 'one row per piece taken off the pizza (changes of mind)'),
           ('events_long', 'one row per logged event'),
           ('profiles', 'one row per participant: standardised profile scores and cluster'),
           ('explore', 'one row per comparison in explore.html')]
@@ -41,6 +42,7 @@ FACTORS = {
     'pointer': (['mouse', 'pen', 'touch'], False),
     'tier': (['common', 'mid', 'unusual'], True),
     'zone': (['inside', 'crust', 'over'], True),
+    'how': (['dragged off', 'undo', 'start over'], False),
     'feel': (['cant', 'dislike', 'mixed', 'like', 'love'], True),
     'safe_food': (['no', 'sometimes', 'yes'], True), 'same_way': (['no', 'sometimes', 'yes'], True),
     'crave': (['never', 'sometimes', 'often'], True),
@@ -50,7 +52,7 @@ FACTORS = {
     'face_mouth': (None, False), 'face_eyes': (None, False),
 }
 # the explore table's own 'level' column holds group names of different groupings: left as text
-TEXT_ALWAYS = {'pid', 'a', 'b', 'level', 'vs', 'key', 'label', 'strong_list', 'unusual_elements', 'diet', 'diet_other',
+TEXT_ALWAYS = {'pid', 'a', 'b', 'removed_list', 'dropped_list', 'considered_list', 'rejected_list', 'level', 'vs', 'key', 'label', 'strong_list', 'unusual_elements', 'diet', 'diet_other',
                'health_other', 'why_other_text', 'name'}
 
 
