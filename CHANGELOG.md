@@ -5,6 +5,17 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Only finished pizzas are analysed, with a data check** (the reports counted more pizzas than "built a pizza")
+- **Why the numbers differed:** the task saves the pizza every few seconds while it is being built, so a participant
+  who stopped part-way left a half-built pizza. The reports analysed it as if it were a choice, and also counted the
+  "typical participant" pizza in the same total. "Built a pizza" counts only people who pressed "I'm done".
+- **Now:** a build that never reached "I'm done" is left out of every report and download and listed in
+  `excluded.csv`. The pizza count on the researcher page is the finished own pizzas, with the typical pizzas and the
+  left-out builds named beside it, and a ✓ when it matches the sessions past the build (a warning when it does not).
+- **Data check** at the top of the Overview: where every session is now, what was analysed and left out, and what to
+  review before deciding on exclusions (very fast builds, empty pizzas, tab hidden, came back mid-study, mixed task
+  versions, test sessions mixed with real ones). Also in `data_check.json`. New column `task_version`.
+
 **Task 0.13.1: hold-to-resize is easier to find and to do** (participants got stuck on it in the practice and the build)
 - **More forgiving:** the pointer may drift up to 20 px (`growStillPx`) while holding; before, 8 px of hand tremor
   restarted the hold. The pulse starts after 0.3 s (was 0.5 s) and is a little slower (3.6 s per cycle, was 3 s),

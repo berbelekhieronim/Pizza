@@ -336,6 +336,29 @@ def main():
             check(os.path.getsize(os.path.join(out, f)) > 0 if os.path.exists(os.path.join(out, f)) else False, 'writes ' + f)
         rows = list(csv.DictReader(open(os.path.join(out, 'participants.csv'), encoding='utf-8')))
         check(len(rows) == 24, 'one row per participant')
+        # a build saved part-way but never finished (the participant stopped before "I'm done") is left out and listed
+        src = sorted(glob.glob(os.path.join(tmp, 'sample', '*.json')))
+        part = os.path.join(tmp, 'partial'); os.makedirs(part)
+        for i, path in enumerate(src[:3]):
+            d = json.load(open(path, encoding='utf-8'))
+            if i == 2:
+                summ = d['pz_summary'] if isinstance(d['pz_summary'], dict) else json.loads(d['pz_summary'])
+                summ['finished'] = False
+                d['pz_summary'] = summ
+                for k in [k for k in d if k.startswith('pzt_')]:
+                    del d[k]
+            d['stage'] = 'build' if i == 2 else 'done'
+            json.dump(d, open(os.path.join(part, 'p%d.json' % i), 'w', encoding='utf-8'))
+        pout = os.path.join(tmp, 'out-partial')
+        ok = run('analysis/analyse.py', *sorted(glob.glob(os.path.join(part, '*.json'))), '--out', pout)
+        prow = list(csv.DictReader(open(os.path.join(pout, 'participants.csv'), encoding='utf-8'))) if ok else []
+        exc = list(csv.DictReader(open(os.path.join(pout, 'excluded.csv'), encoding='utf-8'))) if ok else []
+        dc = json.load(open(os.path.join(pout, 'data_check.json'), encoding='utf-8')) if ok else {}
+        check(ok and 'p2' not in {r['pid'] for r in prow} and [(r['pid'], r['build'], r['reason']) for r in exc] == [('p2', 'pz', 'not finished')],
+              'an unfinished build is left out of the analysis and listed in excluded.csv')
+        check(dc.get('own') == 2 and dc.get('left_out') == 1 and dc.get('built_sessions') == 2 and dc.get('ok') is True
+              and 'Data check' in open(os.path.join(pout, 'dashboard.html'), encoding='utf-8').read(),
+              'data check: analysed own pizzas match the sessions past the build, shown on the overview')
         for col in ('diet_class', 'atypicality_pct', 'mirror_match', 'mirror_score', 'rot_score', 'n_on_crust', 'face_detected', 'size_match_same', 't_submit', 'cluster',
                     'n_strong', 'n_safe_foods', 'n_sensory_reasons', 'neurotype', 'nd_identified', 'eat_any', 'self_picky', 'age_band',
                     'mv_straight', 'mv_pauses', 'mv_dwell', 'group', 'nut_kcal', 'nut_salt_g', 'top_kcal', 'nutrition_panel', 'n_adjustments',

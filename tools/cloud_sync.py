@@ -134,19 +134,25 @@ def zip_bytes(files):
 
 
 def build_scope(st, db_path, scope, work):
-    """Reports and downloads of one scope ('all', 'main' or a study id): {stored name: bytes}, pizzas analysed."""
+    """Reports and downloads of one scope ('all', 'main' or a study id): {stored name: bytes}, own pizzas analysed, the data check."""
     f = {'study': None if scope == 'all' else '' if scope == 'main' else scope}
     out = os.path.join(work, 'out-' + scope)
     cmd = [sys.executable, os.path.join(ROOT, 'analysis', 'analyse.py'), db_path, '--out', out] + ([] if scope == 'all' else ['--study', scope])
     # the measure cache: each pizza's slow measures are computed once and reused by every study and later runs
     env = dict(os.environ, PIZZA_MEASURE_CACHE=os.environ.get('PIZZA_MEASURE_CACHE') or os.path.join(work, 'measure-cache'))
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600, env=env)
-    files, n = {}, 0
+    files, n, check = {}, 0, {}
     records = list(st.records(f))
     raw = [('raw/%s.json' % rec['pid'], json.dumps(rec)) for rec in records]
     if r.returncode == 0 and os.path.exists(os.path.join(out, 'participants.csv')):
         with open(os.path.join(out, 'participants.csv'), encoding='utf-8') as fh:
             n = max(0, sum(1 for _ in fh) - 1)
+        try:
+            with open(os.path.join(out, 'data_check.json'), encoding='utf-8') as fh:
+                check = json.load(fh)
+            n = check['own']
+        except (OSError, ValueError, KeyError):
+            pass
         for name in sorted(os.listdir(out)):
             if name.endswith(REPORT_FILES) and name not in SKIP:
                 with open(os.path.join(out, name), 'rb') as fh:
@@ -164,7 +170,12 @@ def build_scope(st, db_path, scope, work):
     st.backup(copy, f['study'])
     with open(copy, 'rb') as fh:
         files['exports/%s/study.sqlite.gz' % scope] = gzip.compress(fh.read(), 6, mtime=0)   # served unpacked
-    return files, n
+    return files, n, check
+
+
+def brief_check(c):
+    """What the researcher page shows of the data check: the counts and whether sessions and pizzas add up."""
+    return {k: c[k] for k in ('sessions', 'typical', 'left_out', 'built_sessions', 'ok') if k in c} or None
 
 
 def main():
@@ -231,8 +242,8 @@ def main():
         site.status('running', 'Analysing %s side by side%s.' % (', '.join(analyse), ('; %s will reuse the analysis of all' % ', '.join(sorted(same))) if same else ''),
                     step='Analysing %d of %d sets' % (len(analyse), len(todo)))
 
-        def store(scope, files, n, t1, note=''):
-            files['reports/%s/.built' % scope] = json.dumps({'when': stamp, 'n': n, 'sig': sigs[scope]}).encode()
+        def store(scope, files, n, check, t1, note=''):
+            files['reports/%s/.built' % scope] = json.dumps({'when': stamp, 'n': n, 'sig': sigs[scope], 'check': brief_check(check)}).encode()
             if scope == 'all' and 'reports/all/methods.html' in files:
                 files['methods.html'] = files['reports/all/methods.html']
             files = {k: v if isinstance(v, bytes) else v.encode('utf-8') for k, v in files.items()}
@@ -257,14 +268,14 @@ def main():
             jobs = {pool.submit(build_scope, st, db_path, sc, work): sc for sc in analyse}
             for fut in concurrent.futures.as_completed(jobs):
                 sc = jobs[fut]
-                files, n = fut.result()
-                built[sc] = (files, n)
-                store(sc, files, n, t1)
+                files, n, check = fut.result()
+                built[sc] = (files, n, check)
+                store(sc, files, n, check, t1)
         for sc in sorted(same):                # the copies: all's reports under the study's name
-            files, n = built['all']
+            files, n, check = built['all']
             copy = {k.replace('reports/all/', 'reports/%s/' % sc).replace('exports/all/', 'exports/%s/' % sc): v
                     for k, v in files.items() if k.startswith(('reports/all/', 'exports/all/')) and not k.endswith('/.built')}
-            store(sc, copy, n, t1, note='(same sessions as all: copied)')
+            store(sc, copy, n, check, t1, note='(same sessions as all: copied)')
         site.put('state.json', json.dumps(new_state).encode())
         site.status('done', 'Done in %.0f s.' % (time.time() - t0), clear_wanted=wanted or '', built_upto=sigs['all'].split('|', 1)[1])
     except SystemExit as e:

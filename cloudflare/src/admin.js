@@ -65,7 +65,7 @@ export async function adminState(r, scope, f) {
   if (sel) {
     const sigs = await st.signatures();
     const info = await r.builtInfo(scopeName(f));
-    if (info) reports = { when: info.when, n: info.n, fresh: info.sig === sigs[scopeName(f)] };
+    if (info) reports = { when: info.when, n: info.n, check: info.check || null, fresh: info.sig === sigs[scopeName(f)] };
   }
   let storage = null;
   if (own) {

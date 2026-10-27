@@ -36,6 +36,7 @@ h1{font-size:1.35rem;margin:4px 0 4px}h2{font-size:1.05rem;margin:0 0 10px}
 .kpi b{display:block;font-size:1.1rem}.kpi span{color:var(--muted);font-size:.75rem}
 .kpi.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--panel))}.kpi.ok b{color:var(--ok)}
 .kpi.warn{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--panel))}.kpi.warn b{color:var(--warn)}
+b.warn{color:var(--warn)}
 .frame{position:relative}.frame .loading{position:absolute;top:24px;left:24px;right:24px;color:var(--muted);font-size:.9rem;pointer-events:none}
 .tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-top:8px}
 .tabs button{font:inherit;background:none;border:0;border-bottom:3px solid transparent;padding:8px 12px;color:var(--muted);cursor:pointer}
@@ -316,7 +317,13 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
         + (b.instant ? 'a build is queued when the next session finishes, or press Rebuild reports' : 'automatic builds need the GitHub token; start one from GitHub (Actions → reports → Run workflow)')
         + '</span>';
     } else if (r) {
-      html = '<span class="msg">Reports built ' + esc(when(r.when)) + ' UTC from ' + r.n + ' pizza' + (r.n === 1 ? '' : 's') + ' · up to date</span>';
+      var c = r.check || {}, extra = [];
+      if (c.typical) extra.push(c.typical + ' typical-participant pizza' + (c.typical === 1 ? '' : 's') + ' analysed separately');
+      if (c.left_out) extra.push(c.left_out + ' unfinished build' + (c.left_out === 1 ? '' : 's') + ' left out');
+      html = '<span class="msg">Reports built ' + esc(when(r.when)) + ' UTC from ' + r.n + ' finished pizza' + (r.n === 1 ? '' : 's')
+        + (extra.length ? ' (' + esc(extra.join('; ')) + ')' : '') + ' · up to date'
+        + (c.ok === false ? ' · <b class="warn">Data check: ' + r.n + ' pizzas analysed but ' + c.built_sessions + ' sessions got past the build; see Overview → Data check</b>'
+          : (c.ok ? ' · ✓ matches the sessions' : '')) + '</span>';
     } else {
       html = '<span class="msg">' + (S.reports_build_on_open ? 'Reports are built when you open them.' : 'No reports yet: they are built 5 minutes after the first session data comes in.') + '</span>';
     }

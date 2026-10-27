@@ -1550,6 +1550,7 @@ h1 { font-size: 1.5rem; margin: 0 0 6px; text-wrap: balance; } h2 { font-size: 1
 p { max-width: 70ch; } .muted { color: var(--muted); }
 .key { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .88rem; color: var(--muted); align-items: center; }
 .key i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid; margin-right: 5px; vertical-align: -2px; }
+.check .ok { color: var(--ok); font-weight: 600; } .check .bad { color: #b3261e; font-weight: 600; } .check li { margin: 4px 0; }
 .key .ok { border-color: var(--ok); } .key .near { border-color: var(--near); } .key .miss { border-color: var(--miss); }
 .key .ln { width: 18px; height: 0; border-radius: 0; border-width: 2px 0 0; }
 figure { margin: 0 0 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; overflow-x: auto; }
@@ -1806,12 +1807,83 @@ def nutrition_section(recs, groups):
             % (len(offered), len(recs), cm, sum(1 for r in offered if num(r, 'rebuilt_after_done') == 1)) + ''.join(out))
 
 
-def dashboard_report(entries, ref_info, group_label):
+EXCLUDED_COLUMNS = ['pid', 'build', 'reason', 'stage', 'n_pieces', 'last_saved', 'study']
+LATER_STAGES = ('typical', 'followup', 'done')      # a session at one of these has pressed "I'm done" on its own pizza
+STAGE_LABELS = [('intro', 'reading the intro'), ('practice', 'practice'), ('build', 'building'), ('typical', 'typical pizza'),
+                ('followup', 'questions'), ('done', 'finished')]
+
+
+def data_check(rows, builds, people, left_out):
+    """Do the sessions and the analysed pizzas add up? Counts for the Data check section and the researcher page."""
+    own, typ = builds[0].rstrip('_'), (builds[1].rstrip('_') if len(builds) > 1 else None)
+    mine = [p for p in people if p['build'] == own]
+    staged = [r for r in rows if r.get('stage')]            # study-server sessions know where the participant got to
+    stages = Counter(r['stage'] for r in staged)
+    out = {'sessions': len(rows), 'own': len(mine), 'typical': sum(p['build'] == typ for p in people),
+           'left_out': sum(x['build'] == own for x in left_out), 'left_out_typical': sum(x['build'] == typ for x in left_out),
+           'no_pizza': sum(1 for r in rows if loads(field(r, builds[0] + 'final')) is None),
+           'stages': {k: stages.get(k, 0) for k, _ in STAGE_LABELS if stages.get(k)},
+           'flags': {k: sorted(p['pid'] for p in mine if p.get(k)) for k in ('flag_fast', 'flag_empty', 'flag_tab_away')},
+           'restarted': sorted(p['pid'] for p in mine if p.get('restarts')),
+           'versions': dict(Counter(str(p.get('task_version') or '?') for p in mine)),
+           'test_sessions': sum((r.get('study') or '') == 'tests' for r in rows)}
+    if staged:
+        out['built_sessions'] = sum(r['stage'] in LATER_STAGES for r in staged)
+        out['ok'] = out['built_sessions'] == out['own'] and len(staged) == len(rows)
+        mine_ids = {p['pid'] for p in mine}
+        out['built_without_pizza'] = sorted(r['_pid'] for r in staged if r['stage'] in LATER_STAGES and r['_pid'] not in mine_ids)
+        out['pizza_without_built'] = sorted(p for p in mine_ids if p in {r['_pid'] for r in staged if r['stage'] not in LATER_STAGES})
+    return out
+
+
+def data_check_html(c):
+    """The Data check section of the overview: where every session went, and what to look at before excluding anything."""
+    if not c:
+        return ''
+    li = lambda s: '<li>%s</li>' % s
+    st = ', '.join('%s %d' % (l, c['stages'][k]) for k, l in STAGE_LABELS if c['stages'].get(k))
+    items = [li('<b>%d sessions</b> in this data%s.' % (c['sessions'], ('. Where each one is now: ' + esc(st)) if st else '')),
+             li('<b>%d own pizzas analysed</b>: everyone who pressed "I\'m done" on their own pizza. Every chart, test and download uses these.' % c['own'])]
+    if c['left_out']:
+        items.append(li('<b>%d builds left out</b>: saved part-way, but the participant stopped before "I\'m done", so the pizza is not a finished choice '
+                        '(listed in <code>excluded.csv</code>).' % c['left_out']))
+    if c['no_pizza']:
+        items.append(li('%d sessions never placed a topping on their own pizza (stopped in the intro or practice, or just opened the link).' % c['no_pizza']))
+    if c['typical'] or c['left_out_typical']:
+        items.append(li('%d "typical participant" pizzas, analysed as a separate build (column <code>build</code> = pzt), not counted above%s.'
+                        % (c['typical'], ('; %d unfinished left out' % c['left_out_typical']) if c['left_out_typical'] else '')))
+    if 'ok' in c:
+        if c['ok']:
+            items.append(li('<span class="ok">✓ Consistent:</span> the analysed own pizzas match the %d sessions that got past the build.' % c['built_sessions']))
+        else:
+            bad = []
+            if c['built_without_pizza']:
+                bad.append('past the build but no finished pizza: ' + esc(', '.join(c['built_without_pizza'])))
+            if c['pizza_without_built']:
+                bad.append('finished pizza but the session is still at an earlier stage: ' + esc(', '.join(c['pizza_without_built'])))
+            items.append(li('<span class="bad">✗ Check:</span> %d own pizzas analysed, %d sessions got past the build. %s'
+                            % (c['own'], c['built_sessions'], '; '.join(bad))))
+    flags = [(k, l) for k, l in (('flag_fast', 'finished in under 15 s'), ('flag_empty', 'no toppings'), ('flag_tab_away', 'tab hidden for over 30 s while building')) if c['flags'][k]]
+    review = ['%s: %s' % (l, esc(', '.join(c['flags'][k]))) for k, l in flags]
+    if c['restarted']:
+        review.append('came back mid-study (reload or new visit), so their build started again: ' + esc(', '.join(c['restarted'])))
+    if len(c['versions']) > 1:
+        review.append('pizzas from different task versions (%s); see the Changelog for what changed between them'
+                      % esc(', '.join('%s: %d' % kv for kv in sorted(c['versions'].items()))))
+    if c['test_sessions'] and c['test_sessions'] < c['sessions']:
+        review.append('%d sessions from the <code>tests</code> study are mixed in with real ones' % c['test_sessions'])
+    if review:
+        items.append(li('<b>To review</b> (kept in; decide before the confirmatory analysis whether to exclude, ideally in the preregistration): <ul>%s</ul>'
+                        % ''.join(li(r) for r in review)))
+    return '<h2 id="check">Data check</h2><ul class="check">%s</ul>' % ''.join(items)
+
+
+def dashboard_report(entries, ref_info, group_label, check=None):
     recs = [r for r, _ in entries]
     if not recs:
         return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
                 '<title>Pizza Data Preview</title></head><body style="font:16px system-ui,sans-serif;max-width:640px;margin:0 auto;padding:24px 16px">'
-                '<h1>Pizza data preview</h1><p>No finished pizzas yet.</p></body></html>')
+                '<h1>Pizza data preview</h1><p>No finished pizzas yet.</p>%s</body></html>' % data_check_html(check))
     groups = []
     for r in recs:
         if r['_group'] not in groups:
@@ -1914,8 +1986,8 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
             '<h1>Overview</h1><p class="muted">%d pizzas, compared by <code>%s</code>. Every number comes from the recorded coordinates, sizes and timestamps; '
             'formulas are on the Methods page. Charts are descriptive: every participant is a dot, groups of 5 or more get a median and interquartile range '
             '(the middle half). Tests between groups are on the Explore page.</p><div class="kpis">%s</div>'
-            '<nav class="toc"><a href="#diet">Diet</a><a href="#nutrition">Nutrition</a><a href="#normal">How normal</a><a href="#feelings">Strong feelings</a>'
-            '<a href="#space">Space</a><a href="#size">Size and amount</a><a href="#time">Time</a><a href="#people">Every participant</a></nav>'
+            '<nav class="toc"><a href="#check">Data check</a><a href="#diet">Diet</a><a href="#nutrition">Nutrition</a><a href="#normal">How normal</a><a href="#feelings">Strong feelings</a>'
+            '<a href="#space">Space</a><a href="#size">Size and amount</a><a href="#time">Time</a><a href="#people">Every participant</a></nav>%s'
             '<h2 id="diet">Diet: vegan, vegetarian, pescatarian or meat</h2><p class="muted">Each topping has a diet class; cheese and white sauce count as dairy, so a vegan '
             'pizza needs no cheese. A pizza is classed by the strictest diet it fits.</p>%s%s%s%s'
             '<h2 id="nutrition">Nutrition</h2>%s'
@@ -1930,7 +2002,7 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
             '<h2 id="space">Space</h2>%s<h2 id="size">Size and amount</h2>%s<h2 id="time">Time</h2>%s'
             '<h2 id="people">Every participant</h2><p class="muted">Click a column to sort.</p><div class="tablewrap"><table class="people"><thead>%s</thead><tbody>%s</tbody></table></div>'
             '</div>%s</body></html>'
-            % (REPORT_CSS, DASH_TOKENS, DASH_CSS, len(recs), esc(group_label), kpis, legend, diet, pieces, cross, nutrition_section(recs, groups),
+            % (REPORT_CSS, DASH_TOKENS, DASH_CSS, len(recs), esc(group_label), kpis, data_check_html(check), legend, diet, pieces, cross, nutrition_section(recs, groups),
                esc(ref_txt), hist, bands, examples, strong_feelings_chart(entries, groups), feel_plots, space, size, time_, head, ''.join(body), sort_js))
 
 
@@ -3033,6 +3105,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
 def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force=None, covariates=None):
     rnd = random.Random(seed)
     people, ing_long, ev_long, svgs, arrangement, piece_long, rem_long, adj_long = [], [], [], [], [], [], [], []
+    left_out = []      # builds saved part-way (the task saves while building) but never finished: not a choice, so not analysed
     for row in rows:
         pid = row['_pid']
         follow = loads(field(row, 'pzf_data'), {}) or {}
@@ -3044,6 +3117,10 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             if final is None:
                 continue
             summary = loads(field(row, prefix + 'summary'), {}) or {}
+            if summary.get('finished') is False:
+                left_out.append({'pid': pid, 'build': prefix.rstrip('_'), 'reason': 'not finished', 'stage': row.get('stage') or None,
+                                 'n_pieces': len(final), 'last_saved': row.get('updated') or None, 'study': row.get('study') or None})
+                continue
             events = loads(field(row, prefix + 'events'), []) or []
             # 's' is the drawn size: the small random variation times how much the participant grew the piece (hold to grow)
             pieces = [{'id': f[0], 'ing': f[1], 'x': f[2], 'y': f[3], 'rot': f[4], 'g': (f[8] if len(f) > 8 else 1),
@@ -3147,6 +3224,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             rec['flag_tab_away'] = int((summary.get('hiddenMs') or 0) > 30000)
             rec['flag_fast'] = int(rec['t_finish'] is not None and rec['t_finish'] < 15000)
             rec['flag_empty'] = int(n == 0)
+            rec['task_version'] = summary.get('v')
             try:                                   # study server: times the participant came back and restarted a part
                 rec['restarts'] = int(field(row, 'restarts') or 0)
             except ValueError:
@@ -3257,6 +3335,10 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
     write_csv(os.path.join(out_dir, 'events_long.csv'), ev_long)
     write_csv(os.path.join(out_dir, 'pieces_long.csv'), piece_long, PIECE_COLUMNS)
     write_csv(os.path.join(out_dir, 'adjustments_long.csv'), adj_long, ADJ_COLUMNS)
+    write_csv(os.path.join(out_dir, 'excluded.csv'), left_out, EXCLUDED_COLUMNS)
+    check = data_check(rows, builds, people, left_out)
+    with open(os.path.join(out_dir, 'data_check.json'), 'w', encoding='utf-8') as f:
+        json.dump(check, f, indent=1)
     write_csv(os.path.join(out_dir, 'removals_long.csv'), rem_long, ['pid', 'build', 'piece_id', 'ing', 'how', 't_added', 't_removed', 'ms_on_pizza', 'x', 'y', 'restored'])
     cells = []
     for pid, prefix, svg in svgs:
@@ -3277,7 +3359,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
     with open(os.path.join(out_dir, 'arrangement.html'), 'w', encoding='utf-8') as f:
         f.write(arrangement_report(arrangement, group_label))
     with open(os.path.join(out_dir, 'dashboard.html'), 'w', encoding='utf-8') as f:
-        f.write(dashboard_report(own_entries, ref_info, group_label))
+        f.write(dashboard_report(own_entries, ref_info, group_label, check))
     prof = profile_analysis(own_entries, k_force)
     for (rec, _), z, lab in zip(own_entries, prof['Z'], prof['labels']):
         rec['cluster'] = lab + 1 if prof['k'] > 1 else None

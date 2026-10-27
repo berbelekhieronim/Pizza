@@ -183,13 +183,16 @@ class Study:
                 when = fh.read().split('\n')[0]
         except OSError:
             return None
-        n = 0
+        n, check = 0, {}
         try:
             with open(os.path.join(self.reports_dir(f), 'participants.csv'), encoding='utf-8') as fh:
                 n = max(0, sum(1 for _ in fh) - 1)
-        except OSError:
+            with open(os.path.join(self.reports_dir(f), 'data_check.json'), encoding='utf-8') as fh:
+                check = json.load(fh)
+            n = check['own']
+        except (OSError, ValueError, KeyError):
             pass
-        return when, n
+        return when, n, {k: check[k] for k in ('sessions', 'typical', 'left_out', 'built_sessions', 'ok') if k in check} or None
 
 
 FILTER_KEYS = ('study', 'grp', 'source', 'stage', 'neuro', 'cond', 'q', 'since', 'until')
@@ -206,7 +209,7 @@ def filter_slug(f):
 
 
 R_FILES = ['participants.csv', 'ingredients_long.csv', 'pieces_long.csv', 'removals_long.csv', 'adjustments_long.csv', 'events_long.csv', 'profiles.csv', 'explore.csv',
-           'variables.csv', 'load_pizza.R', 'methods.html']
+           'excluded.csv', 'data_check.json', 'variables.csv', 'load_pizza.R', 'methods.html']
 R_README = """Pizza study data, ready for R
 =============================
 
@@ -219,7 +222,7 @@ In R (no packages needed):
     pizza_describe("mirror_score", pz)   # what a column means
 
 Tables (UTF-8 CSV, missing values = NA, yes/no = 1/0, times in ms, positions in pizza radii):
-    participants.csv      one row per pizza (pid + build: pz = own pizza, pzt = typical-participant pizza)
+    participants.csv      one row per finished pizza (pid + build: pz = own pizza, pzt = typical-participant pizza)
     ingredients_long.csv  one row per participant x build x topping on the tray
     pieces_long.csv       one row per piece on a finished pizza
     removals_long.csv     one row per piece taken off the pizza: which topping, how, when (changes of mind)
@@ -227,6 +230,8 @@ Tables (UTF-8 CSV, missing values = NA, yes/no = 1/0, times in ms, positions in 
     events_long.csv       one row per logged action
     profiles.csv          one row per participant: standardised profile scores and cluster
     explore.csv           one row per group comparison shown in explore.html
+    excluded.csv          builds saved part-way but never finished ("I'm done" not pressed): left out of everything
+    data_check.json       sessions, analysed and left-out pizzas, and whether they add up (also on the Overview page)
     variables.csv         every column of every table: type, factor levels, unit, description
     methods.html          how every number is counted (open in a browser)
     raw/                  each participant's session exactly as the study saved it (JSON)
@@ -534,7 +539,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                                    'last': max([r['last'] for r in out if r['last']] or [None]),
                                                    'median_seconds': st.median_seconds(None)},
             'global_link': self.base_url() + '/admin?' + urllib.parse.urlencode({'key': st.study_key(ALL_KEY)}) if own else None,
-            'reports': {'when': info[0], 'n': info[1], 'fresh': True} if info else None,
+            'reports': {'when': info[0], 'n': info[1], 'check': info[2], 'fresh': True} if info else None,
             'reports_build_on_open': True, 'signature': sig,
             'options': {c: st.distinct(c, f['study']) for c in ('grp', 'source', 'cond')},
             'stages': STAGE_NAMES, 'neuro': NEURO_NAMES, 'storage': None, 'msg': self.arg('msg'),
