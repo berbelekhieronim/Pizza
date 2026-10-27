@@ -246,7 +246,7 @@ def main():
                     step='Analysing %d of %d sets' % (len(analyse), len(todo)))
 
         def store(scope, files, n, check, t1, note=''):
-            files['reports/%s/.built' % scope] = json.dumps({'when': stamp, 'n': n, 'sig': sigs[scope], 'check': brief_check(check)}).encode()
+            files['reports/%s/.built' % scope] = json.dumps({'when': stamp, 'n': n, 'sig': sigs[scope], 'check': brief_check(check), 'code': version}).encode()
             if scope == 'all' and 'reports/all/methods.html' in files:
                 files['methods.html'] = files['reports/all/methods.html']
             files = {k: v if isinstance(v, bytes) else v.encode('utf-8') for k, v in files.items()}

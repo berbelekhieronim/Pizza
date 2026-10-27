@@ -5,6 +5,21 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Explore, tidied up** (it highlighted odd things: device, gender and cheese differences from groups of 2-3)
+- A status line at the top says what the data can do now: describe only (smaller group under 8), screen, or test (24+
+  per group), for the study's best grouping.
+- Order: Ideas to test, then Leads, then each of the study's groupings (neurotype, autistic, ADHD, diagnosis, eating,
+  nutrition, study, condition). Demographic and recruitment groupings (gender, age, link group, source) are folded under
+  "Other groupings"; the device grouping is gone (the task is desktop only). Correlations and clusters are folded.
+- **Leads** come only from the study's groupings, need 5+ people in each group, leave out single toppings, base choices
+  and low-level timings, and are ranked by evidence (p) rather than by the size of the difference. With too few people
+  the page says there are no leads yet instead of listing noise. Each grouping's table is ranked the same way.
+- A grouping is no longer compared on the measures that define it (people who revealed the nutrition do not "reveal
+  it more often").
+- **"Analysis updated"**: each deploy records the analysis code's fingerprint, and reports built with older code show
+  as out of date ("The analysis was updated … press Build reports"), so a code change is not missed now that builds
+  are on request.
+
 **Explore: ideas to test.** The eight leads from `docs/sample-sizes.md` (fewer and more familiar toppings, foods
 kept apart, order and symmetry, sensory reasons and safe foods, quicker choices and changes of mind, AuDHD's own
 pattern, the effect of seeing the nutrition, own vs typical pizza) open the Explore page as **ideas**, not hypotheses

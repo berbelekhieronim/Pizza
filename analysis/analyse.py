@@ -2604,7 +2604,7 @@ EXPLORE_EXTRA = [
 EXPLORE_GROUPINGS = [
     ('neurotype', 'Neurotype (self-described)'), ('nd_autistic', 'Autistic, incl. AuDHD (yes / no)'), ('nd_adhd', 'ADHD, incl. AuDHD (yes / no)'),
     ('nd_identified', 'Autism / ADHD: formally diagnosed or not'), ('eat_any', 'Any eating difficulty, allergy or intolerance (yes / no)'),
-    ('eat_picky', 'Picky eating since childhood (yes / no)'), ('gender', 'Gender'), ('age_band', 'Age'), ('pointer', 'Device (touch / mouse)'),
+    ('eat_picky', 'Picky eating since childhood (yes / no)'), ('gender', 'Gender'), ('age_band', 'Age'),
     ('nutrition_panel', 'Nutrition panel shown (yes / no)'), ('nutri_revealed', 'Revealed the nutrition while building (yes / no)'), ('group', 'Recruitment group (study link)'), ('source', 'Recruitment source'), ('study', 'Study'), ('condition', 'Condition'),
 ]
 EXPLORE_COVARIATES = [('self_picky', '"I am a picky eater" (1-7)'), ('self_sensory_food', '"Food textures, smells or looks bother me" (1-7)')]
@@ -2726,6 +2726,15 @@ def t_sf2(t, df):
 
 
 TOPPING_AREAS = ('Toppings', 'Strong ', 'Changed mind', 'Considered')      # per-topping rows of explore.html
+# the groupings the study is about; the others (demographics, recruitment) are shown folded away. The task is desktop
+# only, so the device is not a grouping.
+RESEARCH_GROUPINGS = ('neurotype', 'nd_autistic', 'nd_adhd', 'nd_identified', 'eat_picky', 'eat_any', 'nutri_revealed', 'nutrition_panel', 'study', 'condition')
+# measures that make a lead: not the per-topping indicators, base choices or the low-level process and movement
+# timings (they stay in the full screen)
+NOT_LEADS = TOPPING_AREAS + ('Base and diet', 'Process', 'Movement')
+LEAD_MIN = SMALL_N      # people in each group before a difference is listed as a lead
+# measures that define a grouping are not compared within it (people who revealed the nutrition "reveal it more often")
+DEFINED_BY = {'nutri_revealed': ('Seeing nutrition',), 'nutrition_panel': ('Seeing nutrition',)}
 
 
 def explore_measures(recs, tray):
@@ -3124,12 +3133,14 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
     if n < 6:
         return head + '<p>This needs at least 6 finished pizzas; there %s %d so far.</p></div></body></html>' % ('is' if n == 1 else 'are', n), []
     defs, vals = explore_measures(recs, tray)
-    body, all_tests, used = [], [], []
+    body, other_body, all_tests, used = [], [], [], []
+    research = set(RESEARCH_GROUPINGS) | {k for k, _ in groupings if k not in dict(EXPLORE_GROUPINGS)}     # + --group columns
     for key, glabel in groupings:
         levels, labels, dropped = grouping_levels(recs, key)
         if not levels:
             continue
-        tests = explore_grouping(defs, vals, labels, levels, rnd)
+        gdefs = [d for d in defs if d[0] not in DEFINED_BY.get(key, ())]
+        tests = explore_grouping(gdefs, vals, labels, levels, rnd)
         if not tests:
             continue
         used.append((key, glabel, levels, labels))
@@ -3137,7 +3148,8 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
             all_tests.append(dict(t, grouping=key))
         cols = [levels[0] + ' vs ' + levels[1]] if len(levels) == 2 else levels
         sig = sum(1 for t in tests if t['q'] < 0.1)
-        top = sorted(tests, key=lambda t: (-abs(t['delta']), t['p']))[:12]
+        # the strongest evidence first (p, then size), main measures only; the per-topping rows are in the folded tables
+        top = sorted((t for t in tests if not t['area'].startswith(TOPPING_AREAS + ('Base and diet',))), key=lambda t: (t['p'], -abs(t['delta'])))[:10]
         rows = []
         for t in top:
             lo, hi = boot_ci(t['x'], t['y'], rnd)
@@ -3165,15 +3177,16 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
         counts = ''.join('<span>%s: %d</span>' % (esc(lv), sum(1 for g in labels if g == lv)) for lv in levels)
         if dropped:
             counts += '<span class="muted">left out (fewer than 3): %s</span>' % esc(', '.join('%s %d' % kv for kv in dropped.items()))
-        body.append('<h2 id="g-%s">%s</h2><div class="chips">%s</div>'
+        (body if key in research else other_body).append('<h2 id="g-%s">%s</h2><div class="chips">%s</div>'
                     '%s'
                     '<div class="tbl"><table class="leads"><tr><th class="l">Measure</th><th class="l">Group</th><th>n</th><th>median or %%<br>%s</th><th>Cliff\'s δ</th><th>95%% CI of δ</th><th>p</th><th>q (FDR)</th><th class="l">Data (orange = group)</th></tr>%s</table></div>'
                     '<details class="more"><summary>Every measure (Cliff\'s δ; orange = higher in %s; outlined = q &lt; 0.10)</summary><div class="tbl"><table>%s%s</table></div></details>'
                     '<details class="more"><summary>Every topping: used, changed mind about, considered, named with strong feelings</summary><div class="tbl"><table>%s%s</table></div></details>'
                     % (esc(key), esc(glabel), counts,
-                       ('<p class="verdict pass">%d of %d comparisons pass the false discovery rate (q &lt; 0.10, ✓ below). Largest differences first:</p>' % (sig, len(tests)) if sig else
-                        '<p class="verdict">None of the %d comparisons passes the false discovery rate (q &lt; 0.10). The largest differences are listed as leads '
-                        'for a new sample, not as findings:</p>' % len(tests)),
+                       ('<p class="verdict pass">%d of %d comparisons pass the false discovery rate (q &lt; 0.10, ✓ below). Strongest evidence first:</p>' % (sig, len(tests)) if sig else
+                        '<p class="verdict">None of the %d comparisons passes the false discovery rate (q &lt; 0.10). The strongest are listed as leads '
+                        'for a new sample, not as findings%s:</p>' % (len(tests), '; with groups this small they describe these people only'
+                                                                      if min(sum(1 for g in labels if g == lv) for lv in levels) < LEAD_MIN else '')),
                        'group / rest' if len(levels) > 2 else '%s / %s' % (esc(levels[0]), esc(levels[1])),
                        ''.join(rows), 'the group' if len(levels) > 2 else esc(levels[0]), thead, heat_rows(main), thead, heat_rows(tops)))
     # links with continuous self-reports and covariates
@@ -3227,8 +3240,9 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
     # against chance: everyone, and each group of the first grouping
     ch_rows, ch_tests = [], []
     sets = [('Everyone', [True] * n)]
-    if used:
-        sets += [('%s: %s' % (used[0][1], lv), [g == lv for g in used[0][3]]) for lv in used[0][2]]
+    first = next((u for u in used if u[0] in research), None)        # each group of the study's first grouping
+    if first:
+        sets += [('%s: %s' % (first[1], lv), [g == lv for g in first[3]]) for lv in first[2]]
     for key, c, label in CHANCE_LEVELS:
         for name, mask in sets:
             x = [r[key] for r, m in zip(recs, mask) if m and isinstance(r.get(key), (int, float))]
@@ -3254,13 +3268,13 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
         elif t.get('level') == 'Spearman rho' and t.get('delta'):
             t['n_per_group_80'], t['n_per_group_80_half'] = n_for_rho(t['delta']), n_for_rho(t['delta'] / 2)
     seen, leads = set(), []
-    for t in sorted((t for t in all_tests if t.get('grouping') != 'chance' and t.get('level') != 'Spearman rho' and min(t['n1'], t['n0'] or 0) >= 3),
-                    key=lambda t: (-abs(t['delta']), t['p'])):
+    for t in sorted((t for t in all_tests if t.get('grouping') in research and t.get('level') != 'Spearman rho' and min(t['n1'], t['n0'] or 0) >= LEAD_MIN
+                     and not t['area'].startswith(NOT_LEADS)), key=lambda t: (t['p'], -abs(t['delta']))):
         if t['key'] in seen:
             continue
         seen.add(t['key'])
         leads.append(t)
-        if len(leads) == 10:
+        if len(leads) == 8:
             break
     lead_rows = []
     for t in leads:
@@ -3271,12 +3285,16 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
                             '<br><span class="muted">fewer than %d in a group: very uncertain</span>' % SMALL_N if small else '',
                             t['n1'], t['n0'], t['delta'], delta_size(t['delta']), fmt_p(t['p']), t['q'], ' ✓' if t['q'] < 0.1 else '',
                             t['n_per_group_80'] or '', t['n_per_group_80_half'] or ''))
-    leads_html = ('<h2 id="leads">Leads for a larger study</h2><p class="muted">The largest group differences in these data, one per measure. Each could '
-                  'become a hypothesis. The last two columns give how many people per group a two-group study needs for 80%% power at α = .05 '
+    leads_html = ('<h2 id="leads">Leads for a larger study</h2><p class="muted">The best-supported group differences in these data (lowest p), one per measure, '
+                  'from the study\'s own groupings (neurotype, eating, nutrition, study, condition), groups of %d or more, and measures of the pizza and its '
+                  'choices (not single toppings or low-level timings). Each could become an idea to test. The last two columns give how many people per group a two-group study needs for 80%% power at α = .05 '
                   '(two-sided), if the true δ is as large as seen here, and if it is half that size (effects found by screening many measures '
                   'in a small sample are usually overestimated; plan with the second). They are picked as the largest of many comparisons, so even '
                   'their q values are optimistic. δ size words follow Romano et al. (2006): negligible &lt; .15, small &lt; .33, medium &lt; .47, large.</p><div class="tbl"><table class="leads"><tr><th class="l">Pattern</th><th>n</th>'
-                  '<th>δ</th><th>p</th><th>q</th><th title="%s">n/group (δ as seen) ⓘ</th><th title="%s">n/group (δ halved) ⓘ</th></tr>%s</table></div>' % (SAMPLE_TIP, SAMPLE_TIP, ''.join(lead_rows))) if lead_rows else ''
+                  '<th>δ</th><th>p</th><th>q</th><th title="%s">n/group (δ as seen) ⓘ</th><th title="%s">n/group (δ halved) ⓘ</th></tr>%s</table></div>'
+                  % (LEAD_MIN, SAMPLE_TIP, SAMPLE_TIP, ''.join(lead_rows))) if lead_rows else (
+        '<h2 id="leads">Leads for a larger study</h2><p class="muted">None yet: a lead needs two groups of %d or more in one of the study\'s groupings '
+        '(neurotype, eating, nutrition, study, condition). Until then, the tables below describe these people; they are not evidence.</p>' % LEAD_MIN)
     planned = planned_tests(recs, defs, groupings, covariates, rnd)
     for (hid, title, _), ts in planned:
         for t in ts:
@@ -3287,20 +3305,36 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
                                   'n_per_group_80': n_for_rho(t['delta']) if t.get('kind') == 'rho' else n_per_group(t['delta']) if t.get('kind') == 'groups' else None,
                                   'n_per_group_80_half': None})
     nav = ''.join('<span><a href="#g-%s">%s</a></span>' % (esc(k_), esc(l_)) for k_, l_, _, _ in used)
-    nav = '<span><a href="#planned"><b>Ideas to test</b></a></span>' + nav
-    html = (head + '<p class="lead"><b>For exploring, not confirming.</b> This page screens %d measures (%d main, the rest per topping) across every '
-            'way of grouping people that the data allow, so some differences will look large by chance. Effect sizes are Cliff\'s δ (−1 to 1: how often a value '
-            'from the group is higher than one from the comparison, minus how often it is lower; for yes/no measures, the difference in percentages). '
-            'p comes from a Mann-Whitney test (by permutation for groups under 8), q is the Benjamini-Hochberg false discovery rate within each grouping, and the '
-            'intervals are bootstrap 95%% intervals. Treat what stands out as a lead to test in a new sample or a preregistered analysis.</p>'
-            '<p class="muted">%d pizzas.</p><div class="chips">%s</div>'
-            % (len(defs), len([d for d in defs if not d[0].startswith(TOPPING_AREAS)]), n, nav or '<span>No grouping has two groups of 3+ people yet.</span>')
-            + planned_html(planned, groupings, covariates) + leads_html + chance_html
+    nav = '<span><a href="#planned"><b>Ideas to test</b></a></span><span><a href="#leads">Leads</a></span>' + ''.join(
+        '<span><a href="#g-%s">%s</a></span>' % (esc(k_), esc(l_)) for k_, l_, _, _ in used if k_ in research) + (
+        '<span><a href="#other">Other groupings</a></span>' if other_body else '')
+    # what these data can say: the largest smaller group among the study's groupings
+    sizes = [(min(sum(1 for g in lab if g == lv) for lv in lvs), gl) for k_, gl, lvs, lab in used if k_ in research]
+    best = max(sizes) if sizes else (0, '')
+    can = ('<b>Nothing can be tested yet</b>: none of the study\'s groupings (neurotype, eating, nutrition, study, condition) has two groups of 3 or more. '
+           'The page describes these %d pizzas.' % n if not sizes else
+           '<b>Description only</b>: the best grouping (%s) has %d in its smaller group. A difference can reach p &lt; .05 from 4 per group, pass the '
+           'correction from 8, and a large effect needs about 24 per group (Methods → Sample sizes).' % (esc(best[1]), best[0]) if best[0] < 8 else
+           '<b>Screening</b>: the best grouping (%s) has %d in its smaller group, enough for a strong difference to pass the correction. A large effect needs '
+           'about 24 per group for 80%% power.' % (esc(best[1]), best[0]) if best[0] < 24 else
+           '<b>Testing</b>: the best grouping (%s) has %d in its smaller group, enough to detect large effects (80%% power).' % (esc(best[1]), best[0]))
+    readiness = '<p class="verdict%s">%d pizzas. %s</p>' % (' pass' if best[0] >= 24 else '', n, can)
+    html = (head + readiness + '<p class="lead"><b>For exploring, not confirming.</b> First the ideas worth testing, then the best-supported leads, then each '
+            'grouping in full (%d measures, %d of them per topping). Effects are Cliff\'s δ (−1 to 1: how often a value from the group is higher than one from '
+            'the comparison, minus how often lower; for yes/no measures, the difference in percentages); p from a Mann-Whitney test (by permutation under 8 '
+            'per group); q the Benjamini-Hochberg false discovery rate within each grouping; bootstrap 95%% intervals.</p><div class="chips">%s</div>'
+            % (len(defs), len([d for d in defs if d[0].startswith(TOPPING_AREAS)]), nav)
+            + planned_html(planned, groupings, covariates) + leads_html
             + ''.join(body)
+            + ('<details class="more" id="other"><summary>Other groupings: demographics and recruitment (%d)</summary>%s</details>' % (len(other_body), ''.join(other_body))
+               if other_body else '')
+            + chance_html
             + ('<h2>Links with self-reports</h2><p class="muted">Spearman correlations (ρ) of each measure with each continuous self-report.</p>' + ''.join(cov_html) if cov_html else '')
-            + '<h2>How the measures go together</h2><p class="muted">Spearman correlations between the main measures across all participants '
-              '(orange = rise together, blue = one rises as the other falls; hover for the value). Strongly linked measures tell the same story twice.</p>' + corr_html
-            + ('<h2>Clusters and groups</h2><p class="muted">The clusters from the profiles page, found without using any grouping, against each grouping.</p>' + ''.join(cl_html) if cl_html else '')
+            + '<details class="more"><summary>How the measures go together (correlations)</summary><p class="muted">Spearman correlations between the main measures '
+              'across all participants (orange = rise together, blue = one rises as the other falls; hover for the value). Strongly linked measures tell the same story '
+              'twice.</p>' + corr_html + '</details>'
+            + ('<details class="more"><summary>Clusters and groups</summary><p class="muted">The clusters from the profiles page, found without using any grouping, '
+               'against each grouping.</p>' + ''.join(cl_html) + '</details>' if cl_html else '')
             + '</div></body></html>')
     return html, all_tests
 

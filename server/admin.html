@@ -321,6 +321,8 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     } else if (st && st.state === 'failed') {
       cls += ' failed';
       html = '<span class="msg"><b>The last build failed</b> ' + ago(st.updated) + ' ago: ' + esc((st.log || []).slice(-1)[0] || '') + '</span>';
+    } else if (r && r.code_changed && !(b && b.pending)) {
+      html = '<span class="msg"><b>The analysis was updated</b> since these reports were built (' + esc(when(r.when)) + ' UTC) · press <b>Build reports</b> to see the new version</span>';
     } else if (b && b.pending) {
       html = '<span class="msg"><b>New data since the last build</b>'
         + (r ? ' (reports from ' + esc(when(r.when)) + ' UTC)' : '') + ' · '
@@ -376,6 +378,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     if (!b) return ['kpi', 'on open', 'reports are built when opened'];
     if (st && (st.state === 'running' || st.state === 'queued' || st.state === 'waiting')) return ['kpi warn', 'Analysing…', 'new data is being analysed'];
     if (r && r.fresh) return ['kpi ok', '✓ All analysed', 'every session so far is in the reports'];
+    if (r && r.code_changed && !b.pending) return ['kpi warn', 'Analysis updated', 'press Build reports'];
     if (r) return ['kpi warn', 'New data', (b.auto ? 'not yet in the reports' : 'press Build reports') + ' (reports from ' + shortTime(r.when) + ')'];
     return ['kpi warn', 'Not analysed', b.auto ? 'no reports yet' : 'press Build reports'];
   }

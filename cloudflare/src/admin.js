@@ -65,7 +65,9 @@ export async function adminState(r, scope, f) {
   if (sel) {
     const sigs = await st.signatures();
     const info = await r.builtInfo(scopeName(f));
-    if (info) reports = { when: info.when, n: info.n, check: info.check || null, fresh: info.sig === sigs[scopeName(f)] };
+    // built with older analysis code than the deployed one (deploy.py sets ANALYSIS_CODE): out of date too
+    const codeChanged = !!r.env.ANALYSIS_CODE && info && info.code !== r.env.ANALYSIS_CODE;
+    if (info) reports = { when: info.when, n: info.n, check: info.check || null, fresh: info.sig === sigs[scopeName(f)] && !codeChanged, code_changed: codeChanged };
   }
   let storage = null;
   if (own) {

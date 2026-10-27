@@ -271,6 +271,9 @@ def deploy():
     cfg['vars'] = {k: v for k, v in {'GITHUB_REPO': os.environ.get('GITHUB_REPOSITORY', ''), 'GITHUB_BRANCH': os.environ.get('GITHUB_REF_NAME', 'main'),
                                      'SITE_URL': os.environ.get('PIZZA_SITE_URL', ''),
                                      'TURNSTILE_SITE_KEY': site_key or ''}.items() if v}
+    sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'tools'))
+    from cloud_sync import code_version          # the reports record it too: the researcher page asks for a build when they differ
+    cfg['vars']['ANALYSIS_CODE'] = code_version()
     if os.environ.get('PIZZA_REPORTS_AUTO') == '1':     # build the reports by themselves after sessions finish (default: on request)
         cfg['vars']['REPORTS_AUTO'] = '1'
     for k in ('R2_LIMIT_BYTES', 'R2_WRITES_PER_MONTH', 'R2_READS_PER_MONTH', 'D1_LIMIT_BYTES'):   # can only lower the caps
