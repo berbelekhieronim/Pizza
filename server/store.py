@@ -270,6 +270,11 @@ class Store:
         """Makes the study hold exactly synthetic sessions SYN-001 … SYN-n (analysis/synthetic.py; the same ids always
         give the same sessions). Returns (added, removed)."""
         import synthetic                                     # analysis/ is on the path (server.py)
+        if self.meta('synthetic_version:' + study) != synthetic.VERSION:   # made by another version: start again
+            with self.tx() as db:
+                db.execute('DELETE FROM fields WHERE pid IN (SELECT pid FROM sessions WHERE study = ? AND %s)' % SYN_SQL, (study,))
+                db.execute('DELETE FROM sessions WHERE study = ? AND ' + SYN_SQL, (study,))
+            self.set_meta('synthetic_version:' + study, synthetic.VERSION)
         have = {r[0] for r in self.db().execute('SELECT pid FROM sessions WHERE study = ? AND ' + SYN_SQL, (study,))}
         want = synthetic.sessions(n, study) if n else []
         keep = {x['pid'] for x in want}

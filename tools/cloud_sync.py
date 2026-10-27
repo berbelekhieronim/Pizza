@@ -182,7 +182,10 @@ def sync_synthetic(site, wanted):
     sends the missing ones, and the site removes those above it. True if anything changed."""
     import synthetic
     changed = False
-    for sid, n in wanted.items():
+    for sid, want in wanted.items():
+        n, stale = (want['n'], want.get('version') != synthetic.VERSION) if isinstance(want, dict) else (want, False)
+        if stale and n:                                       # made by another version of the generator: remove them first
+            site._req('POST', '/admin/synthetic-sync', data=json.dumps({'study': sid, 'add': [], 'keep': 0}).encode(), ctype='application/json')
         have, page = set(), 1
         while True:                                             # the synthetic sessions the site holds now
             d = site.get_json('/admin/api/sessions', study=sid, stage='synthetic', page=page) or {'rows': [], 'pages': 1}
@@ -192,10 +195,10 @@ def sync_synthetic(site, wanted):
             page += 1
         add = [x for x in synthetic.sessions(n, sid) if x['pid'] not in have]
         drop = sum(1 for p in have if int(p[len(synthetic.PREFIX):]) > n)
-        if not add and not drop:
+        if not add and not drop and not stale:
             continue
         for i in range(0, max(len(add), 1), 50):
-            body = json.dumps({'study': sid, 'add': add[i:i + 50], 'keep': n}).encode()
+            body = json.dumps({'study': sid, 'add': add[i:i + 50], 'keep': n, 'version': synthetic.VERSION}).encode()
             site._req('POST', '/admin/synthetic-sync', data=body, ctype='application/json')
         site.status('waiting', '%s: synthetic sessions brought to %d (%d added, %d removed).' % (sid, n, len(add), drop))
         changed = True

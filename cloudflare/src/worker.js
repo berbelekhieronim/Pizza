@@ -393,7 +393,7 @@ class Request_ {
     // owner-only routes for the reports job (tools/cloud_sync.py): what changed, the data, and storing the results
     if (route === '/admin/signatures') {
       const synthetic = {};
-      for (const sid of studies()) if (loadStudy(sid).synthetic) synthetic[sid] = await syntheticN(this.store, sid);
+      for (const sid of studies()) if (loadStudy(sid).synthetic) synthetic[sid] = { n: await syntheticN(this.store, sid), version: await this.store.meta('synthetic_version:' + sid) };
       return json({ signatures: await this.store.signatures(), studies: studies(), wanted: await this.store.meta('reports_wanted'), synthetic });
     }
     if (route === '/admin/synthetic-sync' && this.req.method === 'POST') {
@@ -401,7 +401,7 @@ class Request_ {
       let b;
       try { b = JSON.parse(await this.req.text()); } catch (e) { return json({ ok: false }, 400); }
       if (!loadStudy(b.study).synthetic || !studies().includes(b.study) || !Array.isArray(b.add) || b.add.length > 60) return json({ ok: false }, 400);
-      return json({ ok: true, stored: await this.store.syncSynthetic(b.study, b.add, Math.max(0, parseInt(b.keep, 10) || 0)) });
+      return json({ ok: true, stored: await this.store.syncSynthetic(b.study, b.add, Math.max(0, parseInt(b.keep, 10) || 0), b.version) });
     }
     if (route === '/admin/status' && this.req.method === 'POST') {
       // progress of the reports job, shown on the researcher page: {state: running|done|failed, line, run_url}

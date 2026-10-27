@@ -26,6 +26,8 @@ import random
 import sys
 
 PREFIX = 'SYN-'
+VERSION = '2'           # bump when the people change: stored synthetic sessions of another version are replaced
+                        # (2: latent eating styles)
 TRAY = ['pep', 'ham', 'chk', 'tun', 'anc', 'mus', 'grp', 'oni', 'oli', 'crn', 'pin', 'jal', 'bas', 'shr', 'egg', 'gor', 'nor', 'kim', 'kan', 'fig']
 BASE = {'pep': .68, 'ham': .3, 'chk': .25, 'anc': .07, 'mus': .5, 'grp': .35, 'oni': .4, 'oli': .35, 'crn': .2, 'pin': .2, 'jal': .2,
         'bas': .3, 'shr': .1, 'egg': .07, 'gor': .1, 'nor': .03, 'kim': .04, 'tun': .22, 'kan': .03, 'fig': .05}
