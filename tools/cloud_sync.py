@@ -15,6 +15,7 @@ It prints counts only, never participant data, so its log is safe in a public re
 copies are deleted at the end (pass --keep DIR to keep them). Standard library only.
 """
 import argparse
+import calendar
 import gzip
 import hashlib
 import io
@@ -56,6 +57,9 @@ class Site:
                     return None
                 if e.code == 507:
                     sys.exit('Stopped: the site refused to store more. %s' % e.read().decode('utf-8', 'replace')[:300])
+                if e.code == 429 and attempt < 3:      # rate-limited: wait and try again
+                    time.sleep(20)
+                    continue
                 if e.code in (401, 403):
                     sys.exit('The site refused the key (HTTP %d): PIZZA_ADMIN_KEY must be the owner\'s researcher password.' % e.code)
                 if attempt == 3 or e.code < 500:
@@ -71,6 +75,18 @@ class Site:
 
     def put(self, name, data):
         self._req('PUT', '/admin/files/' + name, data=data, ctype='application/octet-stream')
+
+    def status(self, state, line='', step='', **extra):
+        """Progress for the researcher page (and this log): running / done / failed, with a line for the page's log."""
+        if line:
+            print(line, flush=True)
+        run = os.environ.get('GITHUB_RUN_ID')
+        body = dict(extra, state=state, line=line, step=step or line,
+                    run_url='%s/%s/actions/runs/%s' % (os.environ.get('GITHUB_SERVER_URL', 'https://github.com'), os.environ.get('GITHUB_REPOSITORY', ''), run) if run else '')
+        try:
+            self._req('POST', '/admin/status', data=json.dumps(body).encode(), ctype='application/json')
+        except Exception:                      # progress is a nicety: never fail the build over it
+            pass
 
 
 def code_version():
@@ -154,6 +170,9 @@ def main():
     ap.add_argument('--key', default=os.environ.get('PIZZA_ADMIN_KEY'), help='the owner\'s researcher password (default: $PIZZA_ADMIN_KEY)')
     ap.add_argument('--force', action='store_true', help='rebuild everything, even if nothing changed')
     ap.add_argument('--keep', default=None, help='keep the downloaded database and the reports in this folder')
+    ap.add_argument('--wait', type=int, default=0, metavar='SECONDS',
+                    help='first wait until no session was saved for this long (the site starts the job with 300 when a session '
+                         'finishes, so sessions finishing close together share one build); at most 30 minutes')
     a = ap.parse_args()
     if not a.site or not a.key:
         sys.exit('Set PIZZA_SITE_URL and PIZZA_ADMIN_KEY (or pass --site and --key).')
@@ -161,10 +180,21 @@ def main():
     info = site.get_json('/admin/signatures')
     if info is None:
         sys.exit('%s does not look like the pizza study on Cloudflare (no /admin/signatures).' % a.site)
+    t_start = time.time()
+    while a.wait:                              # quiet period: the waiting happens here on GitHub, not on Cloudflare
+        last = info['signatures']['all'].split('|', 1)[1]
+        quiet = time.time() - calendar.timegm(time.strptime(last[:19], '%Y-%m-%dT%H:%M:%S')) if last else a.wait
+        left = a.wait - quiet
+        if left <= 0 or time.time() - t_start > 1800:
+            break
+        site.status('waiting', step='Waiting for %d quiet minutes after the last save (last save %s UTC)' % (a.wait // 60, last[11:19]))
+        time.sleep(min(left + 2, 60))
+        info = site.get_json('/admin/signatures')
     sigs = info['signatures']
     state = site.get_json('/admin/files/state.json') or {}
     version = code_version()
-    if state.get('code') != version:
+    wanted = info.get('wanted')                # "Rebuild reports" was pressed on the researcher page
+    if state.get('code') != version or wanted:
         a.force = True
     scopes = ['all'] + sorted(s for s in sigs if s != 'all')
     todo = [s for s in scopes if a.force or (state.get('scopes') or {}).get(s) != sigs[s]]
@@ -172,18 +202,25 @@ def main():
         todo = []
     if not todo:
         print('Up to date: %s.' % ', '.join('%s %s sessions' % (s, sigs[s].split('|')[0]) for s in scopes))
+        if wanted or not sigs['all'].startswith('0|'):     # tell the site what the reports include, so it stops asking
+            site.status('done', 'Up to date: nothing new since the last build.' if wanted else '', clear_wanted=wanted or '',
+                        built_upto=sigs['all'].split('|', 1)[1])
         return
     work = a.keep or tempfile.mkdtemp(prefix='pizza-sync-')
     os.makedirs(work, exist_ok=True)
+    t0 = time.time()
+    site.status('running', 'Started: %s to build (%s).' % (len(todo), ', '.join(todo)), step='Downloading the sessions')
     try:
         db_path = os.path.join(work, 'study.db')
         if os.path.exists(db_path):
             os.remove(db_path)
-        print('Downloaded %d sessions.' % download(site, db_path))
+        site.status('running', 'Downloaded %d sessions.' % download(site, db_path))
         st = Store(db_path)
         new_state = {'code': version, 'scopes': dict(state.get('scopes') or {})}
         stamp = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-        for scope in todo:
+        for i, scope in enumerate(todo, 1):
+            site.status('running', step='Analysing %s (%d of %d)' % (scope, i, len(todo)))
+            t1 = time.time()
             files, n = build_scope(st, db_path, scope, work)
             files['reports/%s/.built' % scope] = json.dumps({'when': stamp, 'n': n, 'sig': sigs[scope]}).encode()
             if scope == 'all' and 'reports/all/methods.html' in files:
@@ -200,8 +237,16 @@ def main():
             for name, data in files.items():
                 site.put(name, data)
             new_state['scopes'][scope] = sigs[scope]
-            print('  %s: %d pizzas analysed, %d files stored.' % (scope, n, len(files)))
+            site.status('running', '%s: %d pizzas analysed, %d files stored (%.0f s).' % (scope, n, len(files), time.time() - t1),
+                        step='Analysed %s (%d of %d)' % (scope, i, len(todo)))
         site.put('state.json', json.dumps(new_state).encode())
+        site.status('done', 'Done in %.0f s.' % (time.time() - t0), clear_wanted=wanted or '', built_upto=sigs['all'].split('|', 1)[1])
+    except SystemExit as e:
+        site.status('failed', 'Stopped: %s' % e)
+        raise
+    except Exception as e:
+        site.status('failed', 'Failed: %s: %s' % (type(e).__name__, str(e)[:200]))
+        raise
     finally:
         if not a.keep:
             shutil.rmtree(work, ignore_errors=True)

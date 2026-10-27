@@ -53,6 +53,12 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
 .tablewrap{overflow-x:auto}
 .links{display:grid;grid-template-columns:max-content minmax(0,1fr) max-content;gap:6px 8px;align-items:center}
 .links .l{color:var(--muted);font-size:.85rem}.links input{width:100%;font-size:.85rem}
+.build{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin:10px 0;font-size:.9rem}
+.build .msg{color:var(--muted)}.build .msg b{color:var(--fg)}.build.failed .msg b{color:var(--accent)}
+.spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){.spin{animation-duration:3s}}
+.buildlog{width:100%}.buildlog summary{cursor:pointer;color:var(--muted);font-size:.85rem}
+.buildlog pre{margin:6px 0 0;max-height:220px;overflow:auto;background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap}
 .note{background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:10px 0;white-space:pre-wrap}
 .pill{display:inline-block;font-size:.75rem;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
 .pill.on{border-color:var(--ok);color:var(--ok)}
@@ -92,10 +98,9 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
       <button role="tab" data-tab="methods">Methods</button>
       <button role="tab" data-tab="links">Links &amp; data</button>
     </nav>
+    <div class="build" id="buildbar" aria-live="polite"></div>
 
     <div class="panel" data-panel="overview">
-      <div class="row small"><span id="rstatus" class="muted"></span>
-        <form method="post" id="rebuild" style="margin:0"><button class="alt small" type="submit">Rebuild reports</button></form></div>
       <div class="frame"><p class="loading"></p><iframe class="report" data-src="dashboard.html" title="Overview report"></iframe></div>
     </div>
 
@@ -243,10 +248,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
       [d.n, 'sessions started'], [d.done, 'finished'], [pct(d.done, d.n), 'completion'], [mins(d.median_seconds), 'median time (finished)'],
       [when(d.last).slice(0, 10), 'last started']
     ].map(function (k) { return '<div class="kpi"><b>' + esc(k[0]) + '</b><span>' + esc(k[1]) + '</span></div>'; }).join('');
-    var r = S.reports;
-    $('rstatus').textContent = r ? 'Reports built ' + when(r.when) + ' UTC from ' + r.n + ' pizza' + (r.n === 1 ? '' : 's') + (r.fresh === false ? '; newer sessions have arrived since (rebuilt a few minutes after a session finishes).' : '.')
-      : (S.reports_build_on_open ? 'Reports are built when opened.' : 'Not built yet: the reports are made a few minutes after the first session finishes.');
-    $('rebuild').action = '/admin/reports?' + q({ tab: 'overview' });
+    buildBar();
     // links & data
     var studiesHere = all ? S.studies : [s];
     $('plinks').innerHTML = studiesHere.map(function (st) {
@@ -282,6 +284,74 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     opts(f.grp, S.options.grp); opts(f.source, S.options.source); opts(f.cond, S.options.cond);
     opts(f.stage, Object.keys(S.stages), S.stages); opts(f.neuro, Object.keys(S.neuro), S.neuro);
     copyButtons();
+    show(location.hash.slice(1) || 'overview');
+  }
+
+  // ---- the reports build: status, progress and log (Cloudflare: the GitHub reports job; Python server: built on open)
+  var poll = null, lastBuilt = null;
+  function ago(t) {
+    var s = Math.max(0, Math.round((Date.now() - Date.parse(t)) / 1000));
+    return s < 90 ? s + ' s' : Math.round(s / 60) + ' min';
+  }
+  function buildBar() {
+    var r = S.reports, b = S.build, st = b && b.status, html = '', cls = 'build';
+    var running = st && st.state === 'running';
+    var waiting = b && b.wanted && !(running && st.started >= b.wanted);
+    var queued = st && (st.state === 'queued' || st.state === 'waiting');
+    if (running) {
+      html = '<span class="spin" aria-hidden="true"></span><span class="msg"><b>Building the reports</b> · ' + esc(st.step || '') + ' · started ' + ago(st.started) + ' ago</span>';
+    } else if (queued) {
+      html = '<span class="spin" aria-hidden="true"></span><span class="msg"><b>Build queued</b> · ' + esc(st.step || '')
+        + (b.due ? ' · builds about ' + esc(when(b.due).slice(11)) + ' UTC if nobody else saves before then' : '') + '</span>';
+    } else if (waiting) {
+      html = b.instant ? '<span class="spin" aria-hidden="true"></span><span class="msg"><b>Rebuild requested</b> ' + ago(b.wanted) + ' ago · GitHub is starting it</span>'
+        : '<span class="msg"><b>Rebuild requested</b>, but the site cannot start GitHub without the GitHub token: start it from GitHub (Actions → reports → Run workflow).</span>';
+    } else if (st && st.state === 'failed') {
+      cls += ' failed';
+      html = '<span class="msg"><b>The last build failed</b> ' + ago(st.updated) + ' ago: ' + esc((st.log || []).slice(-1)[0] || '') + '</span>';
+    } else if (b && b.pending) {
+      html = '<span class="msg"><b>New data since the last build</b>'
+        + (r ? ' (reports from ' + esc(when(r.when)) + ' UTC)' : '') + ' · '
+        + (b.instant ? 'a build is queued when the next session finishes, or press Rebuild reports' : 'automatic builds need the GitHub token; start one from GitHub (Actions → reports → Run workflow)')
+        + '</span>';
+    } else if (r) {
+      html = '<span class="msg">Reports built ' + esc(when(r.when)) + ' UTC from ' + r.n + ' pizza' + (r.n === 1 ? '' : 's') + ' · up to date</span>';
+    } else {
+      html = '<span class="msg">' + (S.reports_build_on_open ? 'Reports are built when you open them.' : 'No reports yet: they are built 5 minutes after the first session data comes in.') + '</span>';
+    }
+    html += '<form method="post" action="/admin/reports?' + esc(q({ tab: location.hash.slice(1) || 'overview' })) + '" style="margin:0"><button class="alt small" type="submit"'
+      + (running || waiting || queued ? ' disabled' : '') + '>Rebuild reports</button></form>';
+    if (st && st.run_url) html += '<a class="small" href="' + esc(st.run_url) + '" target="_blank" rel="noopener">Open the run on GitHub</a>';
+    if (st && st.log && st.log.length) {
+      html += '<details class="buildlog"' + (running || (st.state === 'failed') ? ' open' : '') + '><summary>Build log' + (st.started ? ' (' + esc(when(st.started)) + ' UTC)' : '') + '</summary><pre>'
+        + esc(st.log.join('\n')) + '</pre></details>';
+    }
+    var el = $('buildbar'), open = el.querySelector('details') && el.querySelector('details').open;
+    el.className = cls; el.innerHTML = html;
+    if (open && el.querySelector('details')) el.querySelector('details').open = true;
+    var pre = el.querySelector('pre'); if (pre) pre.scrollTop = pre.scrollHeight;
+    // keep the bar live while something is happening; reload the reports when a build finishes
+    var built = r ? r.when : null;
+    if (lastBuilt && built && built !== lastBuilt) reloadReports();
+    lastBuilt = built;
+    clearTimeout(poll);
+    // refresh only while a build is queued or running (every 5 s / 20 s), and not while this tab is hidden
+    if (S.build && (running || queued || (waiting && b.instant))) poll = setTimeout(refresh, running ? 5000 : 20000);
+  }
+  function refresh() {
+    if (document.hidden) { poll = setTimeout(refresh, 20000); return; }
+    var o = { key: KEY }; if (S.study) o.study = S.study;
+    fetch('/admin/api/state?' + new URLSearchParams(o), { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); })
+      .then(function (s) { S = s; buildBar(); kpiRefresh(); }).catch(function () { poll = setTimeout(refresh, 15000); });
+  }
+  function kpiRefresh() {
+    var d = S.study === 'all' ? S.all : current();
+    if (!d) return;
+    $('kpis').innerHTML = [[d.n, 'sessions started'], [d.done, 'finished'], [pct(d.done, d.n), 'completion'], [mins(d.median_seconds), 'median time (finished)'],
+      [when(d.last).slice(0, 10), 'last started']].map(function (k) { return '<div class="kpi"><b>' + esc(k[0]) + '</b><span>' + esc(k[1]) + '</span></div>'; }).join('');
+  }
+  function reloadReports() {
+    [].forEach.call(document.querySelectorAll('iframe.report'), function (fr) { fr.removeAttribute('src'); });
     show(location.hash.slice(1) || 'overview');
   }
 

@@ -77,7 +77,13 @@ Not needed: Turnstile set-up by hand (the deploy makes the widget and its hostna
 token; add a `CLOUDFLARE_ACCOUNT_ID` secret only if the token reaches several accounts), and Zero Trust (the study
 does not use it; its free plan bills nothing).
 
-**Rebuild on request (`PIZZA_GITHUB_TOKEN`, optional).** With it, the site starts the reports job a few minutes after
+**Automatic reports (`PIZZA_GITHUB_TOKEN`).** When a participant finishes, the site queues one reports build on GitHub;
+the build waits until nobody has saved for 5 minutes, so sessions finishing close together share one build, then
+builds. Cloudflare only stores a flag and sends one request per finished session: no schedules, no polling. The
+researcher page shows the build's progress (spinner, step, log, link to the run). Without the token, start builds from
+GitHub (Actions → reports → Run workflow).
+
+**The token (`PIZZA_GITHUB_TOKEN`).** With it, the site starts the reports job a few minutes after
 sessions finish and when someone presses *Rebuild now*. Without it, reports are rebuilt every 6 hours, after each
 deploy, and from *Actions → reports → Run workflow*. Make the token at github.com → *Settings → Developer settings →
 Fine-grained tokens*: this repository only, permission **Actions: Read and write**.

@@ -209,8 +209,16 @@ def cloudflare_checks(tmp, fields):
         check(con.execute('SELECT DISTINCT study FROM sessions').fetchall() == [('pilot-asd',)], 'Worker: a study\'s database copy holds that study only')
         con.close()
         check(b'how every number is counted' in http('GET', base + '/admin/methods?key=' + key)[1], 'Worker: serves the Methods page')
+        b = api(base, 'state', key, study='pilot-asd')['build']
+        check(b['status']['state'] == 'done' and any('Done in' in x for x in b['status']['log']) and any('pilot-asd: 2 pizzas' in x for x in b['status']['log']),
+              'the researcher page shows the build\'s progress and log')
         r = subprocess.run([PY, os.path.join(ROOT, 'tools', 'cloud_sync.py'), '--site', base, '--key', key], capture_output=True, text=True, timeout=300)
         check(r.returncode == 0 and r.stdout.startswith('Up to date'), 'reports job does nothing when no session changed')
+        urllib.request.urlopen(urllib.request.Request(base + '/admin/reports?key=' + key, data=b'', method='POST'))
+        wanted = api(base, 'state', key)['build']['wanted']
+        r = subprocess.run([PY, os.path.join(ROOT, 'tools', 'cloud_sync.py'), '--site', base, '--key', key], capture_output=True, text=True, timeout=600)
+        check(wanted and r.returncode == 0 and 'Started' in r.stdout and not api(base, 'state', key)['build']['wanted'],
+              '"Rebuild reports" is picked up by the next run of the reports job, which then clears it')
     finally:
         os.killpg(srv.pid, 15)
         srv.wait(timeout=20)

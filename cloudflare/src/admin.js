@@ -29,6 +29,18 @@ function openLinks(r, sid) {
   return [['Anyone', base + (sid ? '?' + enc(q) : '')]].concat((loadStudy(sid).groups || []).map((g) => ['Group ' + g, base + '?' + enc({ ...q, group: g })]));
 }
 
+async function buildStatus(st, token) {
+  // the reports job as the researcher page shows it: running / done / failed with its log, and a pending request
+  let status = null;
+  try { status = JSON.parse((await st.meta('reports_status')) || 'null'); } catch (e) { status = null; }
+  if (status && status.state === 'running' && Date.now() - Date.parse(status.updated) > 30 * 60 * 1000) status.state = 'failed';   // silent for 30 min
+  const last = (await st.db.prepare('SELECT MAX(updated) AS u FROM sessions').first()).u;
+  const built = await st.meta('reports_built_upto');
+  const pending = !!last && (!built || last > built);
+  return { status, wanted: await st.meta('reports_wanted'), instant: token, pending, last_save: last,
+    due: last ? new Date(Date.parse(last) + 5 * 60000).toISOString() : null };
+}
+
 export async function adminState(r, scope, f) {
   const st = r.store;
   const own = scope[0] === 'owner';
@@ -71,6 +83,7 @@ export async function adminState(r, scope, f) {
     all: { n: out.reduce((a, s) => a + s.n, 0), done: out.reduce((a, s) => a + s.done, 0),
       last: out.map((s) => s.last).filter(Boolean).sort().pop() || null, median_seconds: await st.medianSeconds(null) },
     global_link: own ? r.base() + '/admin?' + new URLSearchParams({ key: await st.studyKey(ALL_KEY) }) : null,
-    reports, reports_build_on_open: false, options, stages: STAGE_NAMES, neuro: NEURO_NAMES, storage, msg: r.arg('msg'),
+    reports, reports_build_on_open: false, options,
+    build: await buildStatus(st, !!(r.env.GITHUB_TOKEN && r.env.GITHUB_REPO)), stages: STAGE_NAMES, neuro: NEURO_NAMES, storage, msg: r.arg('msg'),
   };
 }

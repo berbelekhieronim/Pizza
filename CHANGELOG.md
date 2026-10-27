@@ -5,6 +5,19 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Reports rebuild by themselves, with progress on the page**
+- **Triggered by the data, not a schedule.**
+  - When a session finishes, the Cloudflare site queues one reports build on GitHub (needs `PIZZA_GITHUB_TOKEN`).
+  - The build waits until nobody has saved for 5 minutes (at most 30), then builds.
+  - Sessions finishing in the meantime join the queued build.
+  - Cloudflare does nothing in between: one flag and one request per finished session.
+  - "Rebuild reports" queues a full rebuild the same way.
+- **Progress on the researcher page:** a spinner with the current step ("Analysing tests (3 of 9)"), elapsed time, a
+  live log and a link to the GitHub run. Reports reload by themselves when the build is done. The page refreshes only
+  while a build is queued or running, and not when its tab is hidden.
+- **Fixed:** the reports job could be refused partway through many studies, because the per-connection limit counted
+  its uploads. The limit now applies to wrong keys only, and the job retries if refused.
+
 **The researcher page, rebuilt; clearer reports**
 - **One page for both servers** (`server/admin.html`, data from `/admin/api/state` and `/admin/api/sessions`).
   - **Study chooser first:** a card per study, and "All studies together".

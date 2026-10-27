@@ -22,7 +22,18 @@ export function limits(env) {
   return { bytes: n(env.R2_LIMIT_BYTES, CAPS.bytes), writes: n(env.R2_WRITES_PER_MONTH, CAPS.writes), reads: n(env.R2_READS_PER_MONTH, CAPS.reads),
     db: n(env.D1_LIMIT_BYTES, CAPS.db) };
 }
-const DISPATCH_EVERY = 10 * 60 * 1000;          // ask GitHub for new reports at most every 10 minutes
+
+async function dispatchBuild(env, force) {
+  // asks GitHub to run the reports job now (needs the GITHUB_TOKEN secret); true when GitHub accepted
+  const r = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/reports.yml/dispatches`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + env.GITHUB_TOKEN, Accept: 'application/vnd.github+json', 'User-Agent': 'pizza-study-worker',
+      'Content-Type': 'application/json' },
+    body: JSON.stringify({ ref: env.GITHUB_BRANCH || 'main', inputs: { force: force ? 'true' : 'false', wait: force ? 'false' : 'true' } }),
+  });
+  return r.ok;
+}
+
 
 function headers(ctype, extra = {}) {
   return { 'Content-Type': ctype, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
@@ -178,23 +189,35 @@ class Request_ {
     if (!PID_RE.test(body.pid || '')) return json({ ok: false }, 404);
     if (await limited(this.env.SAVE_LIMIT, body.pid)) return json({ ok: false }, 429);   // a session saves about once a second at most
     const res = await this.store.save(body.pid, body.fields, body.stage);
-    if (res.finishedNow) this.ctx.waitUntil(this.requestReports(false));
+    if (res.finishedNow) this.ctx.waitUntil(this.queueBuild());   // the data is the trigger: no schedules, no polling here
     return json({ ok: res.ok }, res.ok ? 200 : 404);
   }
 
+  async queueBuild() {
+    // a session finished: queue one reports build on GitHub, unless one is already queued or waiting (it will include
+    // this session: it waits for 5 quiet minutes after the last save before building). One D1 read and, at most, one
+    // request to GitHub per finished session; nothing else runs on Cloudflare.
+    if (!this.env.GITHUB_TOKEN || !this.env.GITHUB_REPO) return;
+    let st = {};
+    try { st = JSON.parse((await this.store.meta('reports_status')) || '{}'); } catch (e) { st = {}; }
+    if (['queued', 'waiting'].includes(st.state) && Date.now() - Date.parse(st.updated) < 40 * 60 * 1000) return;
+    const t = new Date().toISOString().slice(0, 19) + 'Z';
+    st = { ...st, state: 'queued', updated: t, step: 'Queued: a session finished', log: (st.log || []).concat([t.slice(11, 19) + '  A session finished: build queued.']).slice(-40) };
+    await this.store.setMeta('reports_status', JSON.stringify(st));
+    await dispatchBuild(this.env, false);
+  }
+
   async requestReports(force) {
-    // asks GitHub to run the reports job (needs the GITHUB_TOKEN secret); at most every 10 minutes unless forced
-    if (!this.env.GITHUB_TOKEN || !this.env.GITHUB_REPO) return 'Reports are rebuilt by the GitHub job every few hours. To rebuild on request, give the Worker a GitHub token (see cloudflare/README.md).';
-    const last = parseInt((await this.store.meta('reports_requested')) || '0', 10);
-    if (!force && Date.now() - last < DISPATCH_EVERY) return '';
+    // "Rebuild reports": marks a full rebuild as wanted (the next run of the reports job does it) and, with the
+    // GITHUB_TOKEN secret, asks GitHub to start that run at once
+    if (force) await this.store.setMeta('reports_wanted', new Date().toISOString().slice(0, 19) + 'Z');
+    if (!this.env.GITHUB_TOKEN || !this.env.GITHUB_REPO) {
+      return 'Rebuild requested, but the site cannot start GitHub without the PIZZA_GITHUB_TOKEN secret (cloudflare/README.md). '
+        + 'It runs at the next build: start one from GitHub, Actions -> reports -> Run workflow.';
+    }
     await this.store.setMeta('reports_requested', String(Date.now()));
-    const r = await fetch(`https://api.github.com/repos/${this.env.GITHUB_REPO}/actions/workflows/reports.yml/dispatches`, {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + this.env.GITHUB_TOKEN, Accept: 'application/vnd.github+json', 'User-Agent': 'pizza-study-worker',
-        'Content-Type': 'application/json' },
-      body: JSON.stringify({ ref: this.env.GITHUB_BRANCH || 'main', inputs: force ? { force: 'true' } : {} }),
-    });
-    return r.ok ? 'Rebuilding the reports: they are ready in a few minutes (reload this page).' : `GitHub refused the rebuild (${r.status}). Check the Worker's GitHub token.`;
+    return (await dispatchBuild(this.env, force)) ? 'Rebuild started on GitHub; its progress shows here.'
+      : 'GitHub refused to start the rebuild: check the GitHub token (PIZZA_GITHUB_TOKEN, cloudflare/README.md).';
   }
 
   async r2get(key) {
@@ -248,9 +271,13 @@ class Request_ {
   async admin() {
     const route = this.url.pathname;
     const scope = await this.scope();
-    if (!scope) return html(deniedPage(), 403);
+    if (!scope) {
+      // only wrong keys are rate-limited (against guessing); a valid key's requests (the reports job makes hundreds) are not
+      if (await limited(this.env.ADMIN_LIMIT, this.ip())) return text('Too many requests: wait a minute.', 429);
+      return html(deniedPage(), 403);
+    }
     const owner = scope[0] === 'owner';
-    if (this.req.method === 'PUT' || route === '/admin/signatures' || route === '/admin/storage' || route.startsWith('/admin/export') || route.startsWith('/admin/files/')) {
+    if (this.req.method === 'PUT' || route === '/admin/signatures' || route === '/admin/storage' || route === '/admin/status' || route.startsWith('/admin/export') || route.startsWith('/admin/files/')) {
       if (!owner) return text('Not found', 404);
       return this.machine(route);
     }
@@ -280,7 +307,7 @@ class Request_ {
       }
       return this.download(out, 'text/csv; charset=utf-8', `invite-links-${filterSlug(f) || 'all'}-${stamp()}.csv`);
     }
-    const missing = 'Not built yet. The GitHub job builds the reports and downloads a few minutes after sessions finish (or press "Rebuild now").';
+    const missing = 'Not built yet. Reports are built 5 minutes after session data comes in (or press "Rebuild reports"); the bar above shows the progress.';
     if (route === '/admin/r.zip') return this.fileFromR2(`exports/${sc}/pizza-data-R.zip`, `pizza-data-R-${sc}-${stamp()}.zip`, 'application/zip', f, scope, missing);
     if (route === '/admin/data.zip') return this.fileFromR2(`exports/${sc}/sessions.zip`, `pizza-sessions-${sc}-${stamp()}.zip`, 'application/zip', f, scope, missing);
     if (route === '/admin/database.sqlite') return this.fileFromR2(`exports/${sc}/study.sqlite.gz`, `pizza-study-${sc}-${stamp()}.sqlite`, 'application/vnd.sqlite3', f, scope, missing, true);
@@ -333,7 +360,27 @@ class Request_ {
   async machine(route) {
     // owner-only routes for the reports job (tools/cloud_sync.py): what changed, the data, and storing the results
     if (route === '/admin/signatures') {
-      return json({ signatures: await this.store.signatures(), studies: studies() });
+      return json({ signatures: await this.store.signatures(), studies: studies(), wanted: await this.store.meta('reports_wanted') });
+    }
+    if (route === '/admin/status' && this.req.method === 'POST') {
+      // progress of the reports job, shown on the researcher page: {state: running|done|failed, line, run_url}
+      let b;
+      try { b = JSON.parse((await this.req.text()).slice(0, 4000)); } catch (e) { return json({ ok: false }, 400); }
+      const t = new Date().toISOString().slice(0, 19) + 'Z';
+      let st = {};
+      try { st = JSON.parse((await this.store.meta('reports_status')) || '{}'); } catch (e) { st = {}; }
+      if (b.state === 'running' && st.state !== 'running') st = { started: t, log: (st.state === 'waiting' || st.state === 'queued') ? (st.log || []).slice(-6) : [] };
+      st.state = ['waiting', 'running', 'done', 'failed'].includes(b.state) ? b.state : st.state;
+      st.updated = t;
+      if (b.run_url) st.run_url = String(b.run_url).slice(0, 300);
+      if (b.step) st.step = String(b.step).slice(0, 200);
+      if (b.line) st.log = (st.log || []).concat([t.slice(11, 19) + '  ' + String(b.line).slice(0, 300)]).slice(-40);
+      await this.store.setMeta('reports_status', JSON.stringify(st));
+      if (b.state === 'done' && b.clear_wanted) await this.env.DB.prepare("DELETE FROM meta WHERE k = 'reports_wanted' AND v <= ?").bind(b.clear_wanted).run();
+      if (b.state === 'done' && b.built_upto) {          // what the reports now include: the minute check waits for newer saves
+        await this.store.setMeta('reports_built_upto', String(b.built_upto).slice(0, 30));
+      }
+      return json({ ok: true });
     }
     if (route === '/admin/export') {
       const limit = Math.max(1, Math.min(200, parseInt(this.arg('limit', '25'), 10) || 25));
@@ -365,10 +412,7 @@ class Request_ {
       return this.start();
     }
     if (p === '/api/save' && this.req.method === 'POST') return this.save();
-    if (p === '/admin' || p.startsWith('/admin/')) {
-      if (await limited(this.env.ADMIN_LIMIT, this.ip())) return text('Too many requests: wait a minute.', 429);
-      return this.admin();
-    }
+    if (p === '/admin' || p.startsWith('/admin/')) return this.admin();
     if (p.startsWith('/api/')) return text('Not found', 404);
     const res = await this.env.ASSETS.fetch(this.req);    // index.html (the participant page), pizza-builder.js, ...
     const out = new Response(res.body, res);

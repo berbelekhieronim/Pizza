@@ -1,6 +1,6 @@
-# Builds the reports and downloads of the study on Cloudflare (tools/cloud_sync.py): started by the site a few
-# minutes after sessions finish and by "Rebuild now" (needs the PIZZA_GITHUB_TOKEN secret), after each deploy, and
-# every 6 hours. Does nothing when no session changed. The log holds counts only; no data is kept as an artifact.
+# Builds the reports and downloads of the study on Cloudflare (tools/cloud_sync.py). Started by the site 5 minutes
+# after the last session data came in (its minute check; needs the PIZZA_GITHUB_TOKEN secret), by "Rebuild reports",
+# after each deploy, and by hand (Actions -> reports -> Run workflow). No schedule. Does nothing when no session changed. The log holds counts only; no data is kept as an artifact.
 name: reports
 on:
   workflow_dispatch:
@@ -9,9 +9,11 @@ on:
         description: Rebuild everything even if nothing changed
         required: false
         default: 'false'
-  schedule:
-    - cron: '41 */6 * * *'
-concurrency:
+      wait:
+        description: First wait for 5 quiet minutes after the last save (the site sets this when a session finishes)
+        required: false
+        default: 'false'
+concurrency:                    # one build at a time; GitHub keeps one more queued, so finishing sessions never pile up runs
   group: cloudflare-reports
   cancel-in-progress: false
 permissions:
@@ -41,4 +43,4 @@ jobs:
         if: steps.ready.outputs.ok
         run: |
           export PIZZA_SITE_URL="${PIZZA_SITE_URL:-$(python3 cloudflare/deploy.py url)}"
-          python3 tools/cloud_sync.py ${{ github.event.inputs.force == 'true' && '--force' || '' }}
+          python3 tools/cloud_sync.py ${{ github.event.inputs.force == 'true' && '--force' || '' }} ${{ github.event.inputs.wait == 'true' && '--wait 300' || '' }}
