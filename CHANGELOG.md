@@ -3,6 +3,22 @@
 What changed, newest first. The task stores its version with every pizza (`summary.v` in `pz_summary`), so data can be
 matched to the format below. Add an entry for every change that reaches participants or the analysis.
 
+## 0.12.1 (2026-10-27) – Cloudflare: hard caps, simpler setup
+
+- **Hard caps so Cloudflare never bills.** R2 is the only product that bills by use, so the Worker caps it below the
+  free tier:
+  - 8 GB stored, 800,000 writes and 8 million reads a month;
+  - the database at 450 MB: new participants are then turned away, and people already in can finish.
+
+  Settings can lower the caps, never raise them. The caps fail closed. The reports job checks for room before it
+  uploads anything. Database copies are stored compressed. The owner's page shows usage against each cap.
+- **Setup: one token and two GitHub secrets** (`CLOUDFLARE_API_TOKEN`, `PIZZA_ADMIN_KEY`). The deploy itself:
+  - finds the account;
+  - registers a workers.dev address if there is none;
+  - creates the Turnstile bot check for the site's address.
+
+  The workflow first lists what the token can reach, with a FAIL line naming any missing permission.
+
 ## 0.12.0 (2026-10-27) – Cloudflare hosting
 
 **The study on Cloudflare, deployed from GitHub, at one address.** The task and its data are unchanged (pizzas still

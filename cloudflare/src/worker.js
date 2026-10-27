@@ -5,12 +5,22 @@
 //   (.github/workflows/reports.yml -> tools/cloud_sync.py) and kept in R2 (env.FILES), one set per study and one for
 //   all studies; this Worker serves them and asks GitHub for a rebuild when sessions finish (or on "Rebuild now").
 // Static files (index.html = server/participate.html, pizza-builder.js) are in ./public (env.ASSETS).
-import { Store, STAGES, randomToken } from './store.js';
+import { Store, STAGES, randomToken, storageUsed, fileSizes, countOp, opsThisMonth } from './store.js';
 import { adminPage, deniedPage, withBar } from './admin.js';
 import { STUDY_RE, STUDY_KEYS, FILTER_KEYS, loadStudy, studies, scopeName } from './config.js';
 
 const PID_RE = /^[A-Za-z0-9_-]{4,64}$/;
 const MAX_BODY = 2_000_000;
+// R2 is the only part that bills by use (Workers and D1 on the free plan just stop at their limits): the Worker keeps
+// R2 under its free tier (10 GB stored, 1 million writes and 10 million reads a month) with HARD CAPS. The vars
+// R2_LIMIT_BYTES, R2_WRITES_PER_MONTH and R2_READS_PER_MONTH can only lower them. If the counters cannot be read or
+// written (e.g. D1 is at its own daily limit), the R2 operation does not happen: the caps fail closed.
+const CAPS = { bytes: 8e9, writes: 800000, reads: 8000000, db: 450e6 };   // db: D1's size (free plan maximum 500 MB)
+export function limits(env) {
+  const n = (v, cap) => Math.min(cap, Number.isFinite(+v) && +v > 0 ? +v : cap);
+  return { bytes: n(env.R2_LIMIT_BYTES, CAPS.bytes), writes: n(env.R2_WRITES_PER_MONTH, CAPS.writes), reads: n(env.R2_READS_PER_MONTH, CAPS.reads),
+    db: n(env.D1_LIMIT_BYTES, CAPS.db) };
+}
 const DISPATCH_EVERY = 10 * 60 * 1000;          // ask GitHub for new reports at most every 10 minutes
 
 function headers(ctype, extra = {}) {
@@ -145,6 +155,9 @@ class Request_ {
     if (!rec && !inv && this.env.TURNSTILE_SECRET && this.env.TURNSTILE_SITE_KEY && !(await turnstileOk(this.env, g('ts'), this.ip()))) {
       return json({ verify: this.env.TURNSTILE_SITE_KEY });        // a new session needs the person check first
     }
+    if (!rec && (await this.dbSize()) > limits(this.env).db) {
+      return json({ error: 'This study is not taking new participants at the moment. Thank you for your interest.' });   // the data cap
+    }
     if (!rec) {
       const conds = loadStudy(study).conditions || [];
       if (!cond && conds.length) cond = await this.store.nextCondition(study, conds);
@@ -182,16 +195,52 @@ class Request_ {
     return r.ok ? 'Rebuilding the reports: they are ready in a few minutes (reload this page).' : `GitHub refused the rebuild (${r.status}). Check the Worker's GitHub token.`;
   }
 
+  async r2get(key) {
+    // an R2 read, counted; refused (null) once the month's reads reach the limit
+    if ((await countOp(this.env.DB, 'reads')) > limits(this.env).reads) return null;
+    return this.env.FILES.get(key);
+  }
+
+  async r2put(key) {
+    // an R2 write from the reports job: refused when it would take storage or the month's writes over the limit
+    const lim = limits(this.env);
+    const size = parseInt(this.req.headers.get('Content-Length') || '', 10);
+    if (!Number.isFinite(size) || size < 0) return json({ ok: false, error: 'Content-Length is required.' }, 411);
+    const { used } = await storageUsed(this.env.DB);
+    const old = (await this.env.DB.prepare('SELECT size FROM files WHERE key = ?').bind(key).first()) || { size: 0 };
+    if (used - old.size + size > lim.bytes) {
+      return json({ ok: false, error: `Storage limit: ${key} (${size} bytes) would take R2 storage to ${used - old.size + size} bytes, over the limit of ${lim.bytes}.` }, 507);
+    }
+    if ((await countOp(this.env.DB, 'writes')) > lim.writes) return json({ ok: false, error: `This month's R2 writes reached the limit of ${lim.writes}.` }, 507);
+    // the size is recorded before the upload (the larger of old and new until it is done), so storage is never undercounted
+    await this.env.DB.prepare('INSERT OR REPLACE INTO files VALUES (?, ?, ?)').bind(key, Math.max(size, old.size), new Date().toISOString().slice(0, 19) + 'Z').run();
+    await this.env.FILES.put(key, this.req.body);
+    await this.env.DB.prepare('UPDATE files SET size = ? WHERE key = ?').bind(size, key).run();
+    return json({ ok: true });
+  }
+
+  async dbSize() {
+    // the D1 database's size in bytes (every D1 result reports it)
+    const r = await this.env.DB.prepare('SELECT 1').run();
+    return (r.meta && r.meta.size_after) || 0;
+  }
+
+  async storageInfo() {
+    return { ...(await storageUsed(this.env.DB)), ...(await opsThisMonth(this.env.DB)), db: await this.dbSize(), limits: limits(this.env) };
+  }
+
   async builtInfo(scope) {
-    const o = await this.env.FILES.get(`reports/${scope}/.built`);
+    const o = await this.r2get(`reports/${scope}/.built`);
     if (!o) return null;
     try { return JSON.parse(await o.text()); } catch (e) { return null; }
   }
 
-  async fileFromR2(key, name, ctype, f, scope, missing) {
-    const o = await this.env.FILES.get(key);
+  async fileFromR2(key, name, ctype, f, scope, missing, gzipped = false) {
+    const o = await this.r2get(key);
     if (!o) return html(await adminPage(this, scope, f, missing));
-    return this.download(o.body, ctype, name);
+    if (!gzipped) return this.download(o.body, ctype, name);
+    // stored compressed (to save storage); the browser unpacks it while downloading
+    return new Response(o.body, { encodeBody: 'manual', headers: headers(ctype, { 'Content-Encoding': 'gzip', 'Content-Disposition': `attachment; filename="${name}"` }) });
   }
 
   async admin() {
@@ -199,7 +248,7 @@ class Request_ {
     const scope = await this.scope();
     if (!scope) return html(deniedPage(), 403);
     const owner = scope[0] === 'owner';
-    if (this.req.method === 'PUT' || route === '/admin/signatures' || route.startsWith('/admin/export') || route.startsWith('/admin/files/')) {
+    if (this.req.method === 'PUT' || route === '/admin/signatures' || route === '/admin/storage' || route.startsWith('/admin/export') || route.startsWith('/admin/files/')) {
       if (!owner) return text('Not found', 404);
       return this.machine(route);
     }
@@ -226,14 +275,14 @@ class Request_ {
     const missing = 'Not built yet. The GitHub job builds the reports and downloads a few minutes after sessions finish (or press "Rebuild now").';
     if (route === '/admin/r.zip') return this.fileFromR2(`exports/${sc}/pizza-data-R.zip`, `pizza-data-R-${sc}-${stamp()}.zip`, 'application/zip', f, scope, missing);
     if (route === '/admin/data.zip') return this.fileFromR2(`exports/${sc}/sessions.zip`, `pizza-sessions-${sc}-${stamp()}.zip`, 'application/zip', f, scope, missing);
-    if (route === '/admin/database.sqlite') return this.fileFromR2(`exports/${sc}/study.sqlite`, `pizza-study-${sc}-${stamp()}.sqlite`, 'application/vnd.sqlite3', f, scope, missing);
+    if (route === '/admin/database.sqlite') return this.fileFromR2(`exports/${sc}/study.sqlite.gz`, `pizza-study-${sc}-${stamp()}.sqlite`, 'application/vnd.sqlite3', f, scope, missing, true);
     if (route === '/admin/methods') {
-      const o = await this.env.FILES.get('methods.html');
+      const o = await this.r2get('methods.html');
       return html(o ? withBar(this, await o.text(), f, scope) : await adminPage(this, scope, f, missing));
     }
     const m = route.match(/^\/admin\/reports\/([A-Za-z0-9_-][A-Za-z0-9_.-]*)$/);
     if (m) {
-      const o = await this.env.FILES.get(`reports/${sc}/${m[1]}`);
+      const o = await this.r2get(`reports/${sc}/${m[1]}`);
       if (!o) return html(await adminPage(this, scope, f, missing));
       if (m[1].endsWith('.html')) return html(withBar(this, await o.text(), f, scope));
       return new Response(o.body, { headers: headers('text/csv; charset=utf-8') });
@@ -276,16 +325,16 @@ class Request_ {
       const limit = Math.max(1, Math.min(200, parseInt(this.arg('limit', '25'), 10) || 25));
       return json(await this.store.exportPage(this.arg('after'), limit));
     }
+    if (route === '/admin/storage') {
+      return json({ ...(await this.storageInfo()), files: await fileSizes(this.env.DB) });
+    }
     if (route === '/admin/export/tables') {
       return json({ invites: await this.store.table('invites'), meta: await this.store.table('meta') });
     }
     const m = route.match(/^\/admin\/files\/((?:reports|exports)\/[a-z0-9-]{1,40}\/[A-Za-z0-9_.-]{1,80}|methods\.html|state\.json)$/);
     if (!m) return text('Not found', 404);
-    if (this.req.method === 'PUT') {
-      await this.env.FILES.put(m[1], this.req.body);
-      return json({ ok: true });
-    }
-    const o = await this.env.FILES.get(m[1]);
+    if (this.req.method === 'PUT') return this.r2put(m[1]);
+    const o = await this.r2get(m[1]);
     return o ? new Response(o.body, { headers: headers('application/octet-stream') }) : text('Not found', 404);
   }
 

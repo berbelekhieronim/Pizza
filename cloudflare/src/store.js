@@ -203,3 +203,28 @@ export class Store {
     await this.db.prepare('INSERT OR REPLACE INTO meta VALUES (?, ?)').bind(k, v).run();
   }
 }
+
+// ---- R2 accounting: storage and monthly operations stay under the free tier (see limits() in worker.js)
+export async function storageUsed(db) {
+  const r = await db.prepare('SELECT COALESCE(SUM(size), 0) AS used, COUNT(*) AS n FROM files').first();
+  return { used: r.used, n: r.n };
+}
+
+export async function fileSizes(db) {
+  const { results } = await db.prepare('SELECT key, size FROM files').all();
+  return Object.fromEntries(results.map((r) => [r.key, r.size]));
+}
+
+export async function countOp(db, kind) {
+  // one more R2 operation this month (kind: 'writes' or 'reads'); returns the month's count
+  const k = `r2_${kind}:${new Date().toISOString().slice(0, 7)}`;
+  const row = await db.prepare("INSERT INTO meta (k, v) VALUES (?, '1') ON CONFLICT(k) DO UPDATE SET v = CAST(v AS INTEGER) + 1 RETURNING v").bind(k).first();
+  return parseInt(row.v, 10);
+}
+
+export async function opsThisMonth(db) {
+  const m = new Date().toISOString().slice(0, 7);
+  const { results } = await db.prepare('SELECT k, v FROM meta WHERE k IN (?, ?)').bind('r2_writes:' + m, 'r2_reads:' + m).all();
+  const get = (k) => parseInt((results.find((r) => r.k === k) || { v: '0' }).v, 10);
+  return { writes: get('r2_writes:' + m), reads: get('r2_reads:' + m) };
+}

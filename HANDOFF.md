@@ -112,6 +112,12 @@ push, check the GitHub Actions run, and republish the demo artifact.
   filter. The Worker starts the job when sessions finish (`PIZZA_GITHUB_TOKEN`, at most every 10 minutes).
 - **Bot protection** (user's request): Turnstile on new sessions (not on personal links or resumes), rate limits
   (`ratelimits` in wrangler.json), no indexing. The Python server has no Turnstile; it is for pilots in a Codespace.
+- **Hard caps (user: "never get billed").** R2 is capped in the Worker below the free tier (8 GB, 800k writes and
+  8M reads a month; `limits()` in worker.js, clamped so settings can only lower them). D1 at 450 MB turns new
+  participants away. Workers and D1 must stay on the free plans, which stop at their limits rather than bill.
+- **Setup reduced to one token and two secrets.** deploy.py finds the account, registers the workers.dev subdomain
+  and creates the Turnstile widget through Cloudflare's API. The user found the manual Turnstile and token steps
+  confusing.
 - **Two servers, one behaviour.** `server/server.py` (Codespace, local) and `cloudflare/src/` (Cloudflare) must stay
   in step: same routes, page and schema. The smoke test runs the same kinds of checks against both.
 - **Standard library only** (Python 3.10+, base R, no JS dependencies). The repository must run in a fresh Codespace,
@@ -169,6 +175,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 | date | session | what was done |
 |---|---|---|
+| 2026-10-27 | Claude Code (cloud) | 0.12.1: hard caps on R2 and D1 (never billed), setup reduced to one token and two GitHub secrets (deploy creates address and Turnstile) |
 | 2026-10-27 | Claude Code (cloud) | 0.12.0: Cloudflare version (Worker + D1 + R2, deploy and reports workflows, bot protection), tested in the local Workers runtime |
 | 2026-10-27 | Claude Code (cloud) | 0.11.0: SQLite database for the study server, session browser (filter, sort, pages) with filtered exports, per-study researcher links, `analyse.py` reads `study.db` |
 | 2026-10-27 | Claude Code (cloud) | 0.10.1: participant flow reviewed in a browser and tightened (resume mid-study, fit to window, compact follow-up, mouse wording); researcher page tidied |

@@ -6,6 +6,7 @@ server, play one session through it, and use the researcher page. Exits non-zero
 """
 import csv
 import glob
+import gzip
 import io
 import json
 import os
@@ -73,6 +74,61 @@ def http(method, url, body=None):
         return e.code, e.read()
 
 
+def deploy_api_checks():
+    """cloudflare/deploy.py's use of Cloudflare's API (account, workers.dev address, Turnstile), against a stand-in."""
+    import http.server
+    import threading
+    calls, widgets = [], []
+
+    class Api(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def reply(self, result, code=200):
+            body = json.dumps({'success': code == 200, 'result': result, 'errors': [] if code == 200 else [{'code': 9109, 'message': 'Unauthorized'}]}).encode()
+            self.send_response(code)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(body)
+
+        def handle_any(self):
+            n = int(self.headers.get('Content-Length') or 0)
+            body = json.loads(self.rfile.read(n)) if n else None
+            calls.append((self.command, self.path))
+            p = self.path
+            if self.headers.get('Authorization') != 'Bearer good-token':
+                return self.reply(None, 403)
+            if p == '/accounts':
+                return self.reply([{'id': 'acc0123456789', 'name': 'Lab'}])
+            if p.endswith('/workers/subdomain'):
+                return self.reply({'subdomain': body['subdomain']} if self.command == 'PUT' else {'subdomain': None})
+            if p.endswith('/challenges/widgets') and self.command == 'POST':
+                widgets.append(dict(body, sitekey='0xSITE', secret='0xSECRET'))
+                return self.reply(widgets[-1])
+            if p.endswith('/challenges/widgets'):
+                return self.reply([{k: v for k, v in w.items() if k != 'secret'} for w in widgets])
+            if '/challenges/widgets/' in p:
+                return self.reply(widgets[0])
+            return self.reply([])
+        do_GET = do_POST = do_PUT = handle_any
+
+    srv = http.server.HTTPServer(('127.0.0.1', 0), Api)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    env = dict(os.environ, PIZZA_CF_API='http://127.0.0.1:%d' % srv.server_address[1], CLOUDFLARE_API_TOKEN='good-token')
+    env.pop('CLOUDFLARE_ACCOUNT_ID', None)
+    code = ('import sys, json; sys.path.insert(0, "cloudflare"); import deploy\n'
+            'u = deploy.site_url(create=True); print(json.dumps([deploy.account_id(), u, deploy.ensure_turnstile(u.split("/")[2]), deploy.ensure_turnstile(u.split("/")[2])]))')
+    r = subprocess.run([PY, '-c', code], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
+    out = json.loads(r.stdout.strip().split('\n')[-1]) if r.returncode == 0 else None
+    check(out is not None and out[0] == 'acc0123456789' and out[1] == 'https://pizza-study.pizza-acc01234.workers.dev',
+          'deploy: finds the account and registers a workers.dev address when there is none')
+    check(out is not None and out[2] == ['0xSITE', '0xSECRET'] and out[3] == ['0xSITE', '0xSECRET'] and len(widgets) == 1
+          and widgets[0]['domains'] == ['pizza-study.pizza-acc01234.workers.dev'], 'deploy: creates the Turnstile bot check for the site once')
+    r = subprocess.run([PY, 'cloudflare/deploy.py', 'check'], cwd=ROOT, env=dict(env, CLOUDFLARE_API_TOKEN='bad-token'), capture_output=True, text=True, timeout=60)
+    check(r.returncode == 1 and 'FAIL  account' in r.stdout and 'Unauthorized' in r.stdout, 'deploy: a token that cannot do the job is reported, step by step')
+    srv.shutdown()
+
+
 def cloudflare_checks(tmp, fields):
     """The Cloudflare version (cloudflare/): the Worker in the local Workers runtime (wrangler dev, with local D1 and
     R2), the same participant and researcher routes as the Python server, and the reports job (tools/cloud_sync.py)."""
@@ -82,6 +138,7 @@ def cloudflare_checks(tmp, fields):
     norm = lambda t: re.sub(r'\s+', ' ', re.sub(r'--[^\n]*', '', t)).strip()
     mig = open(os.path.join(ROOT, 'cloudflare', 'migrations', '0001_init.sql'), encoding='utf-8').read()
     check(norm(mig) == norm(store.SCHEMA), 'the D1 schema is the schema of server/store.py')
+    deploy_api_checks()
     exe = os.path.join(ROOT, 'cloudflare', 'node_modules', '.bin', 'wrangler')
     if not os.path.exists(exe):
         print('  skip  the Worker itself: run "npm ci" in cloudflare/ to test it (CI does)')
@@ -149,7 +206,8 @@ def cloudflare_checks(tmp, fields):
         pc = list(csv.DictReader(io.StringIO(z.read('pizza-data/participants.csv').decode('utf-8'))))
         check(len(pc) == 2 and {r['study'] for r in pc} == {'pilot-asd'} and 'pizza-data/load_pizza.R' in z.namelist(), 'Worker: a study\'s R download holds that study only')
         dbp = os.path.join(tmp, 'cf-copy.sqlite')
-        open(dbp, 'wb').write(http('GET', base + '/admin/database.sqlite?key=' + skey)[1])
+        dbb = http('GET', base + '/admin/database.sqlite?key=' + skey)[1]
+        open(dbp, 'wb').write(gzip.decompress(dbb) if dbb[:2] == b'\x1f\x8b' else dbb)   # stored compressed; browsers unpack it
         con = sqlite3.connect(dbp)
         check(con.execute('SELECT DISTINCT study FROM sessions').fetchall() == [('pilot-asd',)], 'Worker: a study\'s database copy holds that study only')
         con.close()
@@ -163,7 +221,8 @@ def cloudflare_checks(tmp, fields):
     # bot protection: with Turnstile configured, a new session needs the check; too many starts from one address
     # are refused (Cloudflare's test keys: this secret never passes)
     srv = subprocess.Popen([exe, 'dev', '--local', '--ip', '127.0.0.1', '--port', str(port), '--persist-to', state, '--var', 'ADMIN_KEY:smoke-owner-key',
-                            '--var', 'TURNSTILE_SITE_KEY:2x00000000000000000000AB', '--var', 'TURNSTILE_SECRET:2x0000000000000000000000000000000AA'],
+                            '--var', 'TURNSTILE_SITE_KEY:2x00000000000000000000AB', '--var', 'TURNSTILE_SECRET:2x0000000000000000000000000000000AA',
+                            '--var', 'R2_LIMIT_BYTES:50000', '--var', 'R2_WRITES_PER_MONTH:99999999999', '--var', 'D1_LIMIT_BYTES:1000'],
                            cwd=cf, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     try:
         for _ in range(150):
@@ -176,9 +235,29 @@ def cloudflare_checks(tmp, fields):
         check(json.loads(http('GET', base + '/api/start?pid=BOTCHECK1')[1]).get('verify') == '2x00000000000000000000AB'
               and json.loads(http('GET', base + '/api/start?pid=BOTCHECK1&ts=forged')[1]).get('verify'), 'Worker: a new session needs the bot check (Turnstile)')
         check(json.loads(http('GET', base + '/api/start?pid=CFSMOKE1')[1]).get('pid') == 'CFSMOKE1', 'Worker: a returning participant is not checked again')
+        check(b'Disallow: /' in http('GET', base + '/robots.txt')[1], 'Worker: asks search engines to stay away')
+        # hard caps on R2 (the only part that bills by use): here 50 kB, already used by the reports above
+        st = json.loads(http('GET', base + '/admin/storage?key=' + key)[1])
+        check(st['limits']['bytes'] == 50000 and st['limits']['writes'] == 800000 and st['used'] > 50000,
+              'Worker: R2 caps can be lowered but never raised above the free tier')
+        req = urllib.request.Request(base + '/admin/files/reports/all/extra.csv?key=' + key, data=b'x' * 1000, method='PUT')
+        try:
+            code = urllib.request.urlopen(req).status
+        except urllib.error.HTTPError as e:
+            code = e.code
+        check(code == 507, 'Worker: refuses to store more than the storage cap')
+        r = subprocess.run([PY, os.path.join(ROOT, 'tools', 'cloud_sync.py'), '--site', base, '--key', key, '--force'], capture_output=True, text=True, timeout=300)
+        check(r.returncode != 0 and 'over the limit' in (r.stdout + r.stderr), 'reports job stops before going over the storage cap')
+        check(0 < st['db'] and st['limits']['db'] == 1000, 'Worker: knows the database size (data cap, at most 450 MB: D1 is free up to 500 MB)')
+        body = urllib.parse.urlencode({'study': 'pilot-asd', 'count': '1'}).encode()
+        urllib.request.urlopen(urllib.request.Request(base + '/admin/invites?key=' + key, data=body, method='POST'))
+        inv = list(csv.DictReader(io.StringIO(http('GET', base + '/admin/invites.csv?key=%s&study=pilot-asd' % key)[1].decode('utf-8-sig'))))[-1]
+        check('not taking new participants' in json.loads(http('GET', base + '/api/start?i=' + inv['invite'])[1]).get('error', '')
+              and json.loads(http('GET', base + '/api/start?pid=CFSMOKE1')[1]).get('pid') == 'CFSMOKE1',
+              'Worker: over the data cap, new participants are turned away (returning ones can finish)')
+        # last: this uses up the minute's new sessions for this address
         codes = [http('GET', base + '/api/start')[0] for _ in range(35)]
         check(429 in codes, 'Worker: too many new sessions from one address are refused')
-        check(b'Disallow: /' in http('GET', base + '/robots.txt')[1], 'Worker: asks search engines to stay away')
     finally:
         os.killpg(srv.pid, 15)
         srv.wait(timeout=20)

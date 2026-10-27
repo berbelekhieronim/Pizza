@@ -29,7 +29,7 @@ jobs:
       - name: Cloudflare set up?
         id: ready
         run: |
-          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ] && [ -n "$PIZZA_ADMIN_KEY" ]; then echo "ok=1" >> "$GITHUB_OUTPUT";
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$PIZZA_ADMIN_KEY" ]; then echo "ok=1" >> "$GITHUB_OUTPUT";
           else echo "::notice::No reports to build: the study is not on Cloudflare yet (cloudflare/README.md)."; fi
       - uses: actions/checkout@v4
         if: steps.ready.outputs.ok

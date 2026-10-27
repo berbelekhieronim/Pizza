@@ -15,6 +15,7 @@ It prints counts only, never participant data, so its log is safe in a public re
 copies are deleted at the end (pass --keep DIR to keep them). Standard library only.
 """
 import argparse
+import gzip
 import hashlib
 import io
 import json
@@ -53,6 +54,8 @@ class Site:
             except urllib.error.HTTPError as e:
                 if e.code == 404:
                     return None
+                if e.code == 507:
+                    sys.exit('Stopped: the site refused to store more. %s' % e.read().decode('utf-8', 'replace')[:300])
                 if e.code in (401, 403):
                     sys.exit('The site refused the key (HTTP %d): PIZZA_ADMIN_KEY must be the owner\'s researcher password.' % e.code)
                 if attempt == 3 or e.code < 500:
@@ -141,7 +144,7 @@ def build_scope(st, db_path, scope, work):
     copy = os.path.join(work, 'copy-%s.sqlite' % scope)
     st.backup(copy, f['study'])
     with open(copy, 'rb') as fh:
-        files['exports/%s/study.sqlite' % scope] = fh.read()
+        files['exports/%s/study.sqlite.gz' % scope] = gzip.compress(fh.read(), 6, mtime=0)   # served unpacked
     return files, n
 
 
@@ -185,8 +188,17 @@ def main():
             files['reports/%s/.built' % scope] = json.dumps({'when': stamp, 'n': n, 'sig': sigs[scope]}).encode()
             if scope == 'all' and 'reports/all/methods.html' in files:
                 files['methods.html'] = files['reports/all/methods.html']
+            files = {k: v if isinstance(v, bytes) else v.encode('utf-8') for k, v in files.items()}
+            room = site.get_json('/admin/storage')
+            after = room['used'] - sum(room['files'].get(k, 0) for k in files) + sum(len(v) for v in files.values())
+            if after > room['limits']['bytes']:
+                sys.exit('Stopped before uploading %s: storage would reach %.2f GB, over the limit of %.2f GB. Nothing was stored for it. '
+                         'Remove a study from "studies" in server/study.json or raise R2_LIMIT_BYTES (cloudflare/README.md).'
+                         % (scope, after / 1e9, room['limits']['bytes'] / 1e9))
+            if room['writes'] + len(files) > room['limits']['writes']:
+                sys.exit('Stopped before uploading %s: this month\'s storage writes would pass the limit of %d.' % (scope, room['limits']['writes']))
             for name, data in files.items():
-                site.put(name, data if isinstance(data, bytes) else data.encode('utf-8'))
+                site.put(name, data)
             new_state['scopes'][scope] = sigs[scope]
             print('  %s: %d pizzas analysed, %d files stored.' % (scope, n, len(files)))
         site.put('state.json', json.dumps(new_state).encode())

@@ -129,6 +129,13 @@ export async function adminPage(r, scope, f, message = '') {
   let status = info ? `Last built ${esc((info.when || '').replace('T', ' ').slice(0, 16))} UTC from ${info.n} pizza${info.n === 1 ? '' : 's'}`
     + (info.sig !== sigs[sc] ? '; newer sessions have arrived since, and the reports are rebuilt a few minutes after a session finishes.' : ', up to date.')
     : 'Not built yet for these sessions: the GitHub job builds them a few minutes after the first session finishes.';
+  if (owner) {
+    const u = await r.storageInfo();
+    const gb = (b) => (b / 1e9).toFixed(b < 1e8 ? 3 : 2) + ' GB';
+    status += ` Storage for reports and downloads: ${gb(u.used)} of the ${gb(u.limits.bytes)} limit (Cloudflare R2 is free up to 10 GB); this month `
+      + `${u.writes.toLocaleString('en')} of ${u.limits.writes.toLocaleString('en')} writes, ${u.reads.toLocaleString('en')} of ${u.limits.reads.toLocaleString('en')} reads. `
+      + `Database: ${gb(u.db)} of ${gb(u.limits.db)}; at that size new participants are turned away.`;
+  }
   status = `Reports and downloads cover ${esc(scopeLabel)}${others ? ' (the other filters apply to the session list and its .csv)' : ''}. ` + status;
   const reportBtns = REPORTS.map(([fn, label]) => `<a class="btn" href="/admin/reports/${fn}?${q}">${label}</a>`).join('')
     + `<a class="btn alt" href="/admin/methods?${q}">Methods: how each number is counted</a>`;

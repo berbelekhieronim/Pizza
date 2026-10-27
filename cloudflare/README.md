@@ -32,41 +32,50 @@ GitHub ── push to main ──> checks ──> .github/workflows/cloudflare.y
   - The researcher pages need a key (the owner's 16+ characters, or a study's random key), compared in constant
     time. Keys are not logged: request logging (observability) is off.
 
-## Setting it up (once, about 20 minutes)
+## Setting it up (once, about 10 minutes)
 
-1. **Cloudflare account** (free): sign up at dash.cloudflare.com.
-   - Open *Workers & Pages* once and choose your `workers.dev` subdomain, e.g. `swps-pizza`. The study will be at
-     `https://pizza-study.swps-pizza.workers.dev`.
-   - Open *R2* once and enable it. It is free up to 10 GB, but Cloudflare asks for a payment method.
-2. **API token**: *My Profile → API Tokens → Create Token*. Start from the **Edit Cloudflare Workers** template, then
-   *+ Add more*: **Account → D1 → Edit**. Limit it to your account and create it.
-   - Copy the token.
-   - Copy your **Account ID**, shown on the right of the *Workers & Pages* overview.
-3. **Turnstile (bot check)**: *Turnstile → Add widget*.
-   - Name it `pizza-study`.
-   - Add the hostname `pizza-study.<subdomain>.workers.dev`.
-   - Widget mode: *Managed* (invisible for most people).
-   - Copy the **site key** and the **secret key**.
-4. **Researcher password**: make one, for example with
-   `python3 -c "import secrets; print(secrets.token_urlsafe(18))"`. Keep it safe: it opens every study's data.
-5. **GitHub**: in the repository, go to *Settings → Secrets and variables → Actions*.
-   - *Secrets*:
+The deploy does almost everything itself: it finds your account, gives the account a `workers.dev` address if it
+has none, creates the Turnstile bot check for that address, the database and the storage, and deploys. You make
+one Cloudflare token and give GitHub two secrets.
 
-     | secret | value |
-     |---|---|
-     | `CLOUDFLARE_API_TOKEN` | the token from step 2 |
-     | `CLOUDFLARE_ACCOUNT_ID` | the Account ID |
-     | `PIZZA_ADMIN_KEY` | the password from step 4 |
-     | `PIZZA_TURNSTILE_SECRET` | Turnstile's secret key |
-     | `PIZZA_GITHUB_TOKEN` | optional, see below |
+1. **Cloudflare account** with **R2 enabled**: *R2 Object Storage* in the left menu, enable it. R2 asks for a card,
+   but the study cannot spend on it: see *Hard caps* below.
+2. **The token.**
+   - Click your profile icon (top right), then **My Profile → API Tokens → Create Token**.
+   - Scroll to the bottom and choose **Create Custom Token → Get started**. Name it `pizza-study`.
+   - Under **Permissions** each row has three drop-downs. Fill the first row, then click **+ Add more** for each next
+     one:
 
-   - *Variables*: `PIZZA_TURNSTILE_SITE_KEY` = Turnstile's site key. `PIZZA_SITE_URL` is needed only with your own
-     domain.
-6. **Deploy**: *Actions → cloudflare → Run workflow*. It deploys again after every push to `main` that passes the
-   checks. The first run creates the database (placed in Eastern Europe) and the storage (EU jurisdiction). The run's
-   summary shows the address.
-7. **Open** `https://pizza-study.<subdomain>.workers.dev/admin?key=<your password>`. *Studies and links* has the
-   participant links and each study's researcher link.
+     | 1st drop-down | 2nd drop-down | 3rd drop-down |
+     |---|---|---|
+     | Account | Workers Scripts | Edit |
+     | Account | D1 | Edit |
+     | Account | Workers R2 Storage | Edit |
+     | Account | Turnstile | Edit |
+     | Account | Account Settings | Read |
+     | User | User Details | Read |
+     | User | Memberships | Read |
+
+   - Under **Account Resources** choose *Include → All accounts* (or your account).
+   - Click **Continue to summary → Create Token** and copy the token. It is shown once.
+3. **A researcher password**: any long password (16+ characters) that you keep safe. It opens every study's data.
+4. **GitHub**: open the repository's **Settings → Secrets and variables → Actions → New repository secret**, twice:
+
+   | Name | Value |
+   |---|---|
+   | `CLOUDFLARE_API_TOKEN` | the token |
+   | `PIZZA_ADMIN_KEY` | the password |
+
+5. **Deploy**: **Actions → cloudflare → Run workflow → Run workflow**.
+   - The run's summary lists what the token can reach. A **FAIL** line names the permission to add: edit the token
+     in Cloudflare (*API Tokens → … → Edit*) and run the workflow again.
+   - When it is green, the summary shows the study's address.
+6. **Open** `https://<the address>/admin?key=<your password>`. *Studies and links* has the participant links and
+   each study's researcher link.
+
+Not needed: Turnstile set-up by hand (the deploy makes the widget and its hostname), the Account ID (found from the
+token; add a `CLOUDFLARE_ACCOUNT_ID` secret only if the token reaches several accounts), and Zero Trust (the study
+does not use it; its free plan bills nothing).
 
 **Rebuild on request (`PIZZA_GITHUB_TOKEN`, optional).** With it, the site starts the reports job a few minutes after
 sessions finish and when someone presses *Rebuild now*. Without it, reports are rebuilt every 6 hours, after each
@@ -74,22 +83,39 @@ deploy, and from *Actions → reports → Run workflow*. Make the token at githu
 Fine-grained tokens*: this repository only, permission **Actions: Read and write**.
 
 **Your own domain (optional).** Add it to Cloudflare, add a custom domain to the `pizza-study` Worker, set the
-`PIZZA_SITE_URL` variable (e.g. `https://pizza.example.org`), add the hostname to the Turnstile widget, and redeploy.
+repository variable `PIZZA_SITE_URL` (e.g. `https://pizza.example.org`), and deploy again. The bot check is updated
+for the new address.
 
-## Costs and limits
+## Hard caps: the study never makes Cloudflare bill you
 
-The free plans cover a pilot. These are Cloudflare's limits in 2025; check their pricing pages.
+Stay on the **free plans**: do not upgrade to Workers Paid. On the free plans, Workers and D1 cannot bill: at their
+daily limits requests fail until the next day. **R2 is the one product that bills by use** once a card is on file, so
+the Worker enforces caps below R2's free tier itself:
+
+| | R2 free tier | hard cap in the Worker | when reached |
+|---|---|---|---|
+| storage | 10 GB | **8 GB** | the reports job stops before uploading, and the Worker refuses any write that would pass it |
+| writes (class A) | 1 million / month | **800,000 / month** | uploads refused until the next month |
+| reads (class B) | 10 million / month | **8 million / month** | reports and downloads unavailable until the next month (the study itself keeps running) |
+| database (D1) | 500 MB (free plan maximum) | **450 MB** | new participants see "not taking new participants"; people already in can finish |
+
+- The caps can be lowered (repository variables → Worker vars `R2_LIMIT_BYTES`, `R2_WRITES_PER_MONTH`,
+  `R2_READS_PER_MONTH`, `D1_LIMIT_BYTES`) but **never raised**: higher values are clamped to the caps above.
+- The Worker counts every R2 operation in the database before doing it. If the counter cannot be updated, the
+  operation does not happen: the caps fail closed.
+- The owner's researcher page shows storage, this month's writes and reads, and the database size against the caps.
+- Database copies are stored compressed (browsers unpack them on download), so the reports and downloads of a few
+  thousand participants fit in a fraction of the 8 GB.
+- Belt and braces (optional): Cloudflare dashboard → *Notifications → Add → Usage Based Billing*, to be emailed if
+  anything ever starts to bill.
+
+What the free plans hold, roughly (Cloudflare's limits in 2025):
 
 | | free | what the study uses |
 |---|---|---|
 | Workers requests | 100,000 / day | ~1 save a second while someone builds: roughly 300–600 requests per participant, so ~150 participants a day |
 | D1 rows written | 100,000 / day | only changed fields are written: roughly 1,000–2,000 per participant, so ~50–100 participants a day |
-| D1 storage | 5 GB | ~0.1–0.5 MB per participant |
-| Worker CPU | 10 ms / request | the researcher page with very many sessions may need more |
-| R2 | 10 GB, 1M writes / month | reports: a few MB per build |
-
-For a larger study, the **Workers Paid** plan ($5 a month) raises these limits: 10 million requests and 50 million
-D1 rows written a month, and 30 s of CPU per request.
+| D1 storage | 500 MB per database | ~0.1–0.5 MB per participant, so ~1,000–4,000 participants |
 
 ## Data protection
 
