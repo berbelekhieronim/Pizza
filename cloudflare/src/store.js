@@ -4,6 +4,12 @@
 export const SORTABLE = ['pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces', 'started', 'seconds', 'restarts'];
 export const STAGES = ['intro', 'practice', 'build', 'typical', 'followup', 'done'];
 export const ACTIVITY = ['active', 'stopped'];     // extra "where" filter values, from the time of the last save
+export const ANALYSIS = ['included', 'left_out'];  // ... and from whether the session's pizza is in the analysis
+// The researcher's choice for a session (field 'inclusion', never taken from a participant's save), as in store.py
+export const INCLUSION_VALUES = ['include', 'exclude', 'auto'];
+const INCL_SQL = "COALESCE((SELECT NULLIF(value, 'auto') FROM fields WHERE fields.pid = sessions.pid AND name = 'inclusion'), '')";
+const LEFT_OUT_SQL = `(${INCL_SQL} = 'exclude' OR (${INCL_SQL} = '' AND stage NOT IN ('typical', 'followup', 'done') AND n_pieces IS NOT NULL))`;
+const INCLUDED_SQL = `(${INCL_SQL} = 'include' OR (${INCL_SQL} = '' AND stage IN ('typical', 'followup', 'done')))`;
 export const IDLE_MINUTES = 30;                    // an unfinished session with no save for this long counts as stopped
 const idleCutoff = () => new Date(Date.now() - IDLE_MINUTES * 60000).toISOString().slice(0, 19) + 'Z';
 const FIELD_RE = /^[a-z_]{2,40}$/;
@@ -69,7 +75,7 @@ export class Store {
   async save(pid, fields, stage) {
     // merges fields into a session (names like pz_final, string values) and records where they are; returns
     // {ok, finishedNow}
-    const clean = Object.fromEntries(Object.entries(fields).filter(([k, v]) => FIELD_RE.test(k) && typeof v === 'string'));
+    const clean = Object.fromEntries(Object.entries(fields).filter(([k, v]) => FIELD_RE.test(k) && k !== 'inclusion' && typeof v === 'string'));
     const row = await this.db.prepare('SELECT started, finished, stage FROM sessions WHERE pid = ?').bind(pid).first();
     if (!row) return { ok: false };
     const t = now();
@@ -92,7 +98,9 @@ export class Store {
     if (f.study !== null && f.study !== undefined) { sql.push('study = ?'); args.push(f.study); }
     if (f.stage === 'active') { sql.push("stage != 'done' AND updated >= ?"); args.push(idleCutoff()); }
     if (f.stage === 'stopped') { sql.push("stage != 'done' AND (updated IS NULL OR updated < ?)"); args.push(idleCutoff()); }
-    for (const col of ['grp', 'source', 'stage', 'cond']) if (f[col] && !(col === 'stage' && ACTIVITY.includes(f[col]))) { sql.push(col + ' = ?'); args.push(f[col]); }
+    if (f.stage === 'included') sql.push(INCLUDED_SQL);
+    if (f.stage === 'left_out') sql.push(LEFT_OUT_SQL);
+    for (const col of ['grp', 'source', 'stage', 'cond']) if (f[col] && !(col === 'stage' && (ACTIVITY.includes(f[col]) || ANALYSIS.includes(f[col])))) { sql.push(col + ' = ?'); args.push(f[col]); }
     if (f.neuro) { sql.push("(' ' || neuro || ' ') LIKE ?"); args.push(`% ${f.neuro} %`); }
     if (f.q) { sql.push('pid LIKE ?'); args.push(`%${f.q}%`); }
     if (f.since) { sql.push('started >= ?'); args.push(f.since); }
@@ -105,9 +113,19 @@ export class Store {
     sort = SORTABLE.includes(sort) ? sort : 'started';
     const [total, rows] = await this.db.batch([
       this.db.prepare(`SELECT COUNT(*) AS n, SUM(stage = 'done') AS done FROM sessions${w}`).bind(...a),
-      this.db.prepare(`SELECT * FROM sessions${w} ORDER BY ${sort} ${desc ? 'DESC' : 'ASC'}, pid LIMIT ? OFFSET ?`).bind(...a, limit, offset),
+      this.db.prepare(`SELECT *, ${INCL_SQL} AS inclusion FROM sessions${w} ORDER BY ${sort} ${desc ? 'DESC' : 'ASC'}, pid LIMIT ? OFFSET ?`).bind(...a, limit, offset),
     ]);
     return { rows: rows.results, total: total.results[0].n, done: total.results[0].done || 0 };
+  }
+
+  async setInclusion(pid, value, study = null) {
+    // the researcher's choice for a session: 'include', 'exclude' or 'auto'; study: only a session of this study (a
+    // study researcher's scope). False when there is no such session.
+    const row = await this.db.prepare('SELECT study FROM sessions WHERE pid = ?').bind(pid).first();
+    if (!row || (study !== null && row.study !== study) || !INCLUSION_VALUES.includes(value)) return false;
+    await this.db.prepare('INSERT INTO fields (pid, name, value, updated) VALUES (?, ?, ?, ?) '
+      + 'ON CONFLICT(pid, name) DO UPDATE SET value = excluded.value, updated = excluded.updated').bind(pid, 'inclusion', value, now()).run();
+    return true;
   }
 
   async distinct(col, study = null) {

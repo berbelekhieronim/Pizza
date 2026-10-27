@@ -220,7 +220,8 @@ SECTIONS = [
     ]),
     ('Data-quality flags', None, [
         ('flag_tab_away, flag_fast, flag_empty', 'Tab hidden > 30 s; submitted in &lt; 15 s; no pieces.', 'analyse'),
-        ('(excluded.csv, data_check.json)', 'A build the task saved part-way (it saves while the participant builds) but that never reached "I\'m done" (summary.finished = false) is not a finished choice: it is left out of every report and file and listed in excluded.csv. data_check.json counts the sessions, the analysed own and typical pizzas and the left-out builds, and checks that the analysed own pizzas equal the sessions past the build (stage typical, followup or done).', 'data_check'),
+        ('(excluded.csv, data_check.json)', 'A build the task saved part-way (it saves while the participant builds) but that never reached "I\'m done" (summary.finished = false) is not a finished choice: it is left out of every report and file and listed in excluded.csv. A researcher can override this per session on the Sessions tab (include or exclude; the session field "inclusion"). data_check.json counts the sessions, the analysed own and typical pizzas and the left-out builds, and checks that the analysed own pizzas equal the sessions past the build (stage typical, followup or done).', 'data_check'),
+        ('inclusion', 'auto = analysed by the automatic rule (own pizza finished); researcher = an unfinished pizza kept in by a researcher on the Sessions tab. A session a researcher left out is not analysed at all (excluded.csv, reason "excluded by the researcher").', 'analyse'),
         ('task_version', 'Version of the task that recorded the pizza (summary.v; see the Changelog for what each version records).', 'analyse'),
         ('restarts', 'Study server: times the participant came back mid-study (reload, closed tab, personal link reopened) and the part they were on started again; their pizza is from the last attempt.', 'analyse'),
     ]),

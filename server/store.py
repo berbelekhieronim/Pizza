@@ -61,6 +61,15 @@ SORTABLE = ('pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces
 STAGES = ('intro', 'practice', 'build', 'typical', 'followup', 'done')
 IDLE_MINUTES = 30            # an unfinished session with no save for this long counts as stopped (it can still resume)
 ACTIVITY = ('active', 'stopped')   # extra values of the "where" filter, from the time of the last save
+ANALYSIS = ('included', 'left_out')  # ... and from whether the session's pizza is in the analysis
+# The researcher's choice for a session (field 'inclusion', never taken from a participant's save): 'include',
+# 'exclude' or 'auto' (kept, so that going back to automatic also rebuilds the reports); no field = automatic: a session past the build (its own pizza finished) is analysed, one that stopped
+# with a pizza started is left out (analysis/analyse.py applies the same rule)
+INCLUSION = 'inclusion'
+INCLUSION_VALUES = ('include', 'exclude', 'auto')
+INCL_SQL = "COALESCE((SELECT NULLIF(value, 'auto') FROM fields WHERE fields.pid = sessions.pid AND name = 'inclusion'), '')"
+LEFT_OUT_SQL = "(%s = 'exclude' OR (%s = '' AND stage NOT IN ('typical', 'followup', 'done') AND n_pieces IS NOT NULL))" % (INCL_SQL, INCL_SQL)
+INCLUDED_SQL = "(%s = 'include' OR (%s = '' AND stage IN ('typical', 'followup', 'done')))" % (INCL_SQL, INCL_SQL)
 
 
 def idle_cutoff():
@@ -159,7 +168,7 @@ class Store:
 
     def save(self, pid, fields, stage):
         """Merges fields into a session (only names like pz_final; string values) and records where they are."""
-        clean = {k: v for k, v in fields.items() if isinstance(k, str) and FIELD_RE.match(k) and isinstance(v, str)}
+        clean = {k: v for k, v in fields.items() if isinstance(k, str) and FIELD_RE.match(k) and k != INCLUSION and isinstance(v, str)}
         t = now()
         with self.tx() as db:
             row = db.execute('SELECT started, finished, stage FROM sessions WHERE pid = ?', (pid,)).fetchone()
@@ -187,8 +196,12 @@ class Store:
             sql.append("stage != 'done' AND updated >= ?"); args.append(idle_cutoff())
         elif f.get('stage') == 'stopped':
             sql.append("stage != 'done' AND (updated IS NULL OR updated < ?)"); args.append(idle_cutoff())
+        elif f.get('stage') == 'included':
+            sql.append(INCLUDED_SQL)
+        elif f.get('stage') == 'left_out':
+            sql.append(LEFT_OUT_SQL)
         for col in ('grp', 'source', 'stage', 'cond'):
-            if col == 'stage' and f.get(col) in ACTIVITY:
+            if col == 'stage' and f.get(col) in ACTIVITY + ANALYSIS:
                 continue
             if f.get(col):
                 sql.append('%s = ?' % col); args.append(f[col])
@@ -207,7 +220,7 @@ class Store:
         sort = sort if sort in SORTABLE else 'started'
         db = self.db()
         total = db.execute("SELECT COUNT(*), SUM(stage = 'done') FROM sessions" + w, a).fetchone()
-        rows = db.execute('SELECT * FROM sessions%s ORDER BY %s %s, pid LIMIT ? OFFSET ?' % (w, sort, 'DESC' if desc else 'ASC'),
+        rows = db.execute('SELECT *, ' + INCL_SQL + ' AS inclusion FROM sessions%s ORDER BY %s %s, pid LIMIT ? OFFSET ?' % (w, sort, 'DESC' if desc else 'ASC'),
                           a + [limit, offset]).fetchall()
         return [dict(r) for r in rows], total[0], total[1] or 0
 
@@ -240,10 +253,23 @@ class Store:
             yield self.get(pid)
 
     def signature(self, f):
-        """(count, newest update) of the matching sessions: the reports are rebuilt when this changes."""
+        """(count, newest update) of the matching sessions, a researcher's inclusion choice counting as an update: the
+        reports are rebuilt when this changes."""
         w, a = self.where(f)
-        r = self.db().execute('SELECT COUNT(*), MAX(updated) FROM sessions' + w, a).fetchone()
-        return '%d|%s' % (r[0], r[1] or '')
+        r = self.db().execute('SELECT COUNT(*), MAX(updated), MAX((SELECT updated FROM fields WHERE fields.pid = sessions.pid AND name = ?)) FROM sessions'
+                              + w, [INCLUSION] + a).fetchone()
+        return '%d|%s' % (r[0], max(r[1] or '', r[2] or ''))
+
+    def set_inclusion(self, pid, value, study=None):
+        """The researcher's choice for a session: 'include', 'exclude' or 'auto'. study: only a session of this study (a
+        study researcher's scope). False when there is no such session."""
+        with self.tx() as db:
+            row = db.execute('SELECT study FROM sessions WHERE pid = ?', (pid,)).fetchone()
+            if row is None or (study is not None and row['study'] != study) or value not in INCLUSION_VALUES:
+                return False
+            db.execute('INSERT INTO fields (pid, name, value, updated) VALUES (?, ?, ?, ?) '
+                       'ON CONFLICT(pid, name) DO UPDATE SET value = excluded.value, updated = excluded.updated', (pid, INCLUSION, value, now()))
+        return True
 
     # ---- invites
     def create_invites(self, study, grp, source, note, count):

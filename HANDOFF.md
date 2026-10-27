@@ -186,6 +186,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 | date | session | what was done |
 |---|---|---|
+| 2026-10-27 | Claude Code (cloud) | Sessions tab: per-session Analysis choice (auto / include / exclude) on both servers, honoured by the analysis and the data check |
 | 2026-10-27 | Claude Code (cloud) | Analysis: unfinished builds left out (excluded.csv), data check on the Overview and the researcher page (pizzas vs sessions), task_version column |
 | 2026-10-27 | Claude Code (cloud) | 0.13.1 (task): hold-to-resize easier (20 px drift allowed, 0.3 s delay, ring and "let go" tip, clearer instructions, tip on click) after participants got stuck on it |
 | 2026-10-27 | Claude Code (cloud) | 0.13.0 (task): nutrition on request (reveal button, end dialog with bake / changed my mind), reveal measures, participant-only view |

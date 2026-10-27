@@ -5,7 +5,7 @@
 //   (.github/workflows/reports.yml -> tools/cloud_sync.py) and kept in R2 (env.FILES), one set per study and one for
 //   all studies; this Worker serves them and asks GitHub for a rebuild when sessions finish (or on "Rebuild now").
 // Static files (index.html = server/participate.html, pizza-builder.js) are in ./public (env.ASSETS).
-import { Store, STAGES, ACTIVITY, randomToken, storageUsed, fileSizes, countOp, opsThisMonth } from './store.js';
+import { Store, STAGES, ACTIVITY, ANALYSIS, randomToken, storageUsed, fileSizes, countOp, opsThisMonth } from './store.js';
 import { adminState, deniedPage, notBuilt, ALL_KEY } from './admin.js';
 import ADMIN_HTML from '../../server/admin.html';      // the researcher page, shared with server/server.py
 import { STUDY_RE, STUDY_KEYS, FILTER_KEYS, loadStudy, studies, scopeName } from './config.js';
@@ -129,7 +129,7 @@ class Request_ {
     if (scope[0] === 'study') f.study = scope[1];
     else if (f.study === '' || f.study === 'all' || !(f.study === 'main' || STUDY_RE.test(f.study))) f.study = null;
     else f.study = f.study === 'main' ? '' : f.study;
-    if (!STAGES.includes(f.stage) && !ACTIVITY.includes(f.stage)) f.stage = '';
+    if (!STAGES.includes(f.stage) && !ACTIVITY.includes(f.stage) && !ANALYSIS.includes(f.stage)) f.stage = '';
     for (const k of ['since', 'until']) if (!/^\d{4}-\d\d-\d\d$/.test(f[k])) f[k] = '';
     return f;
   }
@@ -199,7 +199,7 @@ class Request_ {
     return json({ ok: res.ok }, res.ok ? 200 : 404);
   }
 
-  async queueBuild() {
+  async queueBuild(why = 'A session finished') {
     // a session finished: queue one reports build on GitHub, unless one is already queued or waiting (it will include
     // this session: it waits for 5 quiet minutes after the last save before building). One D1 read and, at most, one
     // request to GitHub per finished session; nothing else runs on Cloudflare.
@@ -208,7 +208,7 @@ class Request_ {
     try { st = JSON.parse((await this.store.meta('reports_status')) || '{}'); } catch (e) { st = {}; }
     if (['queued', 'waiting'].includes(st.state) && Date.now() - Date.parse(st.updated) < 40 * 60 * 1000) return;
     const t = new Date().toISOString().slice(0, 19) + 'Z';
-    st = { ...st, state: 'queued', updated: t, step: 'Queued: a session finished', log: (st.log || []).concat([t.slice(11, 19) + '  A session finished: build queued.']).slice(-40) };
+    st = { ...st, state: 'queued', updated: t, step: 'Queued: ' + why.toLowerCase(), log: (st.log || []).concat([t.slice(11, 19) + '  ' + why + ': build queued.']).slice(-40) };
     await this.store.setMeta('reports_status', JSON.stringify(st));
     await dispatchBuild(this.env, false);
   }
@@ -300,7 +300,7 @@ class Request_ {
     }
     if (route === '/admin/sessions.csv') {
       const { rows } = await st.query(f, this.arg('sort', 'started'), this.arg('dir', 'desc') !== 'asc', 1e9);
-      const cols = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'seconds', 'restarts', 'consent', 'n_pieces', 'neuro'];
+      const cols = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'inclusion'];
       let out = csvRow(cols.map((c) => (c === 'grp' ? 'group' : c)));
       for (const r of rows) out += csvRow(cols.map((c) => (c === 'study' && !r[c] ? 'main' : r[c] === null ? 'NA' : r[c])));
       return this.download(out, 'text/csv; charset=utf-8', `sessions-${filterSlug(f) || 'all'}-${stamp()}.csv`);
@@ -333,6 +333,17 @@ class Request_ {
 
   async post(route, scope, f) {
     let msg = '';
+    if (route === '/admin/api/inclusion') {
+      // the Sessions tab: analyse this session or not. Marks a full rebuild as wanted and queues one build, which waits
+      // until nobody has saved for 5 minutes: several choices in a row are one build.
+      const form = Object.fromEntries(new URLSearchParams((await this.req.text()).slice(0, 2000)));
+      const ok = await this.store.setInclusion(form.pid || '', form.value || '', scope[0] === 'study' ? scope[1] : null);
+      if (ok) {
+        await this.store.setMeta('reports_wanted', new Date().toISOString().slice(0, 19) + 'Z');
+        await this.queueBuild('Inclusion changed');
+      }
+      return json({ ok }, ok ? 200 : 404);
+    }
     const form = route === '/admin/reports' ? {} : Object.fromEntries(new URLSearchParams((await this.req.text()).slice(0, 10000)));
     if (route === '/admin/reports') {
       msg = await this.requestReports(true);

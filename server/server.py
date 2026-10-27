@@ -39,7 +39,7 @@ import zipfile
 from html import escape
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from store import Store, SORTABLE, STAGES, ACTIVITY  # noqa: E402
+from store import Store, SORTABLE, STAGES, ACTIVITY, ANALYSIS  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                          # the repository root
@@ -303,7 +303,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             f['study'] = None
         else:
             f['study'] = '' if f['study'] == 'main' else f['study']
-        if f['stage'] not in STAGES + ACTIVITY:
+        if f['stage'] not in STAGES + ACTIVITY + ANALYSIS:
             f['stage'] = ''
         for k in ('since', 'until'):
             if not re.match(r'^\d{4}-\d\d-\d\d$', f[k]):
@@ -393,7 +393,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             rows, _, _ = st.query(f, self.arg('sort', 'started'), self.arg('dir', 'desc') != 'asc', limit=10 ** 9)
             buf = io.StringIO()
             w = csv.writer(buf)
-            cols = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'seconds', 'restarts', 'consent', 'n_pieces', 'neuro']
+            cols = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'inclusion']
             w.writerow(['group' if c == 'grp' else c for c in cols])
             for r in rows:
                 w.writerow(['main' if c == 'study' and not r[c] else ('NA' if r[c] is None else r[c]) for c in cols])
@@ -468,6 +468,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(403, self.denied_page())
         f = self.filters(scope)
         msg = ''
+        if route == '/admin/api/inclusion':                 # the Sessions tab: analyse this session or not (the reports rebuild when opened)
+            form = self.body_form()
+            ok = self.study.store.set_inclusion(form.get('pid', ''), form.get('value', ''), scope[1] if scope[0] == 'study' else None)
+            return self.send(200 if ok else 404, json.dumps({'ok': ok}), 'application/json')
         if route == '/admin/reports':
             built, msg = self.study.build_reports(f, force=True)
             msg = msg or 'Reports are up to date.'

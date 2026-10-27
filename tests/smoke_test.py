@@ -190,6 +190,7 @@ def cloudflare_checks(tmp, fields):
         rows = list(csv.DictReader(io.StringIO(http('GET', base + '/admin/sessions.csv?key=' + key)[1].decode('utf-8-sig'))))
         check({r['study'] for r in rows} == {'main', 'pilot-asd'} and len(rows) == 3, 'Worker: session list (.csv)')
         skey = researcher_access_checks(base, key, 'pilot-asd', 2, 3, 'CFSMOKE1', 'Worker: ')
+        inclusion_checks(base, key, skey, 'pilot-asd', 'CFSMOKE1', 'Worker: ')
         check(all(http(m, base + p + '?key=' + skey, b)[0] == 404 for m, p, b in
                   [('GET', '/admin/export', None), ('GET', '/admin/signatures', None), ('POST', '/admin/study-key', {})]),
               'Worker: a study\'s researcher link cannot export everything or change links')
@@ -266,6 +267,32 @@ def cloudflare_checks(tmp, fields):
     finally:
         os.killpg(srv.pid, 15)
         srv.wait(timeout=20)
+
+
+def post_form(url, form):
+    req = urllib.request.Request(url, method='POST', data=urllib.parse.urlencode(form).encode(),
+                                 headers={'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json'})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+def inclusion_checks(base, key, skey, study, other_pid, label):
+    """The Sessions tab's Analysis choice: set by a researcher (not by a participant's save), shown and filtered."""
+    row = api(base, 'sessions', key, study=study)['rows'][0]
+    pid = row['pid']
+    http('POST', base + '/api/save', {'pid': pid, 'stage': row['stage'], 'fields': {'inclusion': 'exclude'}})
+    find = lambda **f: next((r for r in api(base, 'sessions', key, study=study, **f)['rows'] if r['pid'] == pid), None)
+    check(find()['inclusion'] == '', label + 'a participant\'s save cannot set whether they are analysed')
+    code, body = post_form(base + '/admin/api/inclusion?key=' + key, {'pid': pid, 'value': 'exclude'})
+    check(code == 200 and json.loads(body)['ok'] and find()['inclusion'] == 'exclude' and find(stage='left_out') and not find(stage='included'),
+          label + 'Sessions tab: a researcher excludes a session; it shows, and the "left out" filter finds it')
+    code, _ = post_form(base + '/admin/api/inclusion?key=' + skey, {'pid': other_pid, 'value': 'include'})
+    check(code == 404, label + 'a study\'s researcher link cannot change a session of another study')
+    code, _ = post_form(base + '/admin/api/inclusion?key=' + skey, {'pid': pid, 'value': 'auto'})
+    check(code == 200 and find()['inclusion'] == '', label + 'back to automatic')
 
 
 def api(base, path, key, **params):
@@ -359,6 +386,17 @@ def main():
         check(dc.get('own') == 2 and dc.get('left_out') == 1 and dc.get('built_sessions') == 2 and dc.get('ok') is True
               and 'Data check' in open(os.path.join(pout, 'dashboard.html'), encoding='utf-8').read(),
               'data check: analysed own pizzas match the sessions past the build, shown on the overview')
+        # the researcher's choice on the Sessions tab overrides the rule: keep the unfinished pizza in, leave a finished one out
+        for name, v in (('p0', 'exclude'), ('p2', 'include')):
+            d = json.load(open(os.path.join(part, name + '.json'), encoding='utf-8'))
+            d['inclusion'] = v
+            json.dump(d, open(os.path.join(part, name + '.json'), 'w', encoding='utf-8'))
+        ok = run('analysis/analyse.py', *sorted(glob.glob(os.path.join(part, '*.json'))), '--out', pout)
+        prow = list(csv.DictReader(open(os.path.join(pout, 'participants.csv'), encoding='utf-8'))) if ok else []
+        dc = json.load(open(os.path.join(pout, 'data_check.json'), encoding='utf-8')) if ok else {}
+        check(ok and sorted((r['pid'], r['inclusion']) for r in prow if r['build'] == 'pz') == [('p1', 'auto'), ('p2', 'researcher')]
+              and dc.get('ok') is True and dc.get('researcher_excluded') == ['p0'],
+              'a researcher\'s include / exclude overrides the automatic rule, and the data check still adds up')
         for col in ('diet_class', 'atypicality_pct', 'mirror_match', 'mirror_score', 'rot_score', 'n_on_crust', 'face_detected', 'size_match_same', 't_submit', 'cluster',
                     'n_strong', 'n_safe_foods', 'n_sensory_reasons', 'neurotype', 'nd_identified', 'eat_any', 'self_picky', 'age_band',
                     'mv_straight', 'mv_pauses', 'mv_dwell', 'group', 'nut_kcal', 'nut_salt_g', 'top_kcal', 'nutrition_panel', 'n_adjustments',
@@ -488,6 +526,7 @@ def main():
                   and {r['study'] for r in rows} == {'main', 'pilot-asd'}, 'session list (.csv) holds every session')
             # each study's researcher link sees, analyses and exports that study only
             skey = researcher_access_checks(base, 'smoke-key', 'pilot-asd', 3, 5, 'SMOKE001', '')
+            inclusion_checks(base, 'smoke-key', skey, 'pilot-asd', 'SMOKE001', '')
             code, z = http('GET', base + '/admin/r.zip?key=' + skey)
             pc = list(csv.DictReader(io.StringIO(zipfile.ZipFile(io.BytesIO(z)).read('pizza-data/participants.csv').decode('utf-8'))))
             check(len(pc) == 3 and {r['study'] for r in pc} == {'pilot-asd'}, 'a study\'s researcher link downloads that study only')

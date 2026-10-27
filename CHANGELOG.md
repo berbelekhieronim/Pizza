@@ -5,6 +5,17 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Sessions tab: choose which sessions are analysed**
+- A new **Analysis** column shows each session's status: Included, Left out (not finished), or No pizza.
+- A dropdown overrides it: **Auto** (the rule: analysed once they pressed "I'm done"), **Include** (e.g. keep a pizza
+  someone nearly finished) or **Exclude** (e.g. a test run or a participant you know should not count).
+- The choice is stored with the session (field `inclusion`, which a participant's save can never set), the reports
+  rebuild (on Cloudflare: one queued build, so several choices in a row are one build), and the analysis applies it:
+  excluded sessions go to `excluded.csv` with the reason "excluded by the researcher"; kept-in unfinished pizzas have
+  `inclusion` = researcher in `participants.csv`. The Data check lists both.
+- The "Where" filter has "pizza in the analysis" and "pizza left out of the analysis"; the session list download has
+  an `inclusion` column.
+
 **Only finished pizzas are analysed, with a data check** (the reports counted more pizzas than "built a pizza")
 - **Why the numbers differed:** the task saves the pizza every few seconds while it is being built, so a participant
   who stopped part-way left a half-built pizza. The reports analysed it as if it were a choice, and also counted the

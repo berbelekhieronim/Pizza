@@ -1813,14 +1813,25 @@ STAGE_LABELS = [('intro', 'reading the intro'), ('practice', 'practice'), ('buil
                 ('followup', 'questions'), ('done', 'finished')]
 
 
+def inclusion_choice(row):
+    """'include' or 'exclude' when a researcher chose it for this session on the Sessions tab, else '' (automatic)."""
+    v = (field(row, 'inclusion') or '').strip()
+    return v if v in ('include', 'exclude') else ''
+
+
 def data_check(rows, builds, people, left_out):
     """Do the sessions and the analysed pizzas add up? Counts for the Data check section and the researcher page."""
     own, typ = builds[0].rstrip('_'), (builds[1].rstrip('_') if len(builds) > 1 else None)
     mine = [p for p in people if p['build'] == own]
     staged = [r for r in rows if r.get('stage')]            # study-server sessions know where the participant got to
     stages = Counter(r['stage'] for r in staged)
+    choices = {r['_pid']: inclusion_choice(r) for r in rows}
     out = {'sessions': len(rows), 'own': len(mine), 'typical': sum(p['build'] == typ for p in people),
            'left_out': sum(x['build'] == own for x in left_out), 'left_out_typical': sum(x['build'] == typ for x in left_out),
+           'researcher_excluded': sorted(p for p, c in choices.items() if c == 'exclude'),
+           'left_out_unfinished': sum(x['build'] == own and x['reason'] == 'not finished' for x in left_out),
+           'left_out_researcher': sum(x['build'] == own and x['reason'] != 'not finished' for x in left_out),
+           'researcher_included': sorted(p for p, c in choices.items() if c == 'include'),
            'no_pizza': sum(1 for r in rows if loads(field(r, builds[0] + 'final')) is None),
            'stages': {k: stages.get(k, 0) for k, _ in STAGE_LABELS if stages.get(k)},
            'flags': {k: sorted(p['pid'] for p in mine if p.get(k)) for k in ('flag_fast', 'flag_empty', 'flag_tab_away')},
@@ -1828,11 +1839,15 @@ def data_check(rows, builds, people, left_out):
            'versions': dict(Counter(str(p.get('task_version') or '?') for p in mine)),
            'test_sessions': sum((r.get('study') or '') == 'tests' for r in rows)}
     if staged:
-        out['built_sessions'] = sum(r['stage'] in LATER_STAGES for r in staged)
-        out['ok'] = out['built_sessions'] == out['own'] and len(staged) == len(rows)
+        # the sessions whose own pizza should be in the analysis: past the build, or kept in by the researcher; less those
+        # the researcher left out
+        has_pizza = {r['_pid'] for r in rows if loads(field(r, builds[0] + 'final')) is not None}
+        expected = {r['_pid'] for r in staged if choices[r['_pid']] != 'exclude' and (r['stage'] in LATER_STAGES or (choices[r['_pid']] == 'include' and r['_pid'] in has_pizza))}
         mine_ids = {p['pid'] for p in mine}
-        out['built_without_pizza'] = sorted(r['_pid'] for r in staged if r['stage'] in LATER_STAGES and r['_pid'] not in mine_ids)
-        out['pizza_without_built'] = sorted(p for p in mine_ids if p in {r['_pid'] for r in staged if r['stage'] not in LATER_STAGES})
+        out['built_sessions'] = len(expected)
+        out['ok'] = expected == mine_ids and len(staged) == len(rows)
+        out['built_without_pizza'] = sorted(expected - mine_ids)
+        out['pizza_without_built'] = sorted(mine_ids - expected)
     return out
 
 
@@ -1845,8 +1860,15 @@ def data_check_html(c):
     items = [li('<b>%d sessions</b> in this data%s.' % (c['sessions'], ('. Where each one is now: ' + esc(st)) if st else '')),
              li('<b>%d own pizzas analysed</b>: everyone who pressed "I\'m done" on their own pizza. Every chart, test and download uses these.' % c['own'])]
     if c['left_out']:
-        items.append(li('<b>%d builds left out</b>: saved part-way, but the participant stopped before "I\'m done", so the pizza is not a finished choice '
-                        '(listed in <code>excluded.csv</code>).' % c['left_out']))
+        parts = []
+        if c['left_out_unfinished']:
+            parts.append('%d saved part-way, but the participant stopped before "I\'m done", so the pizza is not a finished choice' % c['left_out_unfinished'])
+        if c['left_out_researcher']:
+            parts.append('%d left out by the researcher (%s)' % (c['left_out_researcher'], esc(', '.join(c['researcher_excluded']))))
+        items.append(li('<b>%d builds left out</b>: %s. They are listed in <code>excluded.csv</code>; change this per session on the Sessions tab of '
+                        'the researcher page.' % (c['left_out'], '; '.join(parts))))
+    if c['researcher_included']:
+        items.append(li('Kept in by the researcher (overriding the automatic rule): %s.' % esc(', '.join(c['researcher_included']))))
     if c['no_pizza']:
         items.append(li('%d sessions never placed a topping on their own pizza (stopped in the intro or practice, or just opened the link).' % c['no_pizza']))
     if c['typical'] or c['left_out_typical']:
@@ -3117,8 +3139,10 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             if final is None:
                 continue
             summary = loads(field(row, prefix + 'summary'), {}) or {}
-            if summary.get('finished') is False:
-                left_out.append({'pid': pid, 'build': prefix.rstrip('_'), 'reason': 'not finished', 'stage': row.get('stage') or None,
+            choice = inclusion_choice(row)                # the researcher's choice on the Sessions tab, if any
+            reason = 'excluded by the researcher' if choice == 'exclude' else 'not finished' if summary.get('finished') is False and choice != 'include' else None
+            if reason:
+                left_out.append({'pid': pid, 'build': prefix.rstrip('_'), 'reason': reason, 'stage': row.get('stage') or None,
                                  'n_pieces': len(final), 'last_saved': row.get('updated') or None, 'study': row.get('study') or None})
                 continue
             events = loads(field(row, prefix + 'events'), []) or []
@@ -3225,6 +3249,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             rec['flag_fast'] = int(rec['t_finish'] is not None and rec['t_finish'] < 15000)
             rec['flag_empty'] = int(n == 0)
             rec['task_version'] = summary.get('v')
+            rec['inclusion'] = 'researcher' if choice == 'include' else 'auto'
             try:                                   # study server: times the participant came back and restarted a part
                 rec['restarts'] = int(field(row, 'restarts') or 0)
             except ValueError:
