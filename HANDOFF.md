@@ -55,6 +55,7 @@ preview.js: the demo's live summary; re-implements face detection, symmetry and 
 | `cloudflare/src/worker.js`, `store.js`, `admin.js`, `config.js` | the Cloudflare Worker: the same routes as `server/server.py` on D1/R2, plus Turnstile and rate limits |
 | `cloudflare/deploy.py`, `cloudflare/wrangler.json`, `cloudflare/migrations/` | deploy (creates D1/R2 the first time), Worker config, D1 schema (= `store.SCHEMA`) |
 | `tools/cloud_sync.py` | the reports job for Cloudflare: download sessions → analyse per study → upload to R2 via the Worker |
+| `server/admin.html` | the researcher page (study chooser, one view per study with tabs), served by both servers |
 | `server/store.py` | the SQLite store: schema, saving, filters/sorting, personal and researcher links, per-study copies, import of the old JSON files |
 | `preview.js`, `index.html` | demo page and its captured-data preview |
 | `qualtrics/*.js` | paste-in code per survey page (practice, build, build-typical, follow-up) |
@@ -125,6 +126,9 @@ push, check the GitHub Actions run, and republish the demo artifact.
   rather than scrolling the page (everything in one window).
 - **Participant-only view (user's request).** Participants see the task only: no part counter, and no data preview or
   steps in the demo unless *Researcher view* is ticked.
+- **One researcher page for both servers** (`server/admin.html`, a small client app; data from `/admin/api/state` and
+  `/admin/api/sessions`), so the page is written once. Reports are shown inside it per study scope. Scopes: owner
+  (password), all (researcher link for all studies, `study_keys` row `*`), study.
 - **Two servers, one behaviour.** `server/server.py` (Codespace, local) and `cloudflare/src/` (Cloudflare) must stay
   in step: same routes, page and schema. The smoke test runs the same kinds of checks against both.
 - **Standard library only** (Python 3.10+, base R, no JS dependencies). The repository must run in a fresh Codespace,

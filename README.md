@@ -240,7 +240,8 @@ participants saving at once, and is read directly by R, Python, Excel (via ODBC)
 saved as files by servers before 0.11.0 (`server/data/participants/*.json`, `invites.json`) are imported on the first
 start; the old files stay where they were.
 
-The researcher page is a session browser:
+The researcher page starts with a **study chooser**; each study then opens in one view with tabs (Overview, Sessions, Explore,
+Profiles, Symmetry, Methods, Links & data). Its session list:
 - **Filter** by study, group, recruitment source, condition, where people are (intro … finished), what they say they
   are, start date and participant id; click a column heading to **sort**; 100 sessions per page.
 - **Everything below the filter follows it**: the counts, the reports, and the exports – *Download for R* (all tables,
@@ -248,7 +249,8 @@ The researcher page is a session browser:
   *Raw sessions (.zip)* and *Database (.sqlite)* (a copy of the database; with a study chosen, that study only).
 
 **Who sees what.** The link printed in the terminal is the **owner's**: all studies, every export, and the researcher
-links. Each study has its own **researcher link** (*Studies and links*), which opens the same page limited to that
+links. The **researcher link for all studies** (Links & data) sees every study and export but cannot change links: use it
+day to day instead of the owner's password. Each study has its own **researcher link** (*Studies and links*), which opens the same page limited to that
 study: its sessions, reports, exports and personal links, nothing else. Give it to the people running that study. If a
 link leaks, **New researcher link** replaces it (the old one stops working at once). Owners can also run the analysis on
 the database itself:

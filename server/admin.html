@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Pizza study · researcher</title>
+<!-- The researcher page of both study servers (server/server.py and the Cloudflare Worker): a study chooser, then
+     one view per study with tabs. Data comes from /admin/api/state and /admin/api/sessions; reports are the
+     analysis's own pages, shown inside the view. The key stays in the address (it is the page's password). -->
+<style>
+:root{--bg:#f6f2ed;--fg:#2a2421;--muted:#6e635b;--line:#dcd2c7;--panel:#fff;--soft:#faf7f3;--accent:#a8361d;--accent-ink:#fff;--ok:#2f7d4f;--warn:#9a6a00}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#1d1916;--fg:#eee6de;--muted:#b0a398;--line:#3a322c;--panel:#26211d;--soft:#2c2622;--accent:#e0765b;--accent-ink:#1d1916;--ok:#6cc08f;--warn:#e0b44f;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:var(--accent)}
+.top{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
+.bar{max-width:1240px;margin:0 auto;padding:10px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.brand{font-weight:700;letter-spacing:.01em}
+.who{color:var(--muted);font-size:.85rem}
+.bar select{margin-left:auto}
+.wrap{max-width:1240px;margin:0 auto;padding:16px}
+h1{font-size:1.35rem;margin:4px 0 4px}h2{font-size:1.05rem;margin:0 0 10px}
+.muted{color:var(--muted)}.small{font-size:.85rem}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:12px 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.scard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;text-decoration:none;color:var(--fg)}
+.scard:hover{border-color:var(--accent)}
+.scard .name{font-weight:700;font-size:1.05rem}
+.stats{display:flex;gap:16px;flex-wrap:wrap}
+.stat b{display:block;font-size:1.25rem}.stat span{color:var(--muted);font-size:.8rem}
+.head{display:flex;flex-wrap:wrap;gap:8px 24px;align-items:flex-end;justify-content:space-between}
+.head h1{margin:0}.head p{margin:2px 0 0}
+.kpis{display:flex;flex-wrap:wrap;gap:8px}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:5px 12px;min-width:92px}
+.kpi b{display:block;font-size:1.1rem}.kpi span{color:var(--muted);font-size:.75rem}
+.frame{position:relative}.frame .loading{position:absolute;top:24px;left:24px;right:24px;color:var(--muted);font-size:.9rem;pointer-events:none}
+.tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-top:8px}
+.tabs button{font:inherit;background:none;border:0;border-bottom:3px solid transparent;padding:8px 12px;color:var(--muted);cursor:pointer}
+.tabs button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent);font-weight:600}
+.panel[hidden]{display:none}
+iframe.report{width:100%;height:calc(100vh - 190px);min-height:560px;border:1px solid var(--line);border-radius:12px;background:#f6f2ed}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+button,.btn{font:inherit;padding:7px 13px;border-radius:9px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);cursor:pointer;text-decoration:none;display:inline-block}
+.btn.alt,button.alt{background:transparent;color:var(--fg);border-color:var(--line)}
+button.small{padding:3px 10px;font-size:.85rem}
+input,select{font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+label{font-size:.85rem;color:var(--muted)}
+.filters{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:end}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th a{color:var(--fg);text-decoration:none;cursor:pointer}
+.tablewrap{overflow-x:auto}
+.links{display:grid;grid-template-columns:max-content minmax(0,1fr) max-content;gap:6px 8px;align-items:center}
+.links .l{color:var(--muted);font-size:.85rem}.links input{width:100%;font-size:.85rem}
+.note{background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:10px 0;white-space:pre-wrap}
+.pill{display:inline-block;font-size:.75rem;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.pill.on{border-color:var(--ok);color:var(--ok)}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}
+@media (max-width:600px){.bar select{margin-left:0}iframe.report{height:80vh}}
+</style>
+</head>
+<body>
+<div class="top"><div class="bar">
+  <span class="brand">Pizza study</span><span class="who" id="who"></span>
+  <select id="pick" aria-label="Study" hidden></select>
+</div></div>
+<div class="wrap">
+  <div id="msg" class="note" hidden></div>
+  <div id="denied" hidden>
+    <h1>Researcher page</h1>
+    <p>This page needs a researcher link, which ends in <code>/admin?key=…</code>. Ask the study owner for one: there is a
+      link for all studies and one for each study.</p>
+  </div>
+
+  <!-- 1. the study chooser -->
+  <section id="chooser" hidden>
+    <h1>Choose a study</h1>
+    <p class="muted small">Every study keeps its own sessions, reports and links. Test runs belong in <b>tests</b>.</p>
+    <div class="grid" id="cards"></div>
+  </section>
+
+  <!-- 2. one study -->
+  <section id="view" hidden>
+    <div class="head"><div><h1 id="title"></h1><p class="muted small" id="desc"></p></div><div class="kpis" id="kpis"></div></div>
+    <nav class="tabs" role="tablist" id="tabs">
+      <button role="tab" data-tab="overview">Overview</button>
+      <button role="tab" data-tab="sessions">Sessions</button>
+      <button role="tab" data-tab="explore">Explore</button>
+      <button role="tab" data-tab="profiles">Profiles</button>
+      <button role="tab" data-tab="symmetry">Symmetry</button>
+      <button role="tab" data-tab="methods">Methods</button>
+      <button role="tab" data-tab="links">Links &amp; data</button>
+    </nav>
+
+    <div class="panel" data-panel="overview">
+      <div class="row small"><span id="rstatus" class="muted"></span>
+        <form method="post" id="rebuild" style="margin:0"><button class="alt small" type="submit">Rebuild reports</button></form></div>
+      <div class="frame"><p class="loading"></p><iframe class="report" data-src="dashboard.html" title="Overview report"></iframe></div>
+    </div>
+
+    <div class="panel" data-panel="sessions">
+      <div class="card">
+        <form class="filters" id="filters">
+          <label>Group<br><select name="grp"></select></label>
+          <label>Source<br><select name="source"></select></label>
+          <label>Where<br><select name="stage"></select></label>
+          <label>Says they are<br><select name="neuro"></select></label>
+          <label>Condition<br><select name="cond"></select></label>
+          <label>Started from<br><input type="date" name="since"></label>
+          <label>to<br><input type="date" name="until"></label>
+          <label>Participant id<br><input name="q" size="10"></label>
+          <button type="submit">Show</button><button type="reset" class="alt">Clear</button>
+        </form>
+        <p style="margin:10px 0 4px"><span id="count"></span> <a id="csv" class="small">Download this list (.csv)</a></p>
+        <div class="tablewrap"><table id="table"></table></div>
+        <div class="row" id="pager"></div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="explore"><div class="frame"><p class="loading"></p><iframe class="report" data-src="explore.html" title="Explore patterns"></iframe></div></div>
+    <div class="panel" data-panel="profiles"><div class="frame"><p class="loading"></p><iframe class="report" data-src="profiles.html" title="Profiles and clusters"></iframe></div></div>
+    <div class="panel" data-panel="symmetry"><div class="frame"><p class="loading"></p><iframe class="report" data-src="arrangement.html" title="Symmetry and contact"></iframe></div></div>
+    <div class="panel" data-panel="methods"><div class="frame"><p class="loading"></p><iframe class="report" data-src="methods" title="Methods"></iframe></div></div>
+
+    <div class="panel" data-panel="links">
+      <div class="two">
+        <div class="card"><h2>Participant links</h2><div id="plinks"></div></div>
+        <div class="card"><h2>Data for this view</h2>
+          <div class="row">
+            <a class="btn" id="dl-r">Download for R (.zip)</a>
+            <a class="btn alt" id="dl-sessions">Session list (.csv)</a>
+            <a class="btn alt" id="dl-raw">Raw sessions (.zip)</a>
+            <a class="btn alt" id="dl-db">Database (.sqlite)</a>
+          </div>
+          <p class="muted small" id="dlnote"></p>
+          <p class="muted small" id="storage"></p>
+        </div>
+      </div>
+      <div class="card" id="invcard"><h2>Personal links</h2>
+        <p class="muted small">One link per participant: it records study, group and source, and resumes their session if opened again.</p>
+        <form method="post" id="invform" class="filters">
+          <label>Study<br><select name="study" id="invstudy"></select></label>
+          <label>Group<br><input name="group" size="8" placeholder="e.g. ASD"></label>
+          <label>Recruitment source<br><input name="source" size="22" placeholder="e.g. autism charity newsletter"></label>
+          <label>Note<br><input name="note" size="14" placeholder="optional"></label>
+          <label>How many<br><input name="count" type="number" min="1" max="500" value="10" style="width:5em"></label>
+          <button type="submit">Make personal links</button>
+        </form>
+        <p class="small" id="invcounts"></p>
+      </div>
+      <div class="card" id="rlinks" hidden><h2>Researcher links</h2>
+        <p class="muted small">Give these instead of your password. Each opens this page without the owner's controls; replace one if it leaks.</p>
+        <div id="rlinklist"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var P = new URLSearchParams(location.search);
+  var KEY = P.get('key') || '';
+  var S = null;                                        // the state from /admin/api/state
+  var view = { sort: 'started', dir: 'desc', page: 1, filters: {} };
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function q(extra) {
+    var o = { key: KEY };
+    if (S && S.study) o.study = S.study;
+    Object.keys(extra || {}).forEach(function (k) { if (extra[k] !== '' && extra[k] != null) o[k] = extra[k]; });
+    return new URLSearchParams(o).toString();
+  }
+  function api(path, extra) {
+    return fetch('/admin/' + path + '?' + q(extra), { headers: { Accept: 'application/json' } }).then(function (r) {
+      if (r.status === 403) throw new Error('denied');
+      return r.json();
+    });
+  }
+  function mins(s) { return s == null ? '–' : (s / 60).toFixed(s < 600 ? 1 : 0) + ' min'; }
+  function when(t) { return t ? t.replace('T', ' ').slice(0, 16) : '–'; }
+  function pct(a, b) { return b ? Math.round(100 * a / b) + '%' : '–'; }
+
+  function setUrl(study, tab) {
+    var o = new URLSearchParams(location.search);
+    o.delete('msg');
+    if (study) o.set('study', study); else o.delete('study');
+    history.replaceState(null, '', '/admin?' + o.toString() + (tab ? '#' + tab : ''));
+  }
+
+  function load(study) {
+    var extra = study ? { study: study } : {};
+    var o = { key: KEY }; if (study) o.study = study;
+    return fetch('/admin/api/state?' + new URLSearchParams(o), { headers: { Accept: 'application/json' } }).then(function (r) {
+      if (r.status === 403) throw new Error('denied');
+      return r.json();
+    }).then(function (s) { S = s; render(); });
+  }
+
+  function render() {
+    var scope = S.scope;
+    $('who').textContent = scope === 'owner' ? 'owner' : scope === 'all' ? 'researcher · all studies' : 'researcher · study ' + S.scope_study;
+    var pick = $('pick');
+    if (scope !== 'study') {
+      pick.hidden = false;
+      pick.innerHTML = '<option value="">Choose a study…</option><option value="all">All studies together</option>'
+        + S.studies.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.id) + ' (' + s.n + ')</option>'; }).join('');
+      pick.value = S.study || '';
+    }
+    if (S.msg && !render.shown) { $('msg').textContent = S.msg; $('msg').hidden = false; render.shown = true; }
+    if (!S.study) return chooser();
+    studyView();
+  }
+
+  function chooser() {
+    $('view').hidden = true; $('chooser').hidden = false;
+    var cards = S.studies.map(function (s) {
+      return '<a class="scard" href="?' + new URLSearchParams({ key: KEY, study: s.id }) + '"><span class="name">' + esc(s.id) + '</span>'
+        + '<span class="muted small">' + esc(s.description) + '</span>'
+        + '<span class="stats"><span class="stat"><b>' + s.n + '</b><span>sessions</span></span><span class="stat"><b>' + s.done + '</b><span>finished</span></span>'
+        + '<span class="stat"><b>' + esc(when(s.last).slice(0, 10)) + '</b><span>last started</span></span></span>'
+        + '<span class="small muted">Personal links: ' + s.invites[0] + ' made, ' + s.invites[1] + ' opened, ' + s.invites[2] + ' finished'
+        + (s.nutrition_reveal ? ' · <span class="pill on">nutrition button</span>' : '') + (s.nutrition_panel ? ' · <span class="pill on">nutrition panel</span>' : '') + '</span></a>';
+    });
+    cards.push('<a class="scard" href="?' + new URLSearchParams({ key: KEY, study: 'all' }) + '"><span class="name">All studies together</span>'
+      + '<span class="muted small">Every session; the analysis compares studies and recruitment sources.</span>'
+      + '<span class="stats"><span class="stat"><b>' + S.all.n + '</b><span>sessions</span></span><span class="stat"><b>' + S.all.done + '</b><span>finished</span></span></span></a>');
+    $('cards').innerHTML = cards.join('');
+  }
+
+  function current() {
+    if (S.study === 'all') return null;
+    return S.studies.filter(function (s) { return s.id === S.study; })[0] || null;
+  }
+
+  function studyView() {
+    $('chooser').hidden = true; $('view').hidden = false;
+    var s = current(), all = S.study === 'all';
+    var d = all ? S.all : s;
+    $('title').textContent = all ? 'All studies together' : s.id;
+    $('desc').textContent = all ? 'Every session, all studies.' : s.description;
+    $('kpis').innerHTML = [
+      [d.n, 'sessions started'], [d.done, 'finished'], [pct(d.done, d.n), 'completion'], [mins(d.median_seconds), 'median time (finished)'],
+      [when(d.last).slice(0, 10), 'last started']
+    ].map(function (k) { return '<div class="kpi"><b>' + esc(k[0]) + '</b><span>' + esc(k[1]) + '</span></div>'; }).join('');
+    var r = S.reports;
+    $('rstatus').textContent = r ? 'Reports built ' + when(r.when) + ' UTC from ' + r.n + ' pizza' + (r.n === 1 ? '' : 's') + (r.fresh === false ? '; newer sessions have arrived since (rebuilt a few minutes after a session finishes).' : '.')
+      : (S.reports_build_on_open ? 'Reports are built when opened.' : 'Not built yet: the reports are made a few minutes after the first session finishes.');
+    $('rebuild').action = '/admin/reports?' + q({ tab: 'overview' });
+    // links & data
+    var studiesHere = all ? S.studies : [s];
+    $('plinks').innerHTML = studiesHere.map(function (st) {
+      return (all ? '<p class="small"><b>' + esc(st.id) + '</b></p>' : '') + '<div class="links">' + st.links.map(function (l) {
+        return '<span class="l">' + esc(l[0]) + '</span><input readonly value="' + esc(l[1]) + '"><button type="button" class="alt small copy">Copy</button>';
+      }).join('') + '</div>';
+    }).join('');
+    ['r', 'raw', 'db'].forEach(function (k) { $('dl-' + k).href = '/admin/' + { r: 'r.zip', raw: 'data.zip', db: 'database.sqlite' }[k] + '?' + q(); });
+    $('dl-sessions').href = '/admin/sessions.csv?' + q();
+    $('dlnote').textContent = 'These cover ' + (all ? 'all studies' : 'study ' + s.id) + '. The R download holds every table, variables.csv, load_pizza.R and the raw sessions.';
+    $('storage').textContent = S.storage ? S.storage : '';
+    $('invstudy').innerHTML = studiesHere.map(function (st) { return '<option value="' + esc(st.id) + '">' + esc(st.id) + '</option>'; }).join('');
+    $('invform').action = '/admin/invites?' + q({ tab: 'links' });
+    $('invcounts').innerHTML = studiesHere.map(function (st) {
+      return (all ? esc(st.id) + ': ' : '') + st.invites[0] + ' made, ' + st.invites[1] + ' opened, ' + st.invites[2] + ' finished · '
+        + '<a href="/admin/invites.csv?' + new URLSearchParams({ key: KEY, study: st.id }) + '">Personal links (.csv)</a>';
+    }).join('<br>');
+    if (S.scope === 'owner') {
+      $('rlinks').hidden = false;
+      var rows = (all ? [] : [[s.id, 'This study only', s.researcher_link]]).concat([['all', 'All studies (no owner controls)', S.global_link]]);
+      $('rlinklist').innerHTML = rows.map(function (x) {
+        return '<div class="links" style="margin-bottom:6px"><span class="l">' + esc(x[1]) + '</span><input readonly value="' + esc(x[2]) + '">'
+          + '<span><button type="button" class="alt small copy">Copy</button> '
+          + '<form method="post" action="/admin/study-key?' + q({ tab: 'links' }) + '" style="display:inline" onsubmit="return confirm(\'Make a new link? The old one stops working.\')">'
+          + '<input type="hidden" name="study" value="' + esc(x[0]) + '"><button class="alt small" type="submit">New link</button></form></span></div>';
+      }).join('');
+    }
+    // sessions filters
+    var f = $('filters');
+    function opts(sel, vals, names) {
+      sel.innerHTML = '<option value="">any</option>' + vals.map(function (v) { return '<option value="' + esc(v) + '">' + esc((names || {})[v] || v) + '</option>'; }).join('');
+    }
+    opts(f.grp, S.options.grp); opts(f.source, S.options.source); opts(f.cond, S.options.cond);
+    opts(f.stage, Object.keys(S.stages), S.stages); opts(f.neuro, Object.keys(S.neuro), S.neuro);
+    copyButtons();
+    show(location.hash.slice(1) || 'overview');
+  }
+
+  function show(tab) {
+    if (!document.querySelector('[data-panel="' + tab + '"]')) tab = 'overview';
+    [].forEach.call(document.querySelectorAll('#tabs button'), function (b) { b.setAttribute('aria-selected', String(b.dataset.tab === tab)); });
+    [].forEach.call(document.querySelectorAll('.panel'), function (p) { p.hidden = p.dataset.panel !== tab; });
+    var fr = document.querySelector('[data-panel="' + tab + '"] iframe');
+    if (fr) {
+      var want = (fr.dataset.src === 'methods' ? '/admin/methods?' : '/admin/reports/' + fr.dataset.src + '?') + q();
+      if (fr.getAttribute('src') !== want) {
+        var note = fr.parentNode.querySelector('.loading');
+        note.textContent = S.reports_build_on_open ? 'Building the report from the latest sessions; with many sessions this takes a minute…' : 'Loading…';
+        note.hidden = false;
+        fr.onload = function () { note.hidden = true; };
+        fr.setAttribute('src', want);
+      }
+    }
+    if (tab === 'sessions') sessions();
+    setUrl(S.study, tab);
+  }
+
+  function sessions() {
+    var extra = Object.assign({ sort: view.sort, dir: view.dir, page: view.page }, view.filters);
+    api('api/sessions', extra).then(function (d) {
+      $('count').innerHTML = '<b>' + d.total + ' session' + (d.total === 1 ? '' : 's') + ' match</b>, ' + d.done + ' finished.';
+      $('csv').href = '/admin/sessions.csv?' + q(Object.assign({ sort: view.sort, dir: view.dir }, view.filters));
+      var cols = [['pid', 'Participant'], ['study', 'Study'], ['grp', 'Group'], ['source', 'Source'], ['neuro', 'Says they are'], ['cond', 'Condition'],
+        ['stage', 'Where'], ['n_pieces', 'Pieces'], ['started', 'Started (UTC)'], ['seconds', 'Time taken'], ['restarts', 'Restarts']];
+      var head = '<tr>' + cols.map(function (c) {
+        var arrow = c[0] === view.sort ? (view.dir === 'desc' ? ' ▼' : ' ▲') : '';
+        return '<th><a data-sort="' + c[0] + '">' + c[1] + arrow + '</a></th>';
+      }).join('') + '</tr>';
+      var body = d.rows.map(function (r) {
+        return '<tr>' + cols.map(function (c) {
+          var v = r[c[0]];
+          if (c[0] === 'study') v = v || 'main';
+          if (c[0] === 'stage') v = S.stages[v] || v;
+          if (c[0] === 'neuro') v = (v || '').split(' ').filter(Boolean).map(function (x) { return S.neuro[x] || x; }).join(', ');
+          if (c[0] === 'started') v = when(v);
+          if (c[0] === 'seconds') v = v == null ? '' : mins(v);
+          return '<td>' + esc(v == null ? '' : v) + '</td>';
+        }).join('') + '</tr>';
+      }).join('') || '<tr><td colspan="11" class="muted">No sessions match.</td></tr>';
+      $('table').innerHTML = head + body;
+      $('pager').innerHTML = d.pages > 1 ? (d.page > 1 ? '<button class="alt small" data-page="' + (d.page - 1) + '">&larr; newer</button>' : '')
+        + '<span class="muted small">page ' + d.page + ' of ' + d.pages + '</span>'
+        + (d.page < d.pages ? '<button class="alt small" data-page="' + (d.page + 1) + '">older &rarr;</button>' : '') : '';
+    });
+  }
+
+  function copyButtons() {
+    [].forEach.call(document.querySelectorAll('.copy'), function (b) {
+      b.onclick = function () {
+        var i = b.parentNode.querySelector('input') || b.previousElementSibling; i.select();
+        function ok() { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1500); }
+        if (navigator.clipboard) navigator.clipboard.writeText(i.value).then(ok, function () { document.execCommand('copy'); ok(); }); else { document.execCommand('copy'); ok(); }
+      };
+    });
+  }
+
+  $('tabs').onclick = function (e) { var b = e.target.closest('button'); if (b) show(b.dataset.tab); };
+  $('pick').onchange = function () { location.href = '/admin?' + new URLSearchParams(this.value ? { key: KEY, study: this.value } : { key: KEY }); };
+  $('filters').onsubmit = function (e) {
+    e.preventDefault();
+    view.filters = {}; view.page = 1;
+    [].forEach.call(this.elements, function (el) { if (el.name && el.value) view.filters[el.name] = el.value; });
+    sessions();
+  };
+  $('filters').onreset = function () { setTimeout(function () { view.filters = {}; view.page = 1; sessions(); }, 0); };
+  $('table').onclick = function (e) {
+    var a = e.target.closest('a[data-sort]'); if (!a) return;
+    view.dir = view.sort === a.dataset.sort && view.dir === 'desc' ? 'asc' : 'desc'; view.sort = a.dataset.sort; view.page = 1; sessions();
+  };
+  $('pager').onclick = function (e) { var b = e.target.closest('button[data-page]'); if (b) { view.page = +b.dataset.page; sessions(); } };
+  window.addEventListener('hashchange', function () { if (S && S.study) show(location.hash.slice(1)); });
+
+  load(P.get('study') || '').catch(function () { $('denied').hidden = false; });
+})();
+</script>
+</body>
+</html>

@@ -185,15 +185,11 @@ def cloudflare_checks(tmp, fields):
         check(back.get('stage') == 'followup' and back.get('counts') == 'pep:2' and back.get('restarts') == '1', 'Worker: a returning participant resumes')
         for st in started:
             http('POST', base + '/api/save', {'pid': st['pid'], 'stage': 'done', 'fields': fields})
-        code, page = http('GET', base + '/admin?key=%s&study=pilot-asd' % key)
-        check(code == 200 and b'<b>2 sessions match</b>' in page and b'Studies and links' in page, 'Worker: researcher page filters by study')
-        check(b'<b>3 sessions match</b>' in http('GET', base + '/admin?key=%s&stage=done&sort=n_pieces&dir=asc' % key)[1], 'Worker: filters by stage and sorts')
+        check(api(base, 'sessions', key, study='pilot-asd')['total'] == 2, 'Worker: researcher page filters by study')
+        check(api(base, 'sessions', key, study='all', stage='done', sort='n_pieces', dir='asc')['total'] == 3, 'Worker: filters by stage and sorts')
         rows = list(csv.DictReader(io.StringIO(http('GET', base + '/admin/sessions.csv?key=' + key)[1].decode('utf-8-sig'))))
         check({r['study'] for r in rows} == {'main', 'pilot-asd'} and len(rows) == 3, 'Worker: session list (.csv)')
-        keys = set(re.findall(rb'admin\?key=([A-Za-z0-9_-]{12,})', http('GET', base + '/admin?key=' + key)[1])) - {key.encode()}
-        skey = next((k.decode() for k in keys if b'for study <b>pilot-asd' in http('GET', base + '/admin?key=' + k.decode())[1]), 'missing')
-        page = http('GET', base + '/admin?key=%s&study=main' % skey)[1]
-        check(b'<b>2 sessions match</b>' in page and b'CFSMOKE1' not in page and b'New researcher link' not in page, 'Worker: a study\'s researcher link sees that study only')
+        skey = researcher_access_checks(base, key, 'pilot-asd', 2, 3, 'CFSMOKE1', 'Worker: ')
         check(all(http(m, base + p + '?key=' + skey, b)[0] == 404 for m, p, b in
                   [('GET', '/admin/export', None), ('GET', '/admin/signatures', None), ('POST', '/admin/study-key', {})]),
               'Worker: a study\'s researcher link cannot export everything or change links')
@@ -202,7 +198,7 @@ def cloudflare_checks(tmp, fields):
         check(r.returncode == 0 and 'pilot-asd: 2 pizzas analysed' in r.stdout, 'reports job builds every study\'s reports and stores them')
         if r.returncode:
             print(r.stdout[-1500:], r.stderr[-1500:])
-        check(b'Researcher page</a> \xc2\xb7 study pilot-asd' in http('GET', base + '/admin/reports/dashboard.html?key=' + skey)[1], 'Worker: serves a study\'s reports')
+        check(b'<h1>Overview</h1>' in http('GET', base + '/admin/reports/dashboard.html?key=' + skey)[1], 'Worker: serves a study\'s reports')
         z = zipfile.ZipFile(io.BytesIO(http('GET', base + '/admin/r.zip?key=' + skey)[1]))
         pc = list(csv.DictReader(io.StringIO(z.read('pizza-data/participants.csv').decode('utf-8'))))
         check(len(pc) == 2 and {r['study'] for r in pc} == {'pilot-asd'} and 'pizza-data/load_pizza.R' in z.namelist(), 'Worker: a study\'s R download holds that study only')
@@ -262,6 +258,36 @@ def cloudflare_checks(tmp, fields):
     finally:
         os.killpg(srv.pid, 15)
         srv.wait(timeout=20)
+
+
+def api(base, path, key, **params):
+    """The researcher page's data (/admin/api/state or /admin/api/sessions) as JSON, or None."""
+    code, body = http('GET', base + '/admin/api/' + path + '?' + urllib.parse.urlencode(dict(params, key=key)))
+    return json.loads(body) if code == 200 else None
+
+
+def key_of(link):
+    return urllib.parse.parse_qs(urllib.parse.urlparse(link or '').query).get('key', ['missing'])[0]
+
+
+def researcher_access_checks(base, key, study, n_study, n_all, other_pid, label):
+    """The same checks on both servers: the study chooser, the owner's links, a study's researcher link (that study
+    only) and the researcher link for all studies (every study, no link management)."""
+    code, page = http('GET', base + '/admin?key=' + key)
+    st = api(base, 'state', key)
+    check(code == 200 and b'Choose a study' in page and st and st['scope'] == 'owner' and st['study'] is None
+          and {s['id'] for s in st['studies']} >= {'main', study, 'tests'} and st['global_link'], label + 'researcher page: a study chooser with every study')
+    one = api(base, 'state', key, study=study)
+    check(one['study'] == study and one['studies'][[s['id'] for s in one['studies']].index(study)]['n'] == n_study, label + 'researcher page: one study with its counts')
+    skey = key_of(next(s['researcher_link'] for s in st['studies'] if s['id'] == study))
+    sst, d = api(base, 'state', skey, study='main'), api(base, 'sessions', skey, study='main')
+    check(sst['scope'] == 'study' and [s['id'] for s in sst['studies']] == [study] and not sst.get('global_link') and 'researcher_link' not in sst['studies'][0]
+          and d['total'] == n_study and other_pid not in [r['pid'] for r in d['rows']], label + 'a study\'s researcher link sees that study only')
+    gkey = key_of(st['global_link'])
+    g = api(base, 'state', gkey)
+    check(g and g['scope'] == 'all' and not g.get('global_link') and api(base, 'sessions', gkey, study='all')['total'] == n_all
+          and http('POST', base + '/admin/study-key?key=' + gkey, {})[0] in (403, 404), label + 'the researcher link for all studies sees every study but changes no links')
+    return skey
 
 
 def main():
@@ -366,13 +392,12 @@ def main():
             check(http('POST', base + '/api/save', {'pid': 'SMOKE001', 'stage': 'done', 'fields': fields})[0] == 200, 'saves a session')
             check(http('POST', base + '/api/save', {'pid': '../../etc', 'fields': {'pz_final': '[]'}})[0] == 404, 'rejects a bad participant id')
             check(http('GET', base + '/admin')[0] == 403, 'researcher page needs the password')
-            code, page = http('GET', base + '/admin?key=smoke-key')
-            check(code == 200 and b'SMOKE001' in page and b'Studies and links' in page and b'Make personal links' in page, 'researcher page lists the session, studies and links')
+            check('SMOKE001' in [r['pid'] for r in api(base, 'sessions', 'smoke-key', study='all')['rows']], 'researcher page lists the session')
             code, page = http('POST', base + '/admin/reports?key=smoke-key')
             check(code == 200 and os.path.exists(os.path.join(data, 'reports', 'dashboard.html')), 'builds the reports')
             check(os.path.exists(os.path.join(data, 'reports', 'explore.html')), 'builds the explore report')
             code, page = http('GET', base + '/admin/methods?key=smoke-key')
-            check(code == 200 and b'how every number is counted' in page and b'Researcher page' in page, 'serves the Methods page')
+            check(code == 200 and b'how every number is counted' in page, 'serves the Methods page')
             code, z = http('GET', base + '/admin/r.zip?key=smoke-key')
             names = zipfile.ZipFile(io.BytesIO(z)).namelist() if code == 200 and z[:2] == b'PK' else []
             check({'pizza-data/variables.csv', 'pizza-data/load_pizza.R', 'pizza-data/pieces_long.csv', 'pizza-data/README.txt',
@@ -400,21 +425,17 @@ def main():
                   'a returning participant resumes at their part, with the build\'s counts and restart count')
             for st in started:
                 http('POST', base + '/api/save', {'pid': st['pid'], 'stage': 'done', 'fields': fields})
-            code, page = http('GET', base + '/admin?key=smoke-key&study=pilot-asd')
-            check(code == 200 and b'<b>3 sessions match</b>' in page, 'researcher page filters by study')
-            code, page = http('GET', base + '/admin?key=smoke-key&sort=n_pieces&desc=0&stage=done')
-            check(code == 200 and b'<b>5 sessions match</b>' in page and page.index(b'OLD001') > 0, 'filters by stage and sorts')
-            check(b'<b>0 sessions match</b>' in http('GET', base + '/admin?key=smoke-key&q=nobody')[1], 'searches by participant id')
+            check(api(base, 'sessions', 'smoke-key', study='pilot-asd')['total'] == 3, 'researcher page filters by study')
+            d = api(base, 'sessions', 'smoke-key', study='all', stage='done', sort='n_pieces', dir='asc')
+            check(d['total'] == 5 and 'OLD001' in [r['pid'] for r in d['rows']]
+                  and [r['n_pieces'] for r in d['rows']] == sorted(r['n_pieces'] for r in d['rows']), 'filters by stage and sorts')
+            check(api(base, 'sessions', 'smoke-key', study='all', q='nobody')['total'] == 0, 'searches by participant id')
             code, csv_all = http('GET', base + '/admin/sessions.csv?key=smoke-key')
             rows = list(csv.DictReader(io.StringIO(csv_all.decode('utf-8-sig'))))
             check(code == 200 and {r['pid'] for r in rows} == {'SMOKE001', 'OLD001'} | {i['invite'] for i in invites}
                   and {r['study'] for r in rows} == {'main', 'pilot-asd'}, 'session list (.csv) holds every session')
             # each study's researcher link sees, analyses and exports that study only
-            keys = set(re.findall(rb'admin\?key=([A-Za-z0-9_-]{12,})', http('GET', base + '/admin?key=smoke-key')[1]))
-            skey = next((k.decode() for k in keys if b'for study <b>pilot-asd' in http('GET', base + '/admin?key=' + k.decode())[1]), 'missing')
-            code, page = http('GET', base + '/admin?key=%s&study=main' % skey)
-            check(code == 200 and b'<b>3 sessions match</b>' in page and b'SMOKE001' not in page and b'New researcher link' not in page,
-                  'a study\'s researcher link sees that study only')
+            skey = researcher_access_checks(base, 'smoke-key', 'pilot-asd', 3, 5, 'SMOKE001', '')
             code, z = http('GET', base + '/admin/r.zip?key=' + skey)
             pc = list(csv.DictReader(io.StringIO(zipfile.ZipFile(io.BytesIO(z)).read('pizza-data/participants.csv').decode('utf-8'))))
             check(len(pc) == 3 and {r['study'] for r in pc} == {'pilot-asd'}, 'a study\'s researcher link downloads that study only')

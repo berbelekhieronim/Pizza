@@ -235,9 +235,10 @@ NEURO_NAMES = {'autistic': 'Autistic', 'adhd': 'ADHD', 'dys': 'Dyslexic etc.', '
 
 
 STAGE_NAMES = {'intro': 'reading the intro', 'practice': 'practice', 'build': 'building', 'typical': 'typical pizza', 'followup': 'questions', 'done': 'finished'}
-COLUMNS = [('pid', 'Participant'), ('study', 'Study'), ('grp', 'Group'), ('source', 'Source'), ('neuro', 'Says they are'), ('cond', 'Condition'),
-           ('stage', 'Where'), ('n_pieces', 'Pieces'), ('started', 'Started (UTC)'), ('seconds', 'Time taken'), ('restarts', 'Restarts')]
 PAGE = 100
+ALL_KEY = '*'                                         # study_keys row of the researcher link for all studies
+NOT_BUILT = ('<!doctype html><meta charset="utf-8"><body style="font:15px system-ui,sans-serif;color:#6e635b;max-width:640px;margin:48px auto;'
+             'padding:0 16px"><p>%s</p></body>')
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -277,11 +278,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return self.query().get(k, [default])[0]
 
     def scope(self):
-        """Who is asking: ('owner', None) with the server's key, ('study', id) with a study's researcher key, else None."""
+        """Who is asking: ('owner', None) with the server's key; ('all', None) with the researcher link for all studies
+        (sees every study, manages no links); ('study', id) with a study's researcher link; else None."""
         key = self.arg('key')
         if key and secrets.compare_digest(key, self.study.key):
             return ('owner', None)
         sid = self.study.store.study_for_key(key) if key else None
+        if sid == ALL_KEY:
+            return ('all', None)
         return ('study', sid) if sid is not None else None
 
     def filters(self, scope):
@@ -307,7 +311,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         for k in FILTER_KEYS:
             v = f.get(k)
             if k == 'study':
-                if v is not None and self.scope()[0] == 'owner':
+                if v is not None and self.scope()[0] != 'study':
                     d['study'] = v or 'main'
             elif v:
                 d[k] = v
@@ -369,8 +373,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(403, self.denied_page())
         f = self.filters(scope)
         st = self.study.store
-        if route == '/admin':
-            return self.send(200, self.admin_page(scope, f, self.arg('msg')))
+        if route == '/admin':                            # the researcher page: one app (admin.html), data from the two routes below
+            return self.file(os.path.join(HERE, 'admin.html'), 'text/html; charset=utf-8')
+        if route == '/admin/api/state':
+            return self.send(200, json.dumps(self.state(scope, f)), 'application/json')
+        if route == '/admin/api/sessions':
+            try:
+                page = max(1, int(self.arg('page', '1')))
+            except ValueError:
+                page = 1
+            rows, total, done = st.query(f, self.arg('sort', 'started'), self.arg('dir', 'desc') != 'asc', PAGE, (page - 1) * PAGE)
+            return self.send(200, json.dumps({'rows': rows, 'total': total, 'done': done, 'page': page, 'pages': max(1, -(-total // PAGE))}), 'application/json')
         if route == '/admin/sessions.csv':                 # the session list as shown (filtered, sorted), quick: no analysis
             rows, _, _ = st.query(f, self.arg('sort', 'started'), self.arg('dir', 'desc') != 'asc', limit=10 ** 9)
             buf = io.StringIO()
@@ -395,7 +408,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             built, msg = self.study.build_reports(f)
             folder = self.study.reports_dir(f)
             if not os.path.exists(os.path.join(folder, 'variables.csv')):
-                return self.send(200, self.admin_page(scope, f, msg or 'No finished pizzas among these sessions, so there is nothing to analyse.'))
+                return self.back(f, msg or 'No finished pizzas among these sessions, so there is nothing to analyse.')
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
                 z.writestr('pizza-data/README.txt', R_README)
@@ -423,16 +436,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 os.remove(tmp)
             return self.download(data, 'application/vnd.sqlite3', 'pizza-study%s.sqlite' % self.tag({'study': sid} if sid is not None else {}))
         if route == '/admin/methods':
-            return self.send(200, self.with_bar(self.study.methods_page(), f))
+            return self.send(200, self.study.methods_page())
         m = re.match(r'^/admin/reports/([A-Za-z0-9_.-]+)$', route)
         if m and not m.group(1).startswith('.'):
             built, msg = self.study.build_reports(f)       # brings the reports up to date with the newest matching sessions
             path = os.path.join(self.study.reports_dir(f), m.group(1))
             if not os.path.exists(path):
-                return self.send(200, self.admin_page(scope, f, msg or 'That report has not been made yet.'))
+                return self.send(200, NOT_BUILT % escape(msg or 'There are no finished pizzas in this study yet, so there is nothing to report.'))
             if m.group(1).endswith('.html'):
-                with open(path, encoding='utf-8') as fh:
-                    return self.send(200, self.with_bar(fh.read(), f))
+                return self.file(path, 'text/html; charset=utf-8')
             return self.file(path, 'text/csv; charset=utf-8')
         return self.send(404, 'Not found', 'text/plain')
 
@@ -472,13 +484,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 msg = 'Made %d personal link%s for %s. Download them with "Personal links (.csv)".' % (count, '' if count == 1 else 's', sid or 'the main study')
         elif route == '/admin/study-key' and scope[0] == 'owner':
             sid = self.body_form().get('study', '')
-            sid = '' if sid == 'main' else sid
+            sid = ALL_KEY if sid == 'all' else '' if sid == 'main' else sid
             self.study.store.reset_study_key(sid)
-            msg = 'Made a new researcher link for %s: the old one no longer works.' % (sid or 'the main study')
+            msg = 'Made a new researcher link for %s: the old one no longer works.' % ('all studies' if sid == ALL_KEY else sid or 'the main study')
         else:
             return self.send(404, 'Not found', 'text/plain')
         # redirect so that reloading the page does not repeat the action
-        return self.send(303, '', headers={'Location': '/admin?' + self.qs(f, msg=msg)})
+        return self.back(f, msg)
+
+    def back(self, f, msg):
+        """Back to the researcher page (same study and tab) with a message."""
+        tab = self.arg('tab') if re.match(r'^[a-z]{1,20}$', self.arg('tab')) else ''
+        return self.send(303, '', headers={'Location': '/admin?' + self.qs(f, msg=msg) + ('#' + tab if tab else '')})
 
     def base_url(self):
         if os.environ.get('CODESPACE_NAME'):             # the codespace's public address, whatever the proxy sends
@@ -487,6 +504,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
         proto = self.headers.get('X-Forwarded-Proto') or ('https' if host.endswith('.app.github.dev') else 'http')
         return '%s://%s' % (proto, host)
 
+    def state(self, scope, f):
+        """Everything the researcher page shows apart from the session list: who is asking, the studies with their
+        counts and links, the report status of the chosen study, and the filter choices."""
+        st = self.study.store
+        own = scope[0] == 'owner'
+        ids = [scope[1]] if scope[0] == 'study' else [''] + sorted(studies())
+        counts = st.counts_by_study()
+        out = []
+        for sid in ids:
+            cfg = load_study(sid)
+            invs = st.invites(sid)
+            n, done = counts.get(sid, (0, 0))
+            row = {'id': sid or 'main', 'title': cfg.get('title') or '', 'description': cfg.get('description') or ('The main study' if not sid else ''),
+                   'n': n, 'done': done or 0, 'last': st.last_started(sid), 'median_seconds': st.median_seconds(sid),
+                   'invites': [len(invs), sum(1 for i in invs if i['stage']), sum(1 for i in invs if i['stage'] == 'done')],
+                   'links': self.open_links(sid), 'nutrition_reveal': bool(cfg.get('nutrition_reveal')), 'nutrition_panel': bool(cfg.get('nutrition_panel'))}
+            if own:
+                row['researcher_link'] = self.base_url() + '/admin?' + urllib.parse.urlencode({'key': st.study_key(sid)})
+            out.append(row)
+        sel = None if f['study'] is None and not self.arg('study') else ('all' if f['study'] is None else f['study'] or 'main')
+        info = self.study.reports_info({'study': f['study']}) if sel else None
+        sig = st.signature({'study': f['study']})
+        return {
+            'server': 'python', 'scope': scope[0], 'scope_study': (scope[1] or 'main') if scope[0] == 'study' else None,
+            'study': sel, 'studies': out, 'all': {'n': sum(r['n'] for r in out), 'done': sum(r['done'] for r in out),
+                                                   'last': max([r['last'] for r in out if r['last']] or [None]),
+                                                   'median_seconds': st.median_seconds(None)},
+            'global_link': self.base_url() + '/admin?' + urllib.parse.urlencode({'key': st.study_key(ALL_KEY)}) if own else None,
+            'reports': {'when': info[0], 'n': info[1], 'fresh': True} if info else None,
+            'reports_build_on_open': True, 'signature': sig,
+            'options': {c: st.distinct(c, f['study']) for c in ('grp', 'source', 'cond')},
+            'stages': STAGE_NAMES, 'neuro': NEURO_NAMES, 'storage': None, 'msg': self.arg('msg'),
+        }
+
     def open_links(self, sid):
         """(label, url) of the open links of a study: one for anyone, one per group listed for that study."""
         base = self.base_url() + '/'
@@ -494,177 +545,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         q = {'study': sid} if sid else {}
         return [('Anyone', base + ('?' + urllib.parse.urlencode(q) if q else ''))] + \
                [('Group %s' % g, base + '?' + urllib.parse.urlencode(dict(q, group=g))) for g in cfg.get('groups') or []]
-
-    def link_rows(self, items):
-        return ''.join('<span class="ll">%s</span><input readonly value="%s" aria-label="%s"><button type="button" class="copy alt">Copy</button>'
-                       % (escape(label), escape(url, quote=True), escape(label, quote=True)) for label, url in items)
-
-    def studies_card(self, scope, f):
-        st = self.study.store
-        ids = [scope[1]] if scope[0] == 'study' else [''] + sorted(studies())
-        counts = st.counts_by_study()
-        trs, opts = [], []
-        for sid in ids:
-            cfg = load_study(sid)
-            invs = st.invites(sid)
-            opened = sum(1 for i in invs if i['stage'])
-            fin = sum(1 for i in invs if i['stage'] == 'done')
-            n, done = counts.get(sid, (0, 0))
-            items = self.open_links(sid)
-            if scope[0] == 'owner':                         # the researcher link that sees this study only
-                items.append(('Researcher link (this study only)', self.base_url() + '/admin?' + urllib.parse.urlencode({'key': st.study_key(sid)})))
-            reset = ('<form method="post" action="/admin/study-key?%s" onsubmit="return confirm(\'Make a new researcher link for this study? The old one will stop working.\')">'
-                     '<input type="hidden" name="study" value="%s"><button class="alt small" type="submit">New researcher link</button></form>'
-                     % (self.qs(f), escape(sid or 'main'))) if scope[0] == 'owner' else ''
-            show = self.qs(dict(f, study=sid)) if scope[0] == 'owner' else self.qs(f)
-            trs.append('<tr class="st"><td><b>%s</b><br><span class="muted">%s</span></td><td>%d</td><td>%d</td><td>%d / %d / %d</td>'
-                       '<td><a href="/admin?%s">Show only this study</a><br><a href="/admin/invites.csv?%s">Personal links (.csv)</a>%s</td></tr>'
-                       '<tr class="links"><td colspan="5"><div class="lgrid">%s</div></td></tr>'
-                       % (escape(sid or 'main'), escape(cfg.get('description') or cfg.get('title') or ''), n, done or 0, len(invs), opened, fin,
-                          show, self.qs({'study': sid}) if scope[0] == 'owner' else self.qs(f), reset, self.link_rows(items)))
-            opts.append('<option value="%s"%s>%s</option>' % (escape(sid or 'main'), ' selected' if f['study'] == sid else '', escape(sid or 'main')))
-        form = ('<form method="post" action="/admin/invites?%s" class="row" style="align-items:end">'
-                '<label>Study<br><select name="study">%s</select></label>'
-                '<label>Group<br><input name="group" size="8" placeholder="e.g. ASD"></label>'
-                '<label>Recruitment source<br><input name="source" size="22" placeholder="e.g. autism charity newsletter"></label>'
-                '<label>Note<br><input name="note" size="14" placeholder="optional"></label>'
-                '<label>How many<br><input name="count" type="number" min="1" max="500" value="10" style="width:5em"></label>'
-                '<button type="submit">Make personal links</button></form>' % (self.qs(f), ''.join(opts)))
-        return ('<div class="card"><h2>%s</h2><table class="studies"><tr><th>Study</th><th>Sessions</th><th>Finished</th>'
-                '<th>Personal links<br><span class="muted">made / opened / finished</span></th><th></th></tr>%s</table>'
-                '<h2 style="margin-top:14px">Make personal links</h2>%s<p class="muted">One link per participant: it records study, group '
-                'and source, and resumes their session if opened again. The .csv lists the links and who has opened or finished. Open links '
-                '(above) can be posted anywhere.%s</p></div>'
-                % ('Studies and links' if scope[0] == 'owner' else 'Links', ''.join(trs), form,
-                   ' Studies are set up in <code>server/study.json</code> → <code>"studies"</code>; give each study\'s researchers its own '
-                   'researcher link: it sees, analyses and exports that study only.' if scope[0] == 'owner' else ''))
-
-    def with_bar(self, html, f):
-        bar = ('<div style="position:sticky;top:0;z-index:50;background:#2a2421;color:#fff;font:14px system-ui,sans-serif;padding:8px 16px">'
-               '<a href="/admin?%s" style="color:#fff">&larr; Researcher page</a>%s</div>' % (self.qs(f), escape(self.describe(f)) and ' · ' + escape(self.describe(f))))
-        return re.sub(r'(<body[^>]*>)', lambda mm: mm.group(1) + bar, html, count=1)
-
-    @staticmethod
-    def describe(f):
-        parts = []
-        if f.get('study') is not None:
-            parts.append('study %s' % (f['study'] or 'main'))
-        names = {'grp': 'group', 'source': 'source', 'stage': 'where', 'neuro': 'says they are', 'cond': 'condition', 'q': 'id contains', 'since': 'from', 'until': 'to'}
-        parts += ['%s %s' % (names[k], STAGE_NAMES.get(f[k], f[k]) if k == 'stage' else f[k]) for k in names if f.get(k)]
-        return ', '.join(parts)
-
-    def filter_form(self, scope, f, sort, desc):
-        st = self.study.store
-        def sel(name, label, values, cur, names=None):
-            opts = '<option value="">any</option>' + ''.join('<option value="%s"%s>%s</option>' % (escape(v, quote=True), ' selected' if v == cur else '',
-                                                                                                     escape((names or {}).get(v, v))) for v in values)
-            return '<label>%s<br><select name="%s">%s</select></label>' % (label, name, opts)
-        study_sel = ''
-        if scope[0] == 'owner':
-            cur = 'all' if f['study'] is None else (f['study'] or 'main')
-            vals = [('all', 'all studies'), ('main', 'main')] + [(s_, s_) for s_ in sorted(set(studies()) | set(x for x in st.distinct('study') if x))]
-            study_sel = '<label>Study<br><select name="study">%s</select></label>' % ''.join(
-                '<option value="%s"%s>%s</option>' % (escape(v), ' selected' if v == cur else '', escape(l)) for v, l in vals)
-        scope_study = f['study'] if scope[0] == 'study' else None
-        return ('<form method="get" action="/admin" class="filters"><input type="hidden" name="key" value="%s">'
-                '<input type="hidden" name="sort" value="%s"><input type="hidden" name="dir" value="%s">%s%s%s%s%s%s'
-                '<label>Started from<br><input type="date" name="since" value="%s"></label><label>to<br><input type="date" name="until" value="%s"></label>'
-                '<label>Participant id<br><input name="q" size="10" value="%s"></label>'
-                '<button type="submit">Show</button><a class="btn alt" href="/admin?%s">Clear</a></form>'
-                % (escape(self.arg('key'), quote=True), escape(sort), 'desc' if desc else 'asc', study_sel,
-                   sel('grp', 'Group', st.distinct('grp', scope_study), f['grp']), sel('source', 'Source', st.distinct('source', scope_study), f['source']),
-                   sel('stage', 'Where', list(STAGES), f['stage'], STAGE_NAMES), sel('neuro', 'Says they are', list(NEURO_NAMES), f['neuro'], NEURO_NAMES),
-                   sel('cond', 'Condition', st.distinct('cond', scope_study), f['cond']),
-                   escape(f['since'], quote=True), escape(f['until'], quote=True), escape(f['q'], quote=True), self.qs({'study': f['study']} if scope[0] == 'study' else {})))
-
-    def admin_page(self, scope, f, message=''):
-        st = self.study.store
-        sort = self.arg('sort', 'started')
-        sort = sort if sort in SORTABLE else 'started'
-        desc = self.arg('dir', 'desc') != 'asc'
-        try:
-            page = max(1, int(self.arg('page', '1')))
-        except ValueError:
-            page = 1
-        rows, total, done = st.query(f, sort, desc, PAGE, (page - 1) * PAGE)
-        q = self.qs(f)
-        info = self.study.reports_info(f)
-        reports = [('dashboard.html', 'Dashboard'), ('explore.html', 'Explore patterns'), ('profiles.html', 'Profiles and clusters'), ('arrangement.html', 'Symmetry and contact')]
-        tables = ['participants.csv', 'ingredients_long.csv', 'pieces_long.csv', 'removals_long.csv', 'adjustments_long.csv', 'profiles.csv', 'explore.csv', 'events_long.csv']
-        status = ('Last built %s UTC from %d pizza%s. Opening a report brings it up to date with any newer sessions.' % (
-            escape(info[0].replace('T', ' ')[:16]), info[1], '' if info[1] == 1 else 's')) if info else 'Not built yet for these sessions. Opening a report builds it.'
-        report_btns = ''.join('<a class="btn" href="/admin/reports/%s?%s">%s</a>' % (fn, q, label) for fn, label in reports) + \
-            '<a class="btn alt" href="/admin/methods?%s">Methods: how each number is counted</a>' % q
-        table_links = ' · '.join('<a href="/admin/reports/%s?%s">%s</a>' % (t, q, t) for t in tables)
-        def th(col, label):
-            arrow = (' ▼' if desc else ' ▲') if col == sort else ''
-            return '<th><a class="sort" href="/admin?%s">%s%s</a></th>' % (self.qs(f, sort=col, dir='asc' if col == sort and desc else 'desc'), label, arrow)
-        def cell(r, c):
-            v = r[c]
-            if c == 'study':
-                return escape(v or 'main')
-            if c == 'stage':
-                return escape(STAGE_NAMES.get(v, v))
-            if c == 'neuro':
-                return escape(', '.join(NEURO_NAMES.get(x, x) for x in (v or '').split()))
-            if c == 'started':
-                return escape((v or '').replace('T', ' ')[:16])
-            if c == 'seconds':
-                return '' if v is None else '%.1f min' % (v / 60)
-            return '' if v in (None, '') else escape(str(v))
-        trs = ''.join('<tr>%s</tr>' % ''.join('<td>%s</td>' % cell(r, c) for c, _ in COLUMNS) for r in rows)
-        pages = max(1, (total + PAGE - 1) // PAGE)
-        pager = ''
-        if pages > 1:
-            pager = '<div class="row">%s<span class="muted">page %d of %d</span>%s</div>' % (
-                '<a class="btn alt" href="/admin?%s">&larr; newer</a>' % self.qs(f, sort=sort, dir='desc' if desc else 'asc', page=page - 1) if page > 1 else '',
-                page, pages, '<a class="btn alt" href="/admin?%s">older &rarr;</a>' % self.qs(f, sort=sort, dir='desc' if desc else 'asc', page=page + 1) if page < pages else '')
-        exports = ('<div class="row"><a class="btn" href="/admin/r.zip?%s">Download for R (.zip)</a>'
-                   '<a class="btn alt" href="/admin/sessions.csv?%s">Session list (.csv)</a>'
-                   '<a class="btn alt" href="/admin/data.zip?%s">Raw sessions (.zip)</a>'
-                   '<a class="btn alt" href="/admin/database.sqlite?%s">Database (.sqlite)</a></div>'
-                   % (q, self.qs(f, sort=sort, dir='desc' if desc else 'asc'), q, q))
-        note = ('<pre class="note">%s</pre>' % escape(message)) if message else ''
-        who = 'Owner: all studies' if scope[0] == 'owner' else 'Researcher page for study <b>%s</b>' % escape(scope[1] or 'main')
-        flt = self.describe(f)
-        return """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pizza Study Admin</title><style>
-:root{--bg:#f6f2ed;--fg:#2a2421;--muted:#6e635b;--line:#dcd2c7;--panel:#fff;--accent:#a8361d;--accent-ink:#fff}
-@media (prefers-color-scheme: dark){:root{--bg:#1d1916;--fg:#eee6de;--muted:#b0a398;--line:#3a322c;--panel:#26211d;--accent:#e0765b;--accent-ink:#1d1916;color-scheme:dark}}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
-.wrap{max-width:1180px;margin:0 auto;padding:20px 16px}h1{font-size:1.4rem;margin:0 0 4px}.muted{color:var(--muted)}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0;overflow-x:auto}
-table{border-collapse:collapse;width:100%%;font-size:.9rem}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:top}
-th a.sort{color:var(--fg);text-decoration:none}th a.sort:hover{text-decoration:underline}
-h2{font-size:1.05rem;margin:0 0 8px}
-.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}label{font-size:.85rem;color:var(--muted)}
-.filters{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:end}
-input,select{font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
-button,.btn{font:inherit;padding:8px 14px;border-radius:9px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);cursor:pointer;text-decoration:none;display:inline-block}
-.btn.alt,button.alt{background:transparent;color:var(--fg);border-color:var(--line)}a{color:var(--accent)}button.small{padding:3px 10px;font-size:.85rem;margin-top:4px}
-.studies tr.st td{border-bottom:0;padding-bottom:2px}.studies tr.links td{padding-top:2px}
-.lgrid{display:grid;grid-template-columns:max-content minmax(0,1fr) max-content;gap:4px 8px;align-items:center;max-width:900px}
-.lgrid .ll{color:var(--muted);font-size:.85rem}.lgrid input{width:100%%;box-sizing:border-box;font-size:.85rem;padding:5px 8px}.lgrid button{padding:4px 12px}
-.note{white-space:pre-wrap;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0 0}
-</style></head><body><div class="wrap"><h1>Pizza study</h1><p class="muted">%s</p>%s
-<div class="card"><h2>Sessions</h2>%s
-<p style="margin:10px 0 4px"><b>%d session%s match</b>, %d finished%s.</p>%s
-<table><tr>%s</tr>%s</table>%s</div>
-<div class="card"><h2>Reports for these sessions</h2><div class="row">%s</div><p class="muted" style="margin:4px 0">Tables: %s</p>
-<p class="muted" style="margin:4px 0">%s</p>
-<form method="post" action="/admin/reports?%s" style="margin:0"><button class="alt" type="submit">Rebuild now</button></form></div>
-%s
-</div><script>
-document.querySelectorAll('.copy').forEach(function (b) {
-  b.onclick = function () {
-    var i = b.previousElementSibling; i.select();
-    function ok() { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1500); }
-    if (navigator.clipboard) navigator.clipboard.writeText(i.value).then(ok, function () { document.execCommand('copy'); ok(); }); else { document.execCommand('copy'); ok(); }
-  };
-});
-</script></body></html>""" % (who, note, self.filter_form(scope, f, sort, desc), total, '' if total == 1 else 's', done, (' (%s)' % escape(flt)) if flt else '',
-                               exports, ''.join(th(c, l) for c, l in COLUMNS), trs or '<tr><td colspan="%d" class="muted">No sessions match.</td></tr>' % len(COLUMNS),
-                               pager, report_btns, table_links, status, q, self.studies_card(scope, f))
 
 
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):

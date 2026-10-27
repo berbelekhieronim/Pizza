@@ -228,6 +228,11 @@ SECTIONS = [
         ('(profile map)', 'Principal components of the profiles\' covariance matrix (Jacobi eigen-decomposition); first two drawn.', 'profile_analysis'),
         ('(clusters × groups)', 'χ² = Σ (O − E)² / E over the cluster × group table, df = (k − 1)(groups − 1).', 'chi2_sf'),
     ]),
+    ('Charts (dashboard.html, arrangement.html)', 'Descriptive only: every participant is one dot. Tests between groups are on the explore page.', [
+        ('(median, IQR)', 'For groups of 5 or more: median and interquartile range Q1–Q3, with Q<sub>p</sub> = x<sub>(⌊h⌋)</sub> + (h − ⌊h⌋)(x<sub>(⌊h⌋+1)</sub> − x<sub>(⌊h⌋)</sub>), h = (n − 1)p over the sorted values (R\'s default, type 7). Smaller groups are drawn but not summarised.', 'quartiles'),
+        ('(stacked bars)', 'Share of pizzas (or pieces) in each class; bars of fewer than 10 show counts instead of percentages.', 'stacked_bars'),
+        ('(strong feelings)', 'Per ingredient: people naming it with a negative / positive strong feeling, as a share of everyone who answered the follow-up; counts per group beside it.', 'strong_feelings_chart'),
+    ]),
     ('Comparing groups (explore.html, explore.csv)', 'Each grouping: groups with ≥ 3 people; two groups → first vs second, more → each vs all the others.', [
         ('grouping, level, vs, area, key, label, n1, n0', 'Which comparison: grouping column, group, comparison group, measure (key = participants.csv column; inc_{ing} on the pizza; neg_/pos_{ing} named with strong feelings; field=value a choice), group sizes.', 'explore_grouping'),
         ('m1, m0', 'Medians (proportions for yes/no measures).', 'explore_grouping'),
@@ -236,6 +241,7 @@ SECTIONS = [
         ('q', 'Benjamini-Hochberg within the grouping: q<sub>(i)</sub> = min<sub>j ≥ i</sub> p<sub>(j)</sub> m / j.', 'bh'),
         ('(95% CI)', 'Percentile bootstrap of δ, 600 resamples within each group.', 'boot_ci'),
         ('n_per_group_80, n_per_group_80_half', 'People per group a new two-group study needs for 80% power at α = .05 (two-sided Mann-Whitney) if the true δ equals the observed / half the observed δ (Noether): n = 2 (z<sub>.975</sub> + z<sub>.80</sub>)² / (3 δ²). For covariate rows (ρ): total n = ((z<sub>.975</sub> + z<sub>.80</sub>) / atanh ρ)² + 3.', 'n_per_group'),
+        ('(size of δ)', 'Words beside δ in explore.html (Romano et al. 2006): |δ| &lt; .147 negligible, &lt; .33 small, &lt; .474 medium, otherwise large. Rows with q &lt; 0.10 are marked ✓; each grouping states how many of its comparisons pass.', 'delta_size'),
         ('(against chance)', 'Rows with grouping = chance: one group against a chance level (e.g. mirror_score 0, sweep_consistency 0.5, clark_evans 1). delta = dominance = (#above − #below) / n; m1 = median, m0 = chance; p = sign-flip permutation of the differences from chance, (hits + 1) / 4001; q = BH over all chance rows.', 'chance_test'),
     ]),
 ]

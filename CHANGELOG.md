@@ -5,6 +5,31 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**The researcher page, rebuilt; clearer reports**
+- **One page for both servers** (`server/admin.html`, data from `/admin/api/state` and `/admin/api/sessions`).
+  - **Study chooser first:** a card per study, and "All studies together".
+  - **Then one view per study:** counts at the top, with tabs for Overview (the dashboard), Sessions (filter, sort,
+    pages), Explore, Profiles, Symmetry, Methods, and Links & data (participant and personal links, researcher links,
+    downloads, storage).
+- **Researcher link for all studies.** It sees every study but manages no links. It sits next to each study's own link
+  under Links & data, and can be replaced like them. Use it instead of the owner password in links.
+- **Reports.**
+  - **Dot plots:** one colour; median and interquartile range written out for groups of 5 or more; smaller groups drawn
+    but not summarised; axis units.
+  - **Stacked bars:** counts instead of percentages under 10.
+  - **Strong feelings:** shares of everyone who answered, one row per ingredient, group counts beside it.
+  - **Explore:**
+    - typical values labelled as medians, with times in seconds;
+    - δ size words (Romano 2006);
+    - p &lt; 0.001 shown as such;
+    - each grouping states how many comparisons pass the false discovery rate, and those rows are marked ✓;
+    - leads warn about groups under 5 and selection.
+  - **New Nutrition section** in the overview: energy of every pizza, who looked (while building or only at the end),
+    changes of mind, and which way pizzas changed after the first sight.
+  - **Contents bar** at the top of the overview.
+
+  The Methods page documents the new summaries.
+
 - Study `tests` (the team's test runs; nutrition button on). *Actions → move sessions* moves sessions between
   studies in the Cloudflare database (`deploy.py move`). Everything collected before was moved to `tests`.
 

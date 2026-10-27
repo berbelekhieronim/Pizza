@@ -6,7 +6,8 @@
 //   all studies; this Worker serves them and asks GitHub for a rebuild when sessions finish (or on "Rebuild now").
 // Static files (index.html = server/participate.html, pizza-builder.js) are in ./public (env.ASSETS).
 import { Store, STAGES, randomToken, storageUsed, fileSizes, countOp, opsThisMonth } from './store.js';
-import { adminPage, deniedPage, withBar } from './admin.js';
+import { adminState, deniedPage, notBuilt, ALL_KEY } from './admin.js';
+import ADMIN_HTML from '../../server/admin.html';      // the researcher page, shared with server/server.py
 import { STUDY_RE, STUDY_KEYS, FILTER_KEYS, loadStudy, studies, scopeName } from './config.js';
 
 const PID_RE = /^[A-Za-z0-9_-]{4,64}$/;
@@ -101,6 +102,7 @@ class Request_ {
     if (!key) return null;
     if (sameKey(key, this.env.ADMIN_KEY)) return ['owner', null];
     const sid = await this.store.studyForKey(key);
+    if (sid === ALL_KEY) return ['all', null];         // the researcher link for all studies: sees every study, manages no links
     return sid === null ? null : ['study', sid];
   }
 
@@ -237,7 +239,7 @@ class Request_ {
 
   async fileFromR2(key, name, ctype, f, scope, missing, gzipped = false) {
     const o = await this.r2get(key);
-    if (!o) return html(await adminPage(this, scope, f, missing));
+    if (!o) return this.back(f, missing, scope);
     if (!gzipped) return this.download(o.body, ctype, name);
     // stored compressed (to save storage); the browser unpacks it while downloading
     return new Response(o.body, { encodeBody: 'manual', headers: headers(ctype, { 'Content-Encoding': 'gzip', 'Content-Disposition': `attachment; filename="${name}"` }) });
@@ -256,7 +258,13 @@ class Request_ {
     const sc = scopeName(f);
     const st = this.store;
     if (this.req.method === 'POST') return this.post(route, scope, f);
-    if (route === '/admin') return html(await adminPage(this, scope, f, this.arg('msg')));
+    if (route === '/admin') return html(ADMIN_HTML);
+    if (route === '/admin/api/state') return json(await adminState(this, scope, f));
+    if (route === '/admin/api/sessions') {
+      const page = Math.max(1, parseInt(this.arg('page', '1'), 10) || 1);
+      const { rows, total, done } = await st.query(f, this.arg('sort', 'started'), this.arg('dir', 'desc') !== 'asc', 100, (page - 1) * 100);
+      return json({ rows, total, done, page, pages: Math.max(1, Math.ceil(total / 100)) });
+    }
     if (route === '/admin/sessions.csv') {
       const { rows } = await st.query(f, this.arg('sort', 'started'), this.arg('dir', 'desc') !== 'asc', 1e9);
       const cols = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'seconds', 'restarts', 'consent', 'n_pieces', 'neuro'];
@@ -278,13 +286,13 @@ class Request_ {
     if (route === '/admin/database.sqlite') return this.fileFromR2(`exports/${sc}/study.sqlite.gz`, `pizza-study-${sc}-${stamp()}.sqlite`, 'application/vnd.sqlite3', f, scope, missing, true);
     if (route === '/admin/methods') {
       const o = await this.r2get('methods.html');
-      return html(o ? withBar(this, await o.text(), f, scope) : await adminPage(this, scope, f, missing));
+      return html(o ? await o.text() : notBuilt(missing));
     }
     const m = route.match(/^\/admin\/reports\/([A-Za-z0-9_-][A-Za-z0-9_.-]*)$/);
     if (m) {
       const o = await this.r2get(`reports/${sc}/${m[1]}`);
-      if (!o) return html(await adminPage(this, scope, f, missing));
-      if (m[1].endsWith('.html')) return html(withBar(this, await o.text(), f, scope));
+      if (!o) return html(notBuilt(missing));
+      if (m[1].endsWith('.html')) return html(await o.text());
       return new Response(o.body, { headers: headers('text/csv; charset=utf-8') });
     }
     return text('Not found', 404);
@@ -306,14 +314,20 @@ class Request_ {
         msg = `Made ${count} personal link${count === 1 ? '' : 's'} for ${sid || 'the main study'}. Download them with "Personal links (.csv)".`;
       }
     } else if (route === '/admin/study-key' && scope[0] === 'owner') {
-      const sid = form.study === 'main' ? '' : (form.study || '');
+      const sid = form.study === 'all' ? ALL_KEY : form.study === 'main' ? '' : (form.study || '');
       await this.store.resetStudyKey(sid);
-      msg = `Made a new researcher link for ${sid || 'the main study'}: the old one no longer works.`;
+      msg = `Made a new researcher link for ${sid === ALL_KEY ? 'all studies' : sid || 'the main study'}: the old one no longer works.`;
     } else {
       return text('Not found', 404);
     }
     // redirect so that reloading the page does not repeat the action
-    return new Response('', { status: 303, headers: headers('text/plain', { Location: '/admin?' + this.qs(f, { msg }, scope[0] === 'owner') }) });
+    return this.back(f, msg, scope);
+  }
+
+  back(f, msg, scope) {
+    // back to the researcher page (same study and tab) with a message
+    const tab = /^[a-z]{1,20}$/.test(this.arg('tab')) ? '#' + this.arg('tab') : '';
+    return new Response('', { status: 303, headers: headers('text/plain', { Location: '/admin?' + this.qs(f, { msg }, scope[0] !== 'study') + tab }) });
   }
 
   async machine(route) {

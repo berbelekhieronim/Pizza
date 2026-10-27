@@ -203,6 +203,17 @@ class Store:
         w, a = self.where({'study': study})
         return [r[0] for r in self.db().execute('SELECT DISTINCT %s FROM sessions%s ORDER BY 1' % (col, w), a) if r[0] != '']
 
+    def last_started(self, study):
+        """When the newest session of a study (None = all) started."""
+        w, a = self.where({'study': study})
+        return self.db().execute('SELECT MAX(started) FROM sessions' + w, a).fetchone()[0]
+
+    def median_seconds(self, study):
+        """Median time taken by the finished sessions of a study (None = all)."""
+        w, a = self.where({'study': study, 'stage': 'done'})
+        v = sorted(r[0] for r in self.db().execute('SELECT seconds FROM sessions%s' % w, a) if r[0] is not None)
+        return None if not v else (v[len(v) // 2] if len(v) % 2 else (v[len(v) // 2 - 1] + v[len(v) // 2]) / 2)
+
     def counts_by_study(self):
         return {r['study']: (r['n'], r['done']) for r in self.db().execute("SELECT study, COUNT(*) n, SUM(stage = 'done') done FROM sessions GROUP BY study")}
 

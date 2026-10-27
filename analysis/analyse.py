@@ -1429,8 +1429,23 @@ def contact_panel(pieces):
     return ''.join(s) + '</svg>'
 
 
-def dot_plot(title, values, ref=None, ref_label='', lo=0.0, hi=None, fmt='%.2f'):
-    """values: {group: [numbers]}. One row of dots per group, with the median marked."""
+SMALL_N = 5          # groups smaller than this are drawn, but not summarised (no median or quartiles, no percentages)
+
+
+def quartiles(v):
+    """(25th percentile, median, 75th percentile), linear interpolation between order statistics (as R's default, type 7)."""
+    v = sorted(v)
+    def q(p):
+        h = (len(v) - 1) * p
+        lo_i = math.floor(h)
+        return v[lo_i] + (h - lo_i) * (v[min(lo_i + 1, len(v) - 1)] - v[lo_i])
+    return q(.25), q(.5), q(.75)
+
+
+def dot_plot(title, values, ref=None, ref_label='', lo=0.0, hi=None, fmt='%.2f', unit=''):
+    """values: {group: [numbers]}. One row of dots per group (every participant is a dot). Groups of SMALL_N or more
+    also get their median (line) and interquartile range (band), written out on the right; smaller groups are only
+    drawn. unit names the axis."""
     groups = [g for g in values if values[g]]
     if not groups:
         return ''
@@ -1444,25 +1459,36 @@ def dot_plot(title, values, ref=None, ref_label='', lo=0.0, hi=None, fmt='%.2f')
         hi = lo + step * math.ceil((top - lo) / step - 1e-9)
     if hi - lo <= 1e-9:                 # every value the same (e.g. all 0): give the axis some width
         lo, hi, step = (lo - 1, lo + 1, None) if lo != 0 else (0.0, 1.0, None)
-    W, right, row = 640, 20, 34
+    W, right, row = 760, 150, 34
     left = min(300, 24 + 7 * max(len(str(g)) + 5 for g in groups))
-    H = 44 + row * len(groups)
+    H = 44 + row * len(groups) + (16 if unit else 0)
+    base = 44 + row * len(groups)
     X = lambda v: left + (min(max(v, lo), hi) - lo) / (hi - lo) * (W - left - right)
     s = ['<svg viewBox="0 0 %d %d" class="dots" role="img" aria-label="%s">' % (W, H, esc(title))]
     n_ticks = max(1, round((hi - lo) / step)) if step else 5
     for t in range(n_ticks + 1):
         v = lo + (hi - lo) * t / n_ticks
-        s.append('<line class="grid" x1="%.1f" x2="%.1f" y1="18" y2="%d"/><text class="tick" x="%.1f" y="%d">%s</text>' % (X(v), X(v), H - 20, X(v), H - 6, fmt % v))
+        s.append('<line class="grid" x1="%.1f" x2="%.1f" y1="18" y2="%d"/><text class="tick" x="%.1f" y="%d">%s</text>' % (X(v), X(v), base - 20, X(v), base - 6, fmt % v))
+    if unit:
+        s.append('<text class="tick" x="%.1f" y="%d">%s</text>' % ((left + W - right) / 2, H - 2, esc(unit)))
     if ref is not None:
-        s.append('<line class="ref" x1="%.1f" x2="%.1f" y1="14" y2="%d"/><text class="reflabel" x="%.1f" y="12">%s</text>' % (X(ref), X(ref), H - 20, X(ref), esc(ref_label)))
+        s.append('<line class="ref" x1="%.1f" x2="%.1f" y1="14" y2="%d"/><text class="reflabel" x="%.1f" y="12">%s</text>' % (X(ref), X(ref), base - 20, X(ref), esc(ref_label)))
+    s.append('<text class="stathead" x="%d" y="12">median (IQR)</text>' % (W - right + 12))
     rnd = random.Random(7)
     for gi, g in enumerate(groups):
-        y = 34 + gi * row
-        s.append('<text class="glabel" x="%d" y="%.1f">%s <tspan class="n">n=%d</tspan></text>' % (left - 10, y + 4, esc(g), len(values[g])))
-        for v in values[g]:
-            s.append('<circle class="dot g%d" cx="%.1f" cy="%.1f" r="4.5"/>' % (gi % 4, X(v), y + rnd.uniform(-7, 7)))
-        m = statistics.median(values[g])
-        s.append('<line class="median" x1="%.1f" x2="%.1f" y1="%.1f" y2="%.1f"/>' % (X(m), X(m), y - 12, y + 12))
+        y, v = 34 + gi * row, values[g]
+        small = len(v) < SMALL_N
+        s.append('<text class="glabel%s" x="%d" y="%.1f">%s <tspan class="n">n=%d</tspan></text>' % (' small' if small else '', left - 10, y + 4, esc(g), len(v)))
+        if not small:
+            q1, m, q3 = quartiles(v)
+            s.append('<rect class="iqr" x="%.1f" y="%.1f" width="%.1f" height="18" rx="3"/>' % (X(q1), y - 9, max(X(q3) - X(q1), 1.5)))
+        for x in v:
+            s.append('<circle class="dot g0%s" cx="%.1f" cy="%.1f" r="4.5"><title>%s</title></circle>' % (' faint' if small else '', X(x), y + rnd.uniform(-7, 7), fmt % x))
+        if small:
+            s.append('<text class="stat muted" x="%d" y="%.1f">too few to summarise</text>' % (W - right + 12, y + 4))
+        else:
+            s.append('<line class="median" x1="%.1f" x2="%.1f" y1="%.1f" y2="%.1f"/>' % (X(m), X(m), y - 12, y + 12))
+            s.append('<text class="stat" x="%d" y="%.1f">%s (%s–%s)</text>' % (W - right + 12, y + 4, fmt % m, fmt % q1, fmt % q3))
     return '<figure><figcaption>%s</figcaption>%s</svg></figure>' % (esc(title), ''.join(s))
 
 
@@ -1489,7 +1515,11 @@ figcaption { font-weight: 600; margin-bottom: 4px; }
 .dots .ref { stroke: var(--fg); stroke-dasharray: 4 3; } .dots .reflabel { fill: var(--fg); font-size: 11px; text-anchor: middle; }
 .dots .glabel { fill: var(--fg); font-size: 13px; text-anchor: end; } .dots .n { fill: var(--muted); font-size: 11px; }
 .dots .dot { fill-opacity: .7; } .g0 { fill: var(--g0); } .g1 { fill: var(--g1); } .g2 { fill: var(--g2); } .g3 { fill: var(--g3); }
+.dots .dot.faint { fill-opacity: .35; } .dots .glabel.small { fill: var(--muted); }
+.dots .iqr { fill: var(--g0); opacity: .14; }
 .dots .median { stroke: var(--fg); stroke-width: 2.5; }
+.dots .stat { fill: var(--fg); font-size: 12px; font-variant-numeric: tabular-nums; } .dots .stat.muted { fill: var(--muted); font-size: 11px; }
+.dots .stathead { fill: var(--muted); font-size: 11px; }
 .cards { display: grid; gap: 14px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; }
 .card h3 { margin: 0 0 8px; font-size: 1rem; } .card h3 span { color: var(--muted); font-weight: 400; }
@@ -1531,6 +1561,11 @@ table.people th .grp { display: block; font-weight: 400; color: var(--muted); fo
 .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; color: #fff; font-size: .78rem; white-space: nowrap; }
 .chip.typical { background: var(--ok); } .chip.uncommon { background: var(--near); } .chip.unusual { background: var(--miss); }
 .note { font-size: .85rem; color: var(--muted); }
+.nv-rev { fill: var(--d-vegan); background: var(--d-vegan); } .nv-done { fill: var(--d-fish); background: var(--d-fish); } .nv-none { fill: var(--line); background: var(--line); }
+.dir-lighter { fill: var(--d-vegan); background: var(--d-vegan); } .dir-same { fill: var(--d-veg); background: var(--d-veg); }
+.dir-heavier { fill: var(--d-meat); background: var(--d-meat); } .dir-unchanged { fill: var(--line); background: var(--line); }
+.toc { position: sticky; top: 0; z-index: 5; background: var(--bg); display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: .9rem; }
+.toc a { color: var(--fg); }
 """
 DASH_TOKENS = """
 :root { --d-vegan:#3f8f4a; --d-veg:#c99a12; --d-fish:#2f78b5; --d-meat:#b8432a; }
@@ -1546,21 +1581,26 @@ def stacked_bars(title, rows, classes):
     s = ['<svg viewBox="0 0 %d %d" class="dots" role="img" aria-label="%s">' % (W, H, esc(title))]
     for i, (label, cnt) in enumerate(rows):
         y, n = 6 + i * rowh, sum(cnt.values())
+        small = n < SMALL_N * 2           # under 10: counts, not percentages
         s.append('<text class="lab" x="%d" y="%d" text-anchor="end">%s <tspan class="val">n=%d</tspan></text>' % (left - 8, y + 15, esc(label), n))
         x = left
         for k, _ in classes:
             w = (W - left - right) * cnt.get(k, 0) / n if n else 0
             if w <= 0:
                 continue
-            s.append('<rect class="%s" x="%.1f" y="%d" width="%.1f" height="20" rx="2"/>' % (k, x, y, w))
+            s.append('<rect class="%s" x="%.1f" y="%d" width="%.1f" height="20" rx="2"><title>%s: %d of %d (%d%%)</title></rect>'
+                     % (k, x, y, w, dict(classes).get(k, k), cnt[k], n, round(100 * cnt[k] / n)))
             if w > 34:
-                s.append('<text class="inbar" x="%.1f" y="%d" text-anchor="middle">%d%%</text>' % (x + w / 2, y + 14, round(100 * cnt[k] / n)))
+                s.append('<text class="inbar" x="%.1f" y="%d" text-anchor="middle">%s</text>' % (x + w / 2, y + 14, ('%d' % cnt[k]) if small else '%d%%' % round(100 * cnt[k] / n)))
             x += w
-    return '<figure><figcaption>%s</figcaption>%s</svg></figure>' % (esc(title), ''.join(s))
+    note = '<p class="note">Bars of fewer than %d pizzas show counts instead of percentages. Hover a bar for both.</p>' % (SMALL_N * 2) \
+        if any(sum(c.values()) < SMALL_N * 2 for _, c in rows) else ''
+    return '<figure><figcaption>%s</figcaption>%s</svg>%s</figure>' % (esc(title), ''.join(s), note)
 
 
 def strong_feelings_chart(entries, groups):
-    """For each ingredient: how many participants have strong positive / negative feelings about it, by group."""
+    """For each ingredient: the share of participants with strong negative (left) and positive (right) feelings about
+    it, over everyone who answered; the counts per group are written beside it (only groups that named it)."""
     recs = [r for r, _ in entries if r.get('strong_list') is not None or r.get('strong_none') is not None]
     if not recs:
         return ''
@@ -1572,31 +1612,39 @@ def strong_feelings_chart(entries, groups):
                 pos[(r['_group'], k)] += 1
             elif f in FEEL_NEG:
                 neg[(r['_group'], k)] += 1
-    ings = sorted({k for _, k in list(pos) + list(neg)}, key=lambda k: -sum(pos[(g, k)] + neg[(g, k)] for g in groups))
+    tot = lambda c, k: sum(c[(g, k)] for g in groups)
+    ings = sorted({k for _, k in list(pos) + list(neg)}, key=lambda k: (-(tot(pos, k) + tot(neg, k)), k))
     if not ings:
         return '<p class="note">Nobody reported strong feelings about any ingredient.</p>'
-    W, left, mid, right, rowh = 680, 130, 400, 16, 14 * max(1, len(groups)) + 8
-    top = max(max(pos.values() or [1]), max(neg.values() or [1]), 1)
-    half = (W - left - right) / 2
-    X = lambda v: half * v / top
-    H = 34 + rowh * len(ings)
+    n = len(recs)
+    size = Counter(r['_group'] for r in recs)
+    W, left, half, rowh = 900, 150, 140, 22
+    top = max(max(tot(pos, k), tot(neg, k)) for k in ings) / n
+    X = lambda v: half * v / max(top, 1e-9)
+    mid = left + half
+    H = 30 + rowh * len(ings)
     s = ['<svg viewBox="0 0 %d %d" class="dots" role="img" aria-label="Strong feelings by ingredient">' % (W, H),
-         '<text class="val" x="%.1f" y="12" text-anchor="end">negative (dislike, can\'t stand) &larr;</text>' % (left + half - 6),
-         '<text class="val" x="%.1f" y="12">&rarr; positive (love, like)</text>' % (left + half + 6),
-         '<line class="grid" x1="%.1f" x2="%.1f" y1="18" y2="%d"/>' % (left + half, left + half, H)]
+         '<text class="val" x="%.1f" y="12" text-anchor="end">negative &larr;</text>' % (mid - 6),
+         '<text class="val" x="%.1f" y="12">&rarr; positive</text>' % (mid + 6),
+         '<text class="val" x="%.1f" y="12">by group: negative / positive (group size)</text>' % (mid + half + 70),
+         '<line class="grid" x1="%.1f" x2="%.1f" y1="18" y2="%d"/>' % (mid, mid, H)]
     for i, k in enumerate(ings):
-        y = 24 + i * rowh
-        s.append('<text class="lab" x="%d" y="%.1f" text-anchor="end">%s</text>' % (left - 8, y + rowh / 2 + 2, esc(NAMES.get(k, k))))
-        for gi, g in enumerate(groups):
-            n_neg, n_pos = neg[(g, k)], pos[(g, k)]
-            yy = y + gi * 14
-            op = '1' if gi == 0 else '.55'
-            if n_neg:
-                s.append('<rect x="%.1f" y="%.1f" width="%.1f" height="11" rx="2" class="meat" opacity="%s"/>' % (left + half - X(n_neg), yy, X(n_neg), op))
-            if n_pos:
-                s.append('<rect x="%.1f" y="%.1f" width="%.1f" height="11" rx="2" class="vegan" opacity="%s"/>' % (left + half, yy, X(n_pos), op))
-            s.append('<text class="val" x="%.1f" y="%.1f">%d / %d%s</text>' % (left + half + X(n_pos) + 4, yy + 9.5, n_neg, n_pos, (' ' + esc(g)) if len(groups) > 1 and i == 0 else ''))
-    return '<figure><figcaption>Strong feelings about each ingredient (number of participants: negative / positive)</figcaption>%s</svg></figure>' % ''.join(s)
+        y = 22 + i * rowh
+        tn, tp = tot(neg, k), tot(pos, k)
+        s.append('<text class="lab" x="%d" y="%.1f" text-anchor="end">%s</text>' % (left - 26, y + 12, esc(NAMES.get(k, k))))
+        if tn:
+            s.append('<rect x="%.1f" y="%.1f" width="%.1f" height="14" rx="2" class="meat"><title>%d of %d negative</title></rect>' % (mid - X(tn / n), y + 1, X(tn / n), tn, n))
+            s.append('<text class="val" x="%.1f" y="%.1f" text-anchor="end">%d</text>' % (mid - X(tn / n) - 4, y + 12, tn))
+        if tp:
+            s.append('<rect x="%.1f" y="%.1f" width="%.1f" height="14" rx="2" class="vegan"><title>%d of %d positive</title></rect>' % (mid, y + 1, X(tp / n), tp, n))
+            s.append('<text class="val" x="%.1f" y="%.1f">%d</text>' % (mid + X(tp / n) + 4, y + 12, tp))
+        if len(groups) > 1:
+            parts = ['%s %d/%d (%d)' % (g, neg[(g, k)], pos[(g, k)], size[g]) for g in groups if neg[(g, k)] or pos[(g, k)]]
+            if len(parts) > 3:
+                parts = parts[:3] + ['+%d more' % (len(parts) - 3)]
+            s.append('<text class="val" x="%.1f" y="%.1f">%s</text>' % (mid + half + 70, y + 12, esc(' · '.join(parts))))
+    return ('<figure><figcaption>Strong feelings about each ingredient (bars: share of the %d participants who answered; numbers: people)</figcaption>%s</svg></figure>'
+            % (n, ''.join(s)))
 
 
 def topping_rates(recs, groups, toppings):
@@ -1678,6 +1726,42 @@ DASH_COLS = [  # (key, heading, group, format)
 ]
 
 
+def nutrition_section(recs, groups):
+    """The dashboard's nutrition section: energy of every pizza, and where the nutrition information was offered
+    (nutrition_reveal), who looked, who changed their mind, and which way the pizza changed after they first saw it."""
+    num = lambda r, k: r.get(k) if isinstance(r.get(k), (int, float)) else None
+    vals = lambda k, rs: {g: [num(r, k) for r in rs if r['_group'] == g and num(r, k) is not None] for g in groups}
+    out = [dot_plot('Energy of the finished pizza (whole pizza with its base; shown to the participant or not)', vals('nut_kcal', recs), lo=0.0, fmt='%.0f', unit='kcal')]
+    offered = [r for r in recs if num(r, 'nutrition_reveal') == 1]
+    if not offered:
+        return ('<p class="muted">Nutrition information was not offered to anyone here (study setting <code>nutrition_reveal</code>), so there is '
+                'nothing on looking or changing; the energy of every pizza is computed anyway.</p>' + ''.join(out))
+    gl = [g for g in groups if any(r['_group'] == g for r in offered)]
+    rows = [('All', Counter())] + ([(g, Counter()) for g in gl] if len(gl) > 1 else [])
+    for r in offered:
+        k = 'nv-rev' if num(r, 'nutri_revealed') == 1 else 'nv-done' if (num(r, 'n_nutri_done_seen') or 0) > 0 else 'nv-none'
+        for label, c in rows:
+            if label in ('All', r['_group']):
+                c[k] += 1
+    looked = stacked_bars('Did they look? (people offered the nutrition information)', rows,
+                          [('nv-rev', 'revealed it while building'), ('nv-done', 'saw it only at "I\'m done"'), ('nv-none', 'never saw it')])
+    seen = [r for r in offered if num(r, 'nutri_seen') == 1]
+    dirs = [('dir-lighter', 'lighter'), ('dir-same', 'same energy'), ('dir-heavier', 'heavier'), ('dir-unchanged', 'unchanged')]
+    drows = [('All', Counter('dir-' + str(r.get('post_nutri_direction')).replace(' energy', '') for r in seen))]
+    drows += [(g, Counter('dir-' + str(r.get('post_nutri_direction')).replace(' energy', '') for r in seen if r['_group'] == g)) for g in gl] if len(gl) > 1 else []
+    changed = stacked_bars('After first seeing it: what happened to the pizza? (lighter / heavier = more than 10 kcal less / more)', drows, dirs) if seen else ''
+    cm = sum(1 for r in offered if (num(r, 'n_changed_mind') or 0) > 0)
+    legend = '<div class="legend">%s</div>' % ''.join('<span><i class="%s"></i>%s</span>' % (k, l) for k, l in
+                                                      [('nv-rev', 'revealed while building'), ('nv-done', 'saw it only at "I\'m done"'), ('nv-none', 'never saw it')] + dirs)
+    out.append(legend + looked + changed)
+    if seen:
+        out.append(dot_plot('Change in energy after first seeing the nutrition (final pizza minus the pizza at that moment)', vals('post_nutri_d_kcal', seen), fmt='%.0f',
+                            unit='kcal', lo=min([0.0] + [num(r, 'post_nutri_d_kcal') or 0 for r in seen])))
+    return ('<p class="muted">Offered to %d of %d participants. %d chose "I changed my mind" at the end at least once; %d rebuilt after the end dialog. '
+            'Measures and their formulas are on the Methods page (nutri_*, post_nutri_*); explore.html compares people who revealed it with those who did not.</p>'
+            % (len(offered), len(recs), cm, sum(1 for r in offered if num(r, 'rebuilt_after_done') == 1)) + ''.join(out))
+
+
 def dashboard_report(entries, ref_info, group_label):
     recs = [r for r, _ in entries]
     if not recs:
@@ -1729,21 +1813,21 @@ def dashboard_report(entries, ref_info, group_label):
                        % (thumb(p, {}), esc(r['pid']), r['normality_band'], r['normality_band'], r['atypicality_pct'], esc(r.get('unusual_elements') or 'common toppings only'))
                        for r, p in unusual)
     vals = lambda k, scale=1: {g: [r[k] / scale for r in recs if r['_group'] == g and isinstance(r.get(k), (int, float))] for g in groups}
-    space = (dot_plot('Mirror symmetry score (0 = chance, 1 = every piece has a mirror partner)', vals('mirror_score'), 0.0, 'chance', lo=-0.5, hi=1.0) +
-             dot_plot('Spread: Clark-Evans ratio (<1 clustered, >1 evenly spaced)', vals('clark_evans'), 1.0, 'random') +
-             dot_plot('Share of the pizza covered by toppings', vals('coverage'), lo=0.0, hi=1.0) +
-             dot_plot('Share of pieces touching another piece', vals('prop_touching'), lo=0.0, hi=1.0))
-    size = (dot_plot('Total topping area (cm² on a 30 cm pizza)', vals('topping_area_cm2'), lo=0.0, fmt='%.0f') +
-            dot_plot('Number of pieces', vals('n_pieces'), lo=0.0, fmt='%.0f') +
-            dot_plot('Size matching: share of resized pieces sized like another piece of the same topping', vals('size_match_same'), lo=0.0, hi=1.0) +
-            dot_plot('Mean piece size (1 = normal; holding a topping pulses it between 0.5 and 2.5)', vals('size_mean'), lo=0.5, hi=2.5, fmt='%.1f'))
-    time_ = (dot_plot('Median decision time, seconds (end of one action to picking up the next topping)', vals('decision_median', 1000), lo=0.0, fmt='%.1f') +
-             dot_plot('Total build time, seconds (time on other tabs removed)', vals('t_active', 1000), lo=0.0, fmt='%.0f') +
-             dot_plot('Time to first topping, seconds', vals('t_first_pick', 1000), lo=0.0, fmt='%.1f') +
-             dot_plot('Time to completion: confirmed "I\'m done", seconds', vals('t_submit', 1000), lo=0.0, fmt='%.0f'))
-    feel_plots = (dot_plot('Ingredients with strong feelings, per participant', vals('n_strong'), lo=0.0, fmt='%.0f') +
-                  dot_plot('Sensory reasons given (texture, smell, taste, look, touching other food)', vals('n_sensory_reasons'), lo=0.0, fmt='%.0f') +
-                  dot_plot('"Safe foods" among them', vals('n_safe_foods'), lo=0.0, fmt='%.0f'))
+    space = (dot_plot('Mirror symmetry score (0 = chance, 1 = every piece has a mirror partner)', vals('mirror_score'), 0.0, 'chance', lo=-0.5, hi=1.0, unit='score (0 = chance level)') +
+             dot_plot('Spread: Clark-Evans ratio (<1 clustered, >1 evenly spaced)', vals('clark_evans'), 1.0, 'random', unit='ratio') +
+             dot_plot('Share of the pizza covered by toppings', vals('coverage'), lo=0.0, hi=1.0, unit='share of the pizza (0–1)') +
+             dot_plot('Share of pieces touching another piece', vals('prop_touching'), lo=0.0, hi=1.0, unit='share of pieces (0–1)'))
+    size = (dot_plot('Total topping area (cm² on a 30 cm pizza)', vals('topping_area_cm2'), lo=0.0, fmt='%.0f', unit='cm²') +
+            dot_plot('Number of pieces', vals('n_pieces'), lo=0.0, fmt='%.0f', unit='pieces') +
+            dot_plot('Size matching: share of resized pieces sized like another piece of the same topping', vals('size_match_same'), lo=0.0, hi=1.0, unit='share of resized pieces (0–1)') +
+            dot_plot('Mean piece size (1 = normal; holding a topping pulses it between 0.5 and 2.5)', vals('size_mean'), lo=0.5, hi=2.5, fmt='%.1f', unit='size (1 = normal)'))
+    time_ = (dot_plot('Median decision time, seconds (end of one action to picking up the next topping)', vals('decision_median', 1000), lo=0.0, fmt='%.1f', unit='seconds') +
+             dot_plot('Total build time, seconds (time on other tabs removed)', vals('t_active', 1000), lo=0.0, fmt='%.0f', unit='seconds') +
+             dot_plot('Time to first topping, seconds', vals('t_first_pick', 1000), lo=0.0, fmt='%.1f', unit='seconds') +
+             dot_plot('Time to completion: confirmed "I\'m done", seconds', vals('t_submit', 1000), lo=0.0, fmt='%.0f', unit='seconds'))
+    feel_plots = (dot_plot('Ingredients with strong feelings, per participant', vals('n_strong'), lo=0.0, fmt='%.0f', unit='ingredients') +
+                  dot_plot('Sensory reasons given (texture, smell, taste, look, touching other food)', vals('n_sensory_reasons'), lo=0.0, fmt='%.0f', unit='reasons') +
+                  dot_plot('"Safe foods" among them', vals('n_safe_foods'), lo=0.0, fmt='%.0f', unit='ingredients'))
     head = '<tr><th class="l">Pizza</th><th class="l">Participant</th><th class="l">Group</th>%s</tr>' % ''.join(
         '<th%s>%s<span class="grp">%s</span></th>' % (' class="l"' if f is None else '', esc(h), g) for _, h, g, f in DASH_COLS)
     body = []
@@ -1783,22 +1867,26 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
 </script>"""
     return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
             '<title>Pizza Data Preview</title><style>%s%s%s</style></head><body><div class="wrap">'
-            '<h1>Pizza data preview</h1><p class="muted">%d pizzas, compared by <code>%s</code>. Every number comes from the recorded coordinates, sizes and timestamps; '
-            'column definitions are in CODEBOOK.md.</p><div class="kpis">%s</div>'
-            '<h2>Diet: vegan, vegetarian, pescatarian or meat</h2><p class="muted">Each topping has a diet class; cheese and white sauce count as dairy, so a vegan '
+            '<h1>Overview</h1><p class="muted">%d pizzas, compared by <code>%s</code>. Every number comes from the recorded coordinates, sizes and timestamps; '
+            'formulas are on the Methods page. Charts are descriptive: every participant is a dot, groups of 5 or more get a median and interquartile range '
+            '(the middle half). Tests between groups are on the Explore page.</p><div class="kpis">%s</div>'
+            '<nav class="toc"><a href="#diet">Diet</a><a href="#nutrition">Nutrition</a><a href="#normal">How normal</a><a href="#feelings">Strong feelings</a>'
+            '<a href="#space">Space</a><a href="#size">Size and amount</a><a href="#time">Time</a><a href="#people">Every participant</a></nav>'
+            '<h2 id="diet">Diet: vegan, vegetarian, pescatarian or meat</h2><p class="muted">Each topping has a diet class; cheese and white sauce count as dairy, so a vegan '
             'pizza needs no cheese. A pizza is classed by the strictest diet it fits.</p>%s%s%s%s'
-            '<h2>How normal is each pizza?</h2><p class="muted">Two things are compared with the reference (%s). <b>Which toppings</b>: how surprising '
+            '<h2 id="nutrition">Nutrition</h2>%s'
+            '<h2 id="normal">How normal is each pizza?</h2><p class="muted">Two things are compared with the reference (%s). <b>Which toppings</b>: how surprising '
             'the set of toppings is given how often each topping appears; adding a rare topping or leaving off a near-universal one both add surprise (in bits, plotted below). '
             '<b>How many</b>: how extreme the number of different toppings is, in either direction, so a plain pizza or one with everything stands out. '
             'Each becomes a percentile of the reference, and the band uses the more extreme of the two: under 75 is <b>typical</b>, 75-95 <b>uncommon</b>, above 95 <b>unusual</b>.</p>'
-            '<figure><figcaption>Which toppings: reference distribution (bars) and this sample (dots; bar = median)</figcaption>%s</figure>%s'
+            '<figure><figcaption>Which toppings: surprise of the topping set in bits (bars = reference, dots = this sample, line = median)</figcaption>%s</figure>%s'
             '<h3>Most unusual pizzas</h3><div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">%s</div>'
-            '<h2>Strong feelings</h2><p class="muted">From the follow-up: which ingredients people have strong feelings about, and why '
+            '<h2 id="feelings">Strong feelings</h2><p class="muted">From the follow-up: which ingredients people have strong feelings about, and why '
             '(texture, smell, taste, look, touching other food), whether they are safe foods, must be a certain way, or are craved.</p>%s%s'
-            '<h2>Space</h2>%s<h2>Size and amount</h2>%s<h2>Time</h2>%s'
-            '<h2>Every participant</h2><p class="muted">Click a column to sort.</p><div class="tablewrap"><table class="people"><thead>%s</thead><tbody>%s</tbody></table></div>'
+            '<h2 id="space">Space</h2>%s<h2 id="size">Size and amount</h2>%s<h2 id="time">Time</h2>%s'
+            '<h2 id="people">Every participant</h2><p class="muted">Click a column to sort.</p><div class="tablewrap"><table class="people"><thead>%s</thead><tbody>%s</tbody></table></div>'
             '</div>%s</body></html>'
-            % (REPORT_CSS, DASH_TOKENS, DASH_CSS, len(recs), esc(group_label), kpis, legend, diet, pieces, cross,
+            % (REPORT_CSS, DASH_TOKENS, DASH_CSS, len(recs), esc(group_label), kpis, legend, diet, pieces, cross, nutrition_section(recs, groups),
                esc(ref_txt), hist, bands, examples, strong_feelings_chart(entries, groups), feel_plots, space, size, time_, head, ''.join(body), sort_js))
 
 
@@ -1813,12 +1901,12 @@ def arrangement_report(entries, group_label):
         by_group.setdefault(str(rec.get('_group') or 'all'), []).append(rec)
     def vals(key):
         return {g: [r[key] for r in rs if isinstance(r.get(key), (int, float))] for g, rs in by_group.items()}
-    plots = (dot_plot('Mirror symmetry score (0 = chance, 1 = every piece has a mirror partner)', vals('mirror_score'), 0.0, 'chance', lo=-0.5, hi=1.0) +
-             dot_plot('Pieces with a mirror partner (share)', vals('mirror_match'), lo=0.0, hi=1.0) +
-             dot_plot('Rotational symmetry score (best of 2- to 8-fold; 0 = chance, 1 = every piece matched)', vals('rot_score'), 0.0, 'chance', lo=-0.5, hi=1.0) +
-             dot_plot('Share of pieces touching another piece', vals('prop_touching'), lo=0.0, hi=1.0) +
-             dot_plot('Share of pieces stacked on or under another piece', vals('prop_stacked'), lo=0.0, hi=1.0) +
-             dot_plot('Tallest pile (layers; 1 = nothing stacked)', vals('max_stack_depth'), lo=1.0, fmt='%.1f'))
+    plots = (dot_plot('Mirror symmetry score (0 = chance, 1 = every piece has a mirror partner)', vals('mirror_score'), 0.0, 'chance', lo=-0.5, hi=1.0, unit='score (0 = chance level)') +
+             dot_plot('Pieces with a mirror partner (share)', vals('mirror_match'), lo=0.0, hi=1.0, unit='share of pieces (0–1)') +
+             dot_plot('Rotational symmetry score (best of 2- to 8-fold; 0 = chance, 1 = every piece matched)', vals('rot_score'), 0.0, 'chance', lo=-0.5, hi=1.0, unit='score (0 = chance level)') +
+             dot_plot('Share of pieces touching another piece', vals('prop_touching'), lo=0.0, hi=1.0, unit='share of pieces (0–1)') +
+             dot_plot('Share of pieces stacked on or under another piece', vals('prop_stacked'), lo=0.0, hi=1.0, unit='share of pieces (0–1)') +
+             dot_plot('Tallest pile (layers; 1 = nothing stacked)', vals('max_stack_depth'), lo=1.0, fmt='%.1f', unit='layers'))
     cards = []
     for rec, pieces in sorted(entries, key=lambda e: (e[0].get('mirror_score') is None, -(e[0].get('mirror_score') or 0))):
         if len(pieces) < 2:
@@ -2630,15 +2718,35 @@ def strip_svg(x, y, binary, la, lb):
     return ''.join(s)
 
 
-def fmt_m(v, binary):
+def is_ms(key):
+    """Measures recorded in milliseconds (times and durations), shown in seconds."""
+    return key.endswith('_ms') or key.startswith(('t_', 'mv_dwell', 'mv_hold')) or key in ('decision_median', 'decision_mean', 'hover_ms', 'tray_rest_ms')
+
+
+def fmt_m(v, binary, key=''):
+    """A typical value for the tables: % for yes/no measures, seconds for times, otherwise 2 decimals or whole numbers."""
     if v is None:
         return ''
     if binary:
         return '%.0f%%' % (100 * v)
+    if is_ms(key):
+        return '%.1f s' % (v / 1000)
     return ('%.0f' % v) if abs(v) >= 100 else ('%.2f' % v)
 
 
+def delta_size(d):
+    """Conventional size of a Cliff's delta (Romano et al. 2006): negligible < .147 <= small < .33 <= medium < .474 <= large."""
+    a = abs(d)
+    return 'negligible' if a < .147 else 'small' if a < .33 else 'medium' if a < .474 else 'large'
+
+
+def fmt_p(p):
+    return '&lt;0.001' if p < 0.001 else '%.3f' % p
+
+
 EXPLORE_CSS = """
+.verdict { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--muted); border-radius: 8px; padding: 6px 10px; max-width: 90ch; }
+.verdict.pass { border-left-color: var(--ok); } tr.pass td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
 .lead { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--near); border-radius: 12px; padding: 10px 14px; }
 .tbl { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px 8px; margin-bottom: 14px; }
 .tbl table { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; width: 100%; }
@@ -2724,10 +2832,12 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
         rows = []
         for t in top:
             lo, hi = boot_ci(t['x'], t['y'], rnd)
-            rows.append('<tr><td class="l">%s<br><span class="muted">%s</span></td><td class="l">%s<br><span class="muted">vs %s</span></td><td>%d / %d</td>'
-                        '<td>%s / %s</td><td><b>%+.2f</b></td><td class="ci">%+.2f to %+.2f</td><td>%.3f</td><td>%.3f</td><td class="l">%s</td></tr>'
-                        % (esc(t['label']), esc(t['area']), esc(t['level']), esc(t['vs']), t['n1'], t['n0'], fmt_m(t['m1'], t['binary']), fmt_m(t['m0'], t['binary']),
-                           t['delta'], lo, hi, t['p'], t['q'], strip_svg(t['x'], t['y'], t['binary'], t['level'], t['vs'])))
+            rows.append('<tr%s><td class="l">%s<br><span class="muted">%s</span></td><td class="l">%s<br><span class="muted">vs %s</span></td><td>%d / %d</td>'
+                        '<td>%s / %s</td><td><b>%+.2f</b><br><span class="muted">%s</span></td><td class="ci">%+.2f to %+.2f</td><td>%s</td><td>%s%s</td><td class="l">%s</td></tr>'
+                        % (' class="pass"' if t['q'] < 0.1 else '', esc(t['label']), esc(t['area']), esc(t['level']), esc(t['vs']), t['n1'], t['n0'],
+                           fmt_m(t['m1'], t['binary'], t['key']), fmt_m(t['m0'], t['binary'], t['key']),
+                           t['delta'], delta_size(t['delta']), lo, hi, fmt_p(t['p']), '%.3f' % t['q'], ' ✓' if t['q'] < 0.1 else '',
+                           strip_svg(t['x'], t['y'], t['binary'], t['level'], t['vs'])))
         by = {(t['key'], t['level']): t for t in tests}
         main = [d for d in defs if not d[0].startswith(TOPPING_AREAS)]
         tops = [d for d in defs if d[0].startswith(TOPPING_AREAS)]
@@ -2747,11 +2857,15 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
         if dropped:
             counts += '<span class="muted">left out (fewer than 3): %s</span>' % esc(', '.join('%s %d' % kv for kv in dropped.items()))
         body.append('<h2 id="g-%s">%s</h2><div class="chips">%s</div>'
-                    '<p class="muted">%d comparisons; %d with q &lt; 0.10 (false discovery rate). Largest differences first:</p>'
-                    '<div class="tbl"><table class="leads"><tr><th class="l">Measure</th><th class="l">Group</th><th>n</th><th>%s</th><th>δ</th><th>95%% CI</th><th>p</th><th>q</th><th class="l">Data (orange = group)</th></tr>%s</table></div>'
+                    '%s'
+                    '<div class="tbl"><table class="leads"><tr><th class="l">Measure</th><th class="l">Group</th><th>n</th><th>median or %%<br>%s</th><th>Cliff\'s δ</th><th>95%% CI of δ</th><th>p</th><th>q (FDR)</th><th class="l">Data (orange = group)</th></tr>%s</table></div>'
                     '<details class="more"><summary>Every measure (Cliff\'s δ; orange = higher in %s; outlined = q &lt; 0.10)</summary><div class="tbl"><table>%s%s</table></div></details>'
                     '<details class="more"><summary>Every topping: used, changed mind about, considered, named with strong feelings</summary><div class="tbl"><table>%s%s</table></div></details>'
-                    % (esc(key), esc(glabel), counts, len(tests), sig, 'group / rest' if len(levels) > 2 else '%s / %s' % (esc(levels[0]), esc(levels[1])),
+                    % (esc(key), esc(glabel), counts,
+                       ('<p class="verdict pass">%d of %d comparisons pass the false discovery rate (q &lt; 0.10, ✓ below). Largest differences first:</p>' % (sig, len(tests)) if sig else
+                        '<p class="verdict">None of the %d comparisons passes the false discovery rate (q &lt; 0.10). The largest differences are listed as leads '
+                        'for a new sample, not as findings:</p>' % len(tests)),
+                       'group / rest' if len(levels) > 2 else '%s / %s' % (esc(levels[0]), esc(levels[1])),
                        ''.join(rows), 'the group' if len(levels) > 2 else esc(levels[0]), thead, heat_rows(main), thead, heat_rows(tops)))
     # links with continuous self-reports and covariates
     cov_html = []
@@ -2817,8 +2931,9 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
     for t, q in zip(ch_tests, bh([t['p'] for t in ch_tests])):
         t['q'] = q
         all_tests.append(t)
-        ch_rows.append('<tr><td class="l">%s</td><td class="l">%s</td><td>%d</td><td>%.2f / %g</td><td><b>%+.2f</b></td><td>%.3f</td><td>%.3f</td></tr>'
-                       % (esc(t['label']), esc(t['level']), t['n1'], t['m1'], t['m0'], t['delta'], t['p'], t['q']))
+        ch_rows.append('<tr%s><td class="l">%s</td><td class="l">%s</td><td>%d</td><td>%.2f / %g</td><td><b>%+.2f</b></td><td>%s</td><td>%.3f%s</td></tr>'
+                       % (' class="pass"' if t['q'] < 0.1 else '', esc(t['label']), esc(t['level']), t['n1'], t['m1'], t['m0'], t['delta'], fmt_p(t['p']), t['q'],
+                          ' ✓' if t['q'] < 0.1 else ''))
     chance_html = ('<h2 id="chance">Against chance</h2><p class="muted">Does a group do this more than chance would give? Useful when a pilot has '
                    'one group only. Dominance = (people above chance − people below) / n, from −1 to 1; p from a sign-flip permutation test; '
                    'q over all rows of this table.</p><div class="tbl"><table><tr><th class="l">Measure</th><th class="l">Who</th><th>n</th>'
@@ -2841,13 +2956,17 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
     lead_rows = []
     for t in leads:
         word = ('more often' if t['binary'] else 'higher') if t['delta'] > 0 else ('less often' if t['binary'] else 'lower')
-        lead_rows.append('<tr><td class="l"><b>%s</b> %s: %s %s than %s</td><td>%d / %d</td><td><b>%+.2f</b></td><td>%.3f</td><td>%.3f</td><td>%s</td><td>%s</td></tr>'
-                         % (esc(t['level']), esc(dict(groupings).get(t['grouping'], t['grouping'])), esc(t['label']), word, esc(t['vs']),
-                            t['n1'], t['n0'], t['delta'], t['p'], t['q'], t['n_per_group_80'] or '', t['n_per_group_80_half'] or ''))
+        small = min(t['n1'], t['n0'] or 0) < SMALL_N
+        lead_rows.append('<tr%s><td class="l"><b>%s</b> %s: %s %s than %s%s</td><td>%d / %d</td><td><b>%+.2f</b><br><span class="muted">%s</span></td><td>%s</td><td>%.3f%s</td><td>%s</td><td>%s</td></tr>'
+                         % (' class="pass"' if t['q'] < 0.1 else '', esc(t['level']), esc(dict(groupings).get(t['grouping'], t['grouping'])), esc(t['label']), word, esc(t['vs']),
+                            '<br><span class="muted">fewer than %d in a group: very uncertain</span>' % SMALL_N if small else '',
+                            t['n1'], t['n0'], t['delta'], delta_size(t['delta']), fmt_p(t['p']), t['q'], ' ✓' if t['q'] < 0.1 else '',
+                            t['n_per_group_80'] or '', t['n_per_group_80_half'] or ''))
     leads_html = ('<h2 id="leads">Leads for a larger study</h2><p class="muted">The largest group differences in these data, one per measure. Each could '
                   'become a hypothesis. The last two columns give how many people per group a two-group study needs for 80%% power at α = .05 '
                   '(two-sided), if the true δ is as large as seen here, and if it is half that size (effects found by screening many measures '
-                  'in a small sample are usually overestimated; plan with the second).</p><div class="tbl"><table class="leads"><tr><th class="l">Pattern</th><th>n</th>'
+                  'in a small sample are usually overestimated; plan with the second). They are picked as the largest of many comparisons, so even '
+                  'their q values are optimistic. δ size words follow Romano et al. (2006): negligible &lt; .15, small &lt; .33, medium &lt; .47, large.</p><div class="tbl"><table class="leads"><tr><th class="l">Pattern</th><th>n</th>'
                   '<th>δ</th><th>p</th><th>q</th><th>n/group (δ as seen)</th><th>n/group (δ halved)</th></tr>%s</table></div>' % ''.join(lead_rows)) if lead_rows else ''
     nav = ''.join('<span><a href="#g-%s">%s</a></span>' % (esc(k_), esc(l_)) for k_, l_, _, _ in used)
     html = (head + '<p class="lead"><b>For exploring, not confirming.</b> This page screens %d measures (%d main, the rest per topping) across every '

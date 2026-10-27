@@ -111,6 +111,19 @@ export class Store {
     return results.map((r) => r.v).filter((v) => v !== '' && v !== null);
   }
 
+  async lastStarted(study) {
+    const [w, a] = Store.where({ study });
+    return (await this.db.prepare(`SELECT MAX(started) AS t FROM sessions${w}`).bind(...a).first()).t;
+  }
+
+  async medianSeconds(study) {
+    // median time taken by the finished sessions of a study (null = all)
+    const [w, a] = Store.where({ study, stage: 'done' });
+    const v = (await this.db.prepare(`SELECT seconds FROM sessions${w} AND seconds IS NOT NULL ORDER BY seconds`).bind(...a).all()).results.map((x) => x.seconds);
+    if (!v.length) return null;
+    return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+  }
+
   async countsByStudy() {
     const { results } = await this.db.prepare("SELECT study, COUNT(*) AS n, SUM(stage = 'done') AS done FROM sessions GROUP BY study").all();
     return Object.fromEntries(results.map((r) => [r.study, [r.n, r.done || 0]]));
