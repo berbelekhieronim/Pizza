@@ -5,6 +5,28 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Analysis audit: no smoke and mirrors** (`docs/analysis-audit.md` lists every change and its reason)
+- **One correction per family of questions.** The false discovery rate was corrected within each grouping while the
+  page made about 3,400 comparisons. Now the study's groupings and the self-reports are corrected together (about 900
+  tests); demographics (gender, age, link group, source) are a separate family; the ideas to test are their own.
+  The thresholds quoted on the page ("pass the correction from n per group") are computed from its own number of tests.
+- **Bootstrap intervals only for groups of 5 or more**; no sample sizes "at the effect seen" (winner's curse): leads
+  plan for half the effect.
+- **"Against chance" removed**: its chance layouts piled pieces up at random, so even spacing and some symmetry were
+  "beyond chance" for everyone. The symmetry chance level now comes from random layouts spaced like the pizza itself.
+- **Neurotype: each group against Not ND**, not against "everyone else"; yes/no groupings read "yes vs no".
+- **"How normal" percentiles and bands only with 20+ reference pizzas**; the profiles use the continuous surprise.
+- **Clusters only when they are real**: 20+ pizzas and a mean silhouette of 0.25+; otherwise "no clear clusters".
+  Clusters × groups uses a permutation test. **"Compare two participants" is now "Compare two clusters"**: two
+  clusters' average profiles side by side, ordered by how much they differ, with their group make-up and typical pizzas.
+- **Pruned from the screen** (kept in the data): mouse movement, hovering as "considering", interface counters,
+  adjustment-reason counts, nutrient totals other than the toppings' energy, secondary reveal measures, and measures
+  that are parts of other measures. Explore now screens about 90 measures per grouping instead of about 180; the
+  profiles have 30 features (no mouse movement).
+- **New grouping `nd_any`** (any self-described neurodivergence) and **idea 9: neurodivergent people make more unusual
+  pizzas** (unusualness = surprise of the topping set, rarity of the toppings), against autistic selectivity (idea 1).
+- The example reports in `examples/` are rebuilt with the audited analysis.
+
 **Explore, tidied up** (it highlighted odd things: device, gender and cheese differences from groups of 2-3)
 - A status line at the top says what the data can do now: describe only (smaller group under 8), screen, or test (24+
   per group), for the study's best grouping.

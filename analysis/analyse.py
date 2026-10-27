@@ -609,12 +609,26 @@ def best_rotation(pieces):
     return best
 
 
-def random_like(pieces, rnd):
-    """The same pieces (topping, size) at random positions on the pizza."""
+def spacing_floor(pieces):
+    """The pizza's own closest spacing: the 10th percentile of its centre-to-nearest-centre distances (0 under 3 pieces)."""
+    if len(pieces) < 3:
+        return 0.0
+    nn = sorted(min(math.hypot(p['x'] - q['x'], p['y'] - q['y']) for q in pieces if q is not p) for p in pieces)
+    return nn[int(0.1 * (len(nn) - 1))]
+
+
+def random_like(pieces, rnd, d0=0.0):
+    """The same pieces (topping, size) at random positions on the pizza, no two centres closer than d0 (the pizza's own
+    spacing_floor): people spread their toppings out, and a chance level from piled-up random layouts would make even
+    spacing look like symmetry. Up to 100 tries per piece, then the last position is kept."""
     out = []
     for p in pieces:
-        r, t = R_VALID * math.sqrt(rnd.random()), rnd.random() * 2 * math.pi
-        out.append(dict(p, x=r * math.cos(t), y=r * math.sin(t)))
+        for _ in range(100):
+            r, t = R_VALID * math.sqrt(rnd.random()), rnd.random() * 2 * math.pi
+            x, y = r * math.cos(t), r * math.sin(t)
+            if all(math.hypot(x - q['x'], y - q['y']) >= d0 for q in out):
+                break
+        out.append(dict(p, x=x, y=y))
     return out
 
 
@@ -623,15 +637,16 @@ SYM_NULLS = 12
 
 def symmetry(pieces, rnd):
     """Mirror and rotational symmetry as the share of pieces with a symmetric partner (sym_match), at the best axis /
-    rotation, against the share the same pieces get at random positions with the same search (chance, mean of
-    SYM_NULLS layouts). score = (share - chance) / (1 - chance) above chance and (share - chance) / chance below it:
+    rotation, against the share the same pieces get at random positions, spaced like this pizza, with the same search
+    (chance, mean of SYM_NULLS layouts). score = (share - chance) / (1 - chance) above chance and (share - chance) / chance below it:
     -1 = nothing matched, 0 = what chance gives, 1 = every piece matched."""
     n = len(pieces)
     if n < 2:
         return {}
     m, axis, mc = best_mirror(pieces)
     r, k, rc = best_rotation(pieces)
-    fakes = [random_like(pieces, rnd) for _ in range(SYM_NULLS)]
+    d0 = spacing_floor(pieces)
+    fakes = [random_like(pieces, rnd, d0) for _ in range(SYM_NULLS)]
     m0 = statistics.mean(best_mirror(f)[0] for f in fakes) / n
     r0 = statistics.mean(best_rotation(f)[0] for f in fakes) / n
     def score(share, ch):
@@ -1269,6 +1284,7 @@ def about_measures(about):
         return {}
     neuro, dx, eating = about.get('neuro') or [], about.get('dx') or {}, about.get('eating') or []
     out = {'neurotype': neurotype(neuro)}
+    out['nd_any'] = None if out['neurotype'] is None else int(out['neurotype'] != 'Not ND')     # any neurodivergence, self-described
     for k in AB_NEURO:
         out['nd_' + k] = int(k in neuro) if neuro else None
     for c in ('autistic', 'adhd'):
@@ -1947,6 +1963,9 @@ def dashboard_report(entries, ref_info, group_label, check=None):
         '<span>%s %s</span>' % ('<span class="chip %s">%s</span>' % (b, b), ' '.join('%s: %d' % (esc(g), sum(1 for r in recs if r['_group'] == g and r.get('normality_band') == b)) for g in groups))
         for b in ('typical', 'uncommon', 'unusual'))
     unusual = sorted([e for e in entries if e[0].get('atypicality_pct') is not None], key=lambda e: -e[0]['atypicality_bits'])[:6]
+    if not unusual:
+        bands = ('<p class="note">Percentiles and bands need a reference of at least %d pizzas (here %d): with fewer, "above the 95th percentile" cannot '
+                 'be told apart from chance. The surprise in bits above is still shown.</p>' % (NORM_MIN_REF, ref_info['n'] - (0 if ref_info['external'] else 1)))
     examples = ''.join('<div class="card" style="display:flex;gap:12px;align-items:center"><div style="width:90px;flex:none">%s</div><div><b>%s</b> <span class="chip %s">%s · %.0fth percentile</span><div class="note">%s</div></div></div>'
                        % (thumb(p, {}), esc(r['pid']), r['normality_band'], r['normality_band'], r['atypicality_pct'], esc(r.get('unusual_elements') or 'common toppings only'))
                        for r, p in unusual)
@@ -2101,6 +2120,9 @@ def count_extremeness(size, ref_sizes):
     return 100 * (1 - tail), sum(x == size for x in ref_sizes) / n
 
 
+NORM_MIN_REF = 20      # reference pizzas before percentiles and bands are given: "above the 95th percentile" needs 20+
+
+
 def normality(own_recs, ref_sets_external, toppings):
     """Scores every pizza against the reference distribution. Without an external reference each pizza is scored
     against all the others (leave one out). Two views: which toppings (composition_pct, from atypicality_bits) and how
@@ -2115,10 +2137,11 @@ def normality(own_recs, ref_sets_external, toppings):
         scored = [atypicality(sets[i], sets[:i] + sets[i + 1:], toppings) for i in range(len(sets))]
         ref_scores = [x[0] for x in scored]
     for i, (rec, (bits, parts)) in enumerate(zip(own_recs, scored)):
+        n_ref = len(ref) if ref_sets_external else len(ref) - 1
         below = sum(x < bits for x in ref_scores) + 0.5 * sum(x == bits for x in ref_scores)
-        comp = 100 * below / len(ref_scores) if ref_scores else None
+        comp = 100 * below / len(ref_scores) if ref_scores and n_ref >= NORM_MIN_REF else None
         sizes = [len(r) for r in ref] if ref_sets_external else [len(r) for j, r in enumerate(ref) if j != i]
-        cnt, same = count_extremeness(len(sets[i]), sizes)
+        cnt, same = count_extremeness(len(sets[i]), sizes) if n_ref >= NORM_MIN_REF else (None, None)
         pct = max(v for v in (comp, cnt) if v is not None) if (comp is not None or cnt is not None) else None
         rec['atypicality_bits'] = bits
         rec['composition_pct'] = comp
@@ -2141,7 +2164,7 @@ PROFILE_FEATURES = [
     ('Composition', 'n_pieces', 'Pieces', 'log', 1), ('Composition', 'n_distinct', 'Different toppings', None, 1),
     ('Composition', 'shannon', 'Variety', None, 1), ('Composition', 'prop_unusual_distinct', 'Unusual toppings', None, 1),
     ('Composition', 'diet_rank', 'Animal products', None, 1),
-    ('Normality', 'composition_pct', 'Unusual combination', None, 1), ('Normality', 'count_pct', 'Unusual number of toppings', None, 1),
+    ('Normality', 'atypicality_bits', 'Unusual combination', None, 1),
     ('Space', 'mirror_score', 'Mirror symmetry', None, 1), ('Space', 'rot_score', 'Rotational symmetry', None, 1),
     ('Space', 'nn_cv', 'Even spacing', None, -1), ('Space', 'sector_similarity', 'Repeating slice pattern', None, 1),
     ('Space', 'clark_evans', 'Spread out', None, 1), ('Space', 'coverage', 'Coverage', None, 1),
@@ -2154,7 +2177,6 @@ PROFILE_FEATURES = [
     ('Time', 't_submit', 'Time to completion', 'log', 1),
     ('Figurative', 'face_score', 'Face-like', None, 1),
     ('Feelings', 'n_strong', 'Strong feelings about toppings', None, 1), ('Feelings', 'n_sensory_reasons', 'Sensory reasons given', None, 1),
-    ('Movement', 'mv_straight', 'Direct drags', None, 1), ('Movement', 'mv_pauses', 'Pauses while dragging', None, 1),
     ('Process', 'revision_rate', 'Changes of mind', None, 1), ('Process', 'adj_symmetry_excess', 'Moves for symmetry (beyond chance)', None, 1),
 ]
 
@@ -2315,12 +2337,17 @@ def chi2_sf(x, df):
 CLUSTER_COLORS = ['#2457a6', '#c2571a', '#3f8f4a', '#8a4fa8', '#b8892a', '#1f8a8a', '#b8432a', '#5d6b7a']
 
 
+CLUSTER_MIN_N, CLUSTER_MIN_SIL = 20, 0.25     # clusters are reported only with this many pizzas and this mean silhouette
+                                              # (Kaufman & Rousseeuw 1990: below 0.25 "no substantial structure")
+
+
 def profile_analysis(entries, k_force=None):
-    """Profiles, distances, Ward clusters (k chosen by silhouette unless forced), PCA."""
+    """Profiles, distances, Ward clusters (k chosen by silhouette unless forced), PCA. 'valid' says whether the clusters
+    are a finding (enough pizzas, a clear structure) or only a convenient split of a cloud of points."""
     recs = [r for r, _ in entries]
     Z = build_profiles(recs)
     n = len(Z)
-    out = {'Z': Z, 'labels': [0] * n, 'k': 1, 'sil': {}, 'order': list(range(n)), 'merges': [], 'pcs': None}
+    out = {'Z': Z, 'labels': [0] * n, 'k': 1, 'sil': {}, 'order': list(range(n)), 'merges': [], 'pcs': None, 'valid': False, 'best_sil': None}
     if n < 4:
         return out
     dist = [[euclid(Z[i], Z[j]) for j in range(n)] for i in range(n)]
@@ -2328,7 +2355,9 @@ def profile_analysis(entries, k_force=None):
     ks = range(2, min(8, n - 1) + 1)
     sil = {k: silhouette(Z, cut(merges, n, k), dist) for k in ks}
     k = k_force or max(sil, key=lambda kk: (sil[kk] or -1))
-    out.update({'labels': cut(merges, n, k), 'k': k, 'sil': sil, 'order': leaf_order(merges, n), 'merges': merges, 'dist': dist})
+    valid = bool(k_force) or (n >= CLUSTER_MIN_N and (sil.get(k) or -1) >= CLUSTER_MIN_SIL)
+    out.update({'labels': cut(merges, n, k) if valid else [0] * n, 'k': k if valid else 1, 'sil': sil, 'order': leaf_order(merges, n), 'merges': merges,
+                'dist': dist, 'valid': valid, 'best_sil': sil.get(k), 'best_k': k, 'forced': bool(k_force)})
     p = len(Z[0])
     C = [[sum(Z[i][a] * Z[i][b] for i in range(n)) / (n - 1) for b in range(p)] for a in range(p)]
     vals, vecs = jacobi_eig(C)
@@ -2403,6 +2432,32 @@ PROFILE_CSS = """
 """
 
 
+CLUSTER_COMPARE_JS = """<script>
+var D = %s;
+(function () {
+  var sa = document.getElementById('ca'), sb = document.getElementById('cb');
+  D.clusters.forEach(function (c, i) { var l = 'Cluster ' + c.id + ' (' + c.n + ' pizzas)'; sa.add(new Option(l, i)); sb.add(new Option(l, i)); });
+  sb.selectedIndex = 1;
+  function bar(z, cls) { var w = Math.min(50, Math.abs(z) / 3 * 50); return '<i class="' + cls + '" style="left:' + (z < 0 ? 50 - w : 50) + '%%;width:' + w + '%%"></i>'; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function show() {
+    var A = D.clusters[sa.value], B = D.clusters[sb.value];
+    var order = D.features.map(function (f, i) { return i; }).sort(function (i, j) { return Math.abs(B.mean[j] - A.mean[j]) - Math.abs(B.mean[i] - A.mean[i]); });
+    document.getElementById('bars').innerHTML = order.map(function (i) {
+      var d = A.mean[i] - B.mean[i];
+      return '<tr><td class="lab">' + esc(D.features[i][1]) + ' <span class="muted">' + (d >= 0 ? '+' : '−') + Math.abs(d).toFixed(1) + '</span></td>'
+        + '<td><div class="pbar">' + bar(A.mean[i], 'a') + bar(B.mean[i], 'b') + '</div></td></tr>';
+    }).join('');
+    document.getElementById('pzs').innerHTML = '<figure><div style="color:var(--g0);font-weight:600">Cluster ' + A.id + ' · ' + A.n + '</div><div class="thumbs">' + A.svg + '</div><div class="note">' + esc(A.groups) + '</div></figure>'
+      + '<figure><div style="color:var(--g1);font-weight:600">Cluster ' + B.id + ' · ' + B.n + '</div><div class="thumbs">' + B.svg + '</div><div class="note">' + esc(B.groups) + '</div></figure>';
+    var top = order.slice(0, 3).map(function (i) { return (A.mean[i] > B.mean[i] ? 'more ' : 'less ') + D.features[i][1].toLowerCase() + ' (' + Math.abs(A.mean[i] - B.mean[i]).toFixed(1) + ' SD)'; });
+    document.getElementById('diff').textContent = sa.value === sb.value ? 'Pick two different clusters.' : 'Cluster ' + A.id + ', compared with cluster ' + B.id + ': ' + top.join(', ') + '.';
+  }
+  sa.onchange = show; sb.onchange = show; show();
+})();
+</script>"""
+
+
 def profiles_report(entries, prof, group_label):
     recs = [r for r, _ in entries]
     n = len(recs)
@@ -2447,22 +2502,17 @@ def profiles_report(entries, prof, group_label):
                      '<p style="margin:0 0 6px">%s.</p><p class="note" style="margin:0 0 6px">%s</p><table class="pbars">%s</table><div class="thumbs">%s</div></div>'
                      % (CLUSTER_COLORS[c % 8], c + 1, len(idx), esc(words[0].upper() + words[1:]),
                         esc(' · '.join('%s: %d' % (g, gc.get(g, 0)) for g in groups)), bars, ''.join(thumb(entries[i][1], {}) for i in near)))
-    # cluster x group
+    # cluster x group: a permutation test (the groups shuffled across people), only for real clusters
     cross = ''
-    if len(groups) > 1:
-        tab = [[sum(1 for i in range(n) if labels[i] == c and recs[i]['_group'] == g) for g in groups] for c in range(k)]
-        rt = [sum(r) for r in tab]
-        ct = [sum(tab[c][g] for c in range(k)) for g in range(len(groups))]
-        chi = sum((tab[c][g] - rt[c] * ct[g] / n) ** 2 / (rt[c] * ct[g] / n) for c in range(k) for g in range(len(groups)) if rt[c] and ct[g])
-        df = (k - 1) * (len(groups) - 1)
-        pval = chi2_sf(chi, df)
-        small = sum(1 for c in range(k) for g in range(len(groups)) if rt[c] * ct[g] / n < 5)
+    res = cluster_group_test([labels[i] + 1 for i in range(n)], [recs[i]['_group'] for i in range(n)], groups, random.Random(1)) if prof['valid'] and len(groups) > 1 else None
+    if res:
+        tab, chi, pval = res
         cross = ('<figure><figcaption>Clusters by %s</figcaption><table class="cross"><tr><th>Cluster</th>%s</tr>%s</table>'
-                 '<p class="note">χ²(%d) = %.2f, p = %.3f.%s This tests whether the groups spread differently across the clusters; '
-                 'the clusters were found without using the groups.</p></figure>'
+                 '<p class="note">χ² = %.2f, permutation p = %s (2000 shuffles of the groups across people). This tests whether the groups spread differently '
+                 'across the clusters; the clusters were found without using the groups.</p></figure>'
                  % (esc(group_label), ''.join('<th>%s</th>' % esc(g) for g in groups),
                     ''.join('<tr><td><span class="sw" style="background:%s"></span> %d</td>%s</tr>' % (CLUSTER_COLORS[c % 8], c + 1, ''.join('<td>%d</td>' % v for v in tab[c])) for c in range(k)),
-                    df, chi, pval, (' %d of %d expected counts are below 5, so treat p as rough (an exact or permutation test is safer).' % (small, k * len(groups))) if small else ''))
+                    chi, fmt_p(pval)))
     # PCA map
     scatter = ''
     if prof['pcs']:
@@ -2493,62 +2543,48 @@ def profiles_report(entries, prof, group_label):
                    % (esc(group_label), W, H, W, X(0), X(0), H - 30, Y(0), Y(0), W - 10, ''.join(mark(i) for i in range(n)),
                       W - 12, H - 36, prof['pcs']['var'][0] * 100, prof['pcs']['var'][1] * 100, esc(load(0)), esc(load(1)),
                       esc(', '.join('%s = %s' % (['●', '■', '▲', '◆'][gi % 4], g) for gi, g in enumerate(groups)))))
-    # data for the in-page comparison
-    data = {'features': [[f[0], f[2]] for f in PROFILE_FEATURES],
-            'people': [{'id': str(recs[i]['pid']), 'group': str(recs[i]['_group']), 'cluster': labels[i] + 1,
-                        'z': [round(z, 3) for z in Z[i]], 'svg': thumb(entries[i][1], {})} for i in range(n)],
-            'colors': CLUSTER_COLORS}
-    script = """<script>
-var D = %s;
-(function () {
-  var sa = document.getElementById('pa'), sb = document.getElementById('pb');
-  D.people.forEach(function (p, i) {
-    var label = p.id + ' (' + p.group + ', cluster ' + p.cluster + ')';
-    sa.add(new Option(label, i)); sb.add(new Option(label, i));
-  });
-  sb.selectedIndex = D.people.length > 1 ? 1 : 0;
-  function dist(a, b) { var s = 0; for (var i = 0; i < a.length; i++) s += (a[i] - b[i]) * (a[i] - b[i]); return Math.sqrt(s); }
-  var all = []; for (var i = 0; i < D.people.length; i++) for (var j = i + 1; j < D.people.length; j++) all.push(dist(D.people[i].z, D.people[j].z));
-  all.sort(function (x, y) { return x - y; });
-  function bar(z, cls) { var w = Math.min(50, Math.abs(z) / 3 * 50); return '<i class="' + cls + '" style="left:' + (z < 0 ? 50 - w : 50) + '%%;width:' + w + '%%"></i>'; }
-  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
-  function show() {
-    var A = D.people[sa.value], B = D.people[sb.value], d = dist(A.z, B.z), rank = 0;
-    while (rank < all.length && all[rank] < d) rank++;
-    var rows = '', dom = '';
-    D.features.forEach(function (f, i) {
-      if (f[0] !== dom) { dom = f[0]; rows += '<tr class="dom"><td colspan="2">' + esc(dom) + '</td></tr>'; }
-      rows += '<tr><td class="lab">' + esc(f[1]) + '</td><td><div class="pbar">' + bar(A.z[i], 'a') + bar(B.z[i], 'b') + '</div></td></tr>';
-    });
-    document.getElementById('bars').innerHTML = rows;
-    document.getElementById('pzs').innerHTML = '<figure><div style="color:var(--g0);font-weight:600">' + esc(A.id) + '</div>' + A.svg + '<div class="note">cluster ' + A.cluster + '</div></figure>' +
-      '<figure><div style="color:var(--g1);font-weight:600">' + esc(B.id) + '</div>' + B.svg + '<div class="note">cluster ' + B.cluster + '</div></figure>';
-    document.getElementById('dist').textContent = 'Distance ' + d.toFixed(2) + ': closer than ' + Math.round(100 - 100 * rank / Math.max(1, all.length)) + '%% of all pairs.';
-    var near = D.people.map(function (p, i) { return [dist(A.z, p.z), i]; }).filter(function (x) { return x[1] != sa.value; }).sort(function (x, y) { return x[0] - y[0]; }).slice(0, 5);
-    document.getElementById('near').innerHTML = near.map(function (x) { var p = D.people[x[1]]; return '<li><button type="button" data-i="' + x[1] + '">' + esc(p.id) + '</button> · ' + esc(p.group) + ' · cluster ' + p.cluster + ' · ' + x[0].toFixed(2) + '</li>'; }).join('');
-  }
-  document.getElementById('near').addEventListener('click', function (e) { var i = e.target.getAttribute('data-i'); if (i != null) { sb.value = i; show(); } });
-  sa.onchange = show; sb.onchange = show; show();
-})();
-</script>""" % json.dumps(data)
-    compare = ('<div class="compare"><div class="pick"><label for="pa"><b style="color:var(--g0)">Participant A</b></label><select id="pa"></select>'
-               '<label for="pb"><b style="color:var(--g1)">Participant B</b></label><select id="pb"></select><div class="pz" id="pzs"></div>'
-               '<p class="note" id="dist"></p><div><b>Most similar to A</b><ol class="sim" id="near"></ol></div></div>'
-               '<div><table class="pbars" id="bars"></table><p class="note">Bars run from the sample average (centre line) towards less (left) or more (right) of each trait, '
-               'in standard deviations (to ±3).</p></div></div>')
+    # data for the in-page comparison of two clusters
+    clist = []
+    for c in range(k):
+        idx = [i for i in range(n) if labels[i] == c]
+        means = [statistics.mean(Z[i][f] for i in idx) for f in range(len(PROFILE_FEATURES))]
+        near = sorted(idx, key=lambda i: euclid(Z[i], means))[:3]
+        gc = Counter(recs[i]['_group'] for i in idx)
+        clist.append({'id': c + 1, 'n': len(idx), 'mean': [round(v, 3) for v in means], 'groups': ' · '.join('%s: %d' % (g, gc.get(g, 0)) for g in groups),
+                      'svg': ''.join(thumb(entries[i][1], {}) for i in near)})
+    data = {'features': [[f[0], f[2]] for f in PROFILE_FEATURES], 'clusters': clist, 'colors': CLUSTER_COLORS}
+    script = '' if k < 2 else (CLUSTER_COMPARE_JS % json.dumps(data))
+    compare = '' if k < 2 else ('<h2>Compare two clusters</h2><div class="compare"><div class="pick"><label for="ca"><b style="color:var(--g0)">Cluster A</b></label><select id="ca"></select>'
+               '<label for="cb"><b style="color:var(--g1)">Cluster B</b></label><select id="cb"></select><div class="pz" id="pzs"></div><p class="note" id="diff"></p></div>'
+               '<div><table class="pbars" id="bars"></table><p class="note">Each cluster\'s average profile, ordered by how much the two differ (the number: '
+               'A − B, in standard deviations). Bars run from the sample average (centre line) towards less (left) or more (right) of each trait. The pizzas '
+               'shown are the three closest to each cluster\'s average.</p></div></div>')
+    if prof['valid'] and prof.get('forced'):
+        intro_cl = ('Profiles are grouped with hierarchical clustering (Ward\'s method) into %d clusters, a number fixed by hand (--clusters). Mean silhouette %.2f%s.'
+                    % (k, prof['best_sil'] or 0, '' if (prof['best_sil'] or 0) >= CLUSTER_MIN_SIL else ': below %.2f, so these clusters overlap and are a convenient split, not a finding' % CLUSTER_MIN_SIL))
+        clusters_html = compare + '<h2>Clusters</h2><div class="cl-cards">%s</div>%s' % (''.join(cards), cross)
+    elif prof['valid']:
+        intro_cl = ('Profiles are grouped with hierarchical clustering (Ward\'s method) into %d clusters, the number with the best average silhouette (%s). '
+                    'The clusters are reported because there are %d pizzas (at least %d) and the silhouette is %.2f (at least %.2f).'
+                    % (k, esc(sil), n, CLUSTER_MIN_N, prof['best_sil'], CLUSTER_MIN_SIL))
+        clusters_html = compare + '<h2>Clusters</h2><div class="cl-cards">%s</div>%s' % (''.join(cards), cross)
+    else:
+        intro_cl = ''
+        clusters_html = ('<h2>Clusters</h2><p class="verdict">No clear clusters%s. Hierarchical clustering always splits people into groups, wanted or not: '
+                         'the split is reported only with at least %d pizzas and a mean silhouette of at least %.2f (Kaufman &amp; Rousseeuw 1990: below that '
+                         'there is no substantial structure). The map and the table below still show how people differ.</p>'
+                         % ((': %d pizzas, best mean silhouette %.2f (k = %d)' % (n, prof['best_sil'], prof['best_k'])) if prof.get('best_sil') is not None else
+                            (': %d pizzas' % n), CLUSTER_MIN_N, CLUSTER_MIN_SIL))
     return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
             '<title>Pizza Profiles</title><style>%s%s%s</style></head><body><div class="wrap">'
             '<h1>Pizza profiles and clusters</h1>'
             '<p class="muted">Each participant\'s pizza is summarised as a profile of %d measures in %d areas. Each score is standardised across these %d '
-            'participants (0 = sample average, ±1 = one standard deviation) and signed so that higher always means <i>more</i> of the named trait. '
-            'Profiles are compared by their Euclidean distance and grouped with hierarchical clustering (Ward\'s method). The number of clusters, %d, is the one with the best '
-            'average silhouette (%s); higher is better, and values under about 0.25 mean the clusters overlap.</p>'
-            '<h2>Compare two participants</h2>%s'
-            '<h2>Clusters</h2><div class="cl-cards">%s</div>%s%s'
+            'participants (0 = sample average, ±1 = one standard deviation) and signed so that higher always means <i>more</i> of the named trait. %s</p>'
+            '%s%s'
             '<h2>All profiles</h2><p class="muted">One row per participant, ordered by the clustering tree; the coloured band is the cluster. '
             'Orange = above the sample average, blue = below.</p>%s'
             '</div>%s</body></html>'
-            % (REPORT_CSS, DASH_CSS, PROFILE_CSS, len(PROFILE_FEATURES), len({f[0] for f in PROFILE_FEATURES}), n, k, esc(sil), compare, ''.join(cards), cross, scatter, heat, script))
+            % (REPORT_CSS, DASH_CSS, PROFILE_CSS, len(PROFILE_FEATURES), len({f[0] for f in PROFILE_FEATURES}), n, intro_cl, clusters_html, scatter, heat, script))
 
 
 def bar_style(z):
@@ -2602,7 +2638,7 @@ EXPLORE_EXTRA = [
 ]
 # Ways of grouping people that explore.html tries when present: (key, label).
 EXPLORE_GROUPINGS = [
-    ('neurotype', 'Neurotype (self-described)'), ('nd_autistic', 'Autistic, incl. AuDHD (yes / no)'), ('nd_adhd', 'ADHD, incl. AuDHD (yes / no)'),
+    ('neurotype', 'Neurotype (self-described)'), ('nd_any', 'Any neurodivergence (yes / no)'), ('nd_autistic', 'Autistic, incl. AuDHD (yes / no)'), ('nd_adhd', 'ADHD, incl. AuDHD (yes / no)'),
     ('nd_identified', 'Autism / ADHD: formally diagnosed or not'), ('eat_any', 'Any eating difficulty, allergy or intolerance (yes / no)'),
     ('eat_picky', 'Picky eating since childhood (yes / no)'), ('gender', 'Gender'), ('age_band', 'Age'),
     ('nutrition_panel', 'Nutrition panel shown (yes / no)'), ('nutri_revealed', 'Revealed the nutrition while building (yes / no)'), ('group', 'Recruitment group (study link)'), ('source', 'Recruitment source'), ('study', 'Study'), ('condition', 'Condition'),
@@ -2728,7 +2764,7 @@ def t_sf2(t, df):
 TOPPING_AREAS = ('Toppings', 'Strong ', 'Changed mind', 'Considered')      # per-topping rows of explore.html
 # the groupings the study is about; the others (demographics, recruitment) are shown folded away. The task is desktop
 # only, so the device is not a grouping.
-RESEARCH_GROUPINGS = ('neurotype', 'nd_autistic', 'nd_adhd', 'nd_identified', 'eat_picky', 'eat_any', 'nutri_revealed', 'nutrition_panel', 'study', 'condition')
+RESEARCH_GROUPINGS = ('neurotype', 'nd_any', 'nd_autistic', 'nd_adhd', 'nd_identified', 'eat_picky', 'eat_any', 'nutri_revealed', 'nutrition_panel', 'study', 'condition')
 # measures that make a lead: not the per-topping indicators, base choices or the low-level process and movement
 # timings (they stay in the full screen)
 NOT_LEADS = TOPPING_AREAS + ('Base and diet', 'Process', 'Movement')
@@ -2737,12 +2773,34 @@ LEAD_MIN = SMALL_N      # people in each group before a difference is listed as 
 DEFINED_BY = {'nutri_revealed': ('Seeing nutrition',), 'nutrition_panel': ('Seeing nutrition',)}
 
 
+# Kept in participants.csv but not screened for group differences: they mostly re-measure something already screened
+# or measure the interface rather than the choice, and every extra test weakens the correction for the others.
+SCREEN_DROP = {
+    # mouse movement: depends on the mouse, the hand and the screen more than on the choice
+    'mv_straight', 'mv_pauses', 'mv_paused_share', 'mv_dwell', 'mv_hold', 'mv_crossings', 'mv_path',
+    # hovering is not considering (the cursor passes over the tray on its way)
+    'n_considered_not_picked', 'hover_total_ms',
+    # interface counters and duplicates of revision_rate / n_adjustments
+    'n_ev_move', 'n_ev_remove', 'n_ev_undo', 'n_ev_reject', 'n_done_presses', 't_after_done', 'n_start_over_declined', 'move_dist_total',
+    'n_moved_pieces', 'n_removed_pieces', 'n_adj_after_done', 'base_changed_after_toppings', 'n_edits_after_done',
+    # reasons for adjustments: an arbitrary first-match rule; adj_symmetry_excess (with its chance baseline) stays
+    'n_adj_symmetry', 'n_adj_nudges', 'n_adj_grouping', 'n_adj_spacing', 'n_adj_unstacking', 'n_adj_size_match',
+    # nutrient totals mostly re-measure the amount and rest on estimated piece weights; the energy of the toppings stays
+    'nut_kcal', 'top_grams', 'top_kcal_share', 'nut_protein_g', 'nut_satfat_g', 'nut_sugars_g', 'nut_fibre_g', 'nut_salt_g', 'nut_vitC_mg', 'nut_vitA_ug',
+    # seeing the nutrition: the primary measures stay (revealed, changed, energy change, changed my mind)
+    'nutri_reveal_share', 'nutri_open_ms', 'post_nutri_d_satfat_g', 'post_nutri_d_meat_pieces', 'post_nutri_removal_share', 'rebuilt_after_done',
+    # parts of other measures (n_strong, n_sensory_reasons, shannon)
+    'n_strong_positive', 'n_strong_negative', 'n_about_texture', 'n_about_smell', 'n_about_touching', 'n_crave_often', 'evenness', 'profile_uniqueness',
+}
+
+
 def explore_measures(recs, tray):
     """Every measure screened: the profile measures, EXPLORE_EXTRA, base choices, diet class, and per-topping
     indicators (on the pizza; named with strong positive / negative feelings). Returns [(area, key, label)], {key: [values]}."""
-    defs, seen = [], set()
+    defs, seen = [], set(SCREEN_DROP)
     for dom, key, label, _tf, _sign in PROFILE_FEATURES:
-        defs.append((dom, key, label)); seen.add(key)
+        if key not in seen:
+            defs.append((dom, key, label)); seen.add(key)
     for d in EXPLORE_EXTRA:
         if d[1] not in seen:
             defs.append(d); seen.add(d[1])
@@ -2759,11 +2817,6 @@ def explore_measures(recs, tray):
         k = 'inc_' + ing
         defs.append(('Toppings used', k, NAMES.get(ing, ing)))
         vals[k] = [int((r.get('n_' + ing) or 0) > 0) for r in recs]
-    for prefix, label, col in (('drop', 'Changed mind: added, then left off', 'dropped_list'), ('cons', 'Considered (hovered), never picked', 'considered_list')):
-        for ing in tray:
-            k = '%s_%s' % (prefix, ing)
-            defs.append((label, k, NAMES.get(ing, ing)))
-            vals[k] = [int(ing in (r.get(col) or '').split()) for r in recs]
     for sign, word in (('neg', 'negative'), ('pos', 'positive')):
         for ing in tray:
             k = '%s_%s' % (sign, ing)
@@ -2788,7 +2841,7 @@ def explore_measures(recs, tray):
 def group_labels(recs, key):
     """Each pizza's group in a grouping, as text (yes / no for the yes/no groupings), None when unknown."""
     raw = [r.get(key) for r in recs]
-    if key in ('nd_autistic', 'nd_adhd', 'eat_any', 'eat_picky', 'nutrition_panel', 'nutri_revealed'):
+    if key in ('nd_any', 'nd_autistic', 'nd_adhd', 'eat_any', 'eat_picky', 'nutrition_panel', 'nutri_revealed'):
         raw = [None if v is None else ('yes' if v else 'no') for v in raw]
     return [None if v in (None, '') else str(v) for v in raw]
 
@@ -2800,11 +2853,52 @@ def grouping_levels(recs, key, min_n=3):
     return (levels, [v if v in levels else None for v in raw], {lv: c for lv, c in cnt.items() if lv not in levels}) if len(levels) >= 2 else (None, None, None)
 
 
-def explore_grouping(defs, vals, labels, levels, rnd):
+# groupings with a natural reference group: each other group is compared with it, not with everyone else (pooling
+# autistic, ADHD and AuDHD people into "the rest" mixes the groups the study compares)
+GROUPING_REF = {'neurotype': 'Not ND', 'nd_any': 'no', 'nd_autistic': 'no', 'nd_adhd': 'no', 'eat_any': 'no', 'eat_picky': 'no',
+                'nutri_revealed': 'no', 'nutrition_panel': 'no'}       # yes/no groupings read "yes vs no"
+
+
+def min_n_to_pass(m, fdr=0.05):
+    """The smallest group size (two equal groups) at which even a perfect separation can pass a correction over m
+    tests: the exact Mann-Whitney p of a perfect separation, 2 / C(2n, n), must reach fdr / m (the Benjamini-Hochberg
+    threshold for the best of m tests)."""
+    n = 2
+    while 2 / math.comb(2 * n, n) > fdr / max(m, 1):
+        n += 1
+    return n
+
+
+def fam_words(research, n_research, n_other):
+    """Which family a grouping's q-values were corrected over, in words."""
+    return ('the %d tests of the study\'s groupings and self-reports' % n_research) if research else ('the %d tests of the demographic and recruitment groupings' % n_other)
+
+
+def cluster_group_test(clusters, labels, levels, rnd, draws=2000, min_n=20):
+    """Clusters x groups: the table, χ² and a permutation p (the groups shuffled across people). None with fewer
+    than min_n people in both: then the expected counts are too small for any test."""
+    pairs = [(c, g) for c, g in zip(clusters, labels) if c and g in levels]
+    if len(pairs) < min_n:
+        return None
+    ks = sorted({c for c, _ in pairs})
+    def chi(ps):
+        tab = [[sum(1 for c, g in ps if c == k and g == lv) for lv in levels] for k in ks]
+        rt, ct, tot = [sum(r) for r in tab], [sum(col) for col in zip(*tab)], len(ps)
+        return tab, sum((tab[i][j] - rt[i] * ct[j] / tot) ** 2 / (rt[i] * ct[j] / tot) for i in range(len(ks)) for j in range(len(levels)) if rt[i] and ct[j])
+    tab, obs = chi(pairs)
+    cs, gs = [c for c, _ in pairs], [g for _, g in pairs]
+    hits = 0
+    for _ in range(draws):
+        rnd.shuffle(gs)
+        hits += chi(list(zip(cs, gs)))[1] >= obs - 1e-12
+    return tab, obs, (hits + 1) / (draws + 1)
+
+
+def explore_grouping(defs, vals, labels, levels, rnd, ref=None):
     """Each measure compared between the levels of one grouping: with two levels, the first against the second;
     with more, each level against all the others. Returns a list of test dicts with BH q-values over the grouping."""
     tests = []
-    pairs = [(levels[0], levels[1])] if len(levels) == 2 else [(lv, None) for lv in levels]
+    pairs = ([(lv, ref) for lv in levels if lv != ref] if ref else [(levels[0], levels[1])] if len(levels) == 2 else [(lv, None) for lv in levels])
     for dom, key, label in defs:
         idx = [i for i, (v, g) in enumerate(zip(vals[key], labels)) if v is not None and g is not None]
         if len(idx) < 6:
@@ -2927,12 +3021,6 @@ details.more { margin: 8px 0 14px; } details.more summary { cursor: pointer; fon
 """
 
 
-# Measures with a known chance level: a single group can be tested against it (does this group arrange more
-# symmetrically / in more grouped blocks / ... than chance?). (key, chance value, label)
-CHANCE_LEVELS = [('mirror_score', 0.0, 'Mirror symmetry beyond chance'), ('rot_score', 0.0, 'Rotational symmetry beyond chance'),
-                 ('segregation', 0.0, 'Same-topping neighbours beyond chance'), ('blockiness', 0.0, 'Placed in blocks of one topping'),
-                 ('size_match_index', 0.0, 'Size matching within a topping, beyond other categories'),
-                 ('sweep_consistency', 0.5, 'Placed in a steady sweep round the pizza'), ('clark_evans', 1.0, 'Spread out more evenly than random')]
 Z_A, Z_B = 1.959964, 0.841621          # two-sided alpha .05, power .80
 
 
@@ -3000,6 +3088,11 @@ IDEAS = [
      [('revealers', None), ('nd_autistic', 'yes')], [('post_nutri_d_kcal', -1)]),
     ('Idea 8', 'My pizza vs a typical person\'s', 'Self-other differences: how far one\'s own choice is from what one expects of others.',
      [('nd_autistic', 'yes')], [('typical_jaccard', 0), ('typical_count_dev', 0)]),
+    ('Idea 9', 'Neurodivergent people make more unusual pizzas',
+     'Read either way: "are unusual pizzas more often made by neurodivergent people?" is the same rank comparison as "are neurodivergent people\'s pizzas '
+     'more unusual?". ADHD novelty seeking points this way; autistic selectivity (idea 1) points the other way, so the two ideas compete. Unusual = the '
+     'surprise of the topping set against the other pizzas (bits) and how rare the chosen toppings are.',
+     [('nd_any', 'yes'), ('nd_autistic', 'yes'), ('nd_adhd', 'yes')], [('atypicality_bits', 1), ('ingredient_rarity', 1), ('prop_unusual_distinct', 1)]),
 ]
 LARGE_DELTA = 0.474     # a large Cliff's δ (Romano et al. 2006): the effect the sample sizes below are planned for
 SAMPLE_TIP = ('People per group for 80%% power, two-sided: n = 2 (z(α/2) + z(0.80))² / (3 δ²) (Noether 1987), with α = .05 / t for t tests '
@@ -3069,20 +3162,17 @@ def planned_html(planned, groupings, covariates):
                 exp = {1: 'rises', -1: 'falls', 0: 'changes'}[t['sign']]
             who = ('%s: %s' % (gnames.get(t['grouping'], t['grouping']), t['level'])) if t.get('kind') != 'rho' else 'correlation with %s' % t['level']
             if 'p' not in t:
-                rows.append('<tr class="na"><td class="l">%s</td><td class="l">%s</td><td>%s</td><td>%s</td><td colspan="6" class="l muted">%s</td></tr>'
+                rows.append('<tr class="na"><td class="l">%s</td><td class="l">%s</td><td>%s</td><td>%s</td><td colspan="5" class="l muted">%s</td></tr>'
                             % (esc(t['label']), esc(who), esc(exp), '%d / %d' % (t['n1'], t['n0']) if t.get('n0') is not None else t['n1'], esc(t['missing'])))
                 continue
             way = '' if t['right_way'] is None else ('<span class="ok">✓ as expected</span>' if t['right_way'] else '<span class="bad">✗ opposite</span>')
-            alpha = 0.05 / len(tests)        # if this idea alone were preregistered: corrected over its own tests
-            need = (n_for_rho(t['delta'], alpha) if t.get('kind') == 'rho' else n_per_group(t['delta'], alpha) if t.get('kind') == 'groups'
-                    else n_for_change(t['delta'], alpha))
             mm = ('%s / %s' % (fmt_m(t['m1'], t['binary'], t['key']), fmt_m(t['m0'], t['binary'], t['key']))) if t.get('m1') is not None else ''
             rows.append('<tr%s><td class="l">%s</td><td class="l">%s</td><td>%s</td><td>%s</td><td>%s</td><td><b>%+.2f</b><br><span class="muted">%s</span></td>'
-                        '<td>%s</td><td>%.3f%s</td><td>%s</td><td>%s</td></tr>'
+                        '<td>%s</td><td>%.3f%s</td><td>%s</td></tr>'
                         % (' class="pass"' if t['q'] < 0.1 and t['right_way'] is not False else '', esc(t['label']), esc(who), esc(exp),
                            '%d / %d' % (t['n1'], t['n0']) if t.get('n0') is not None else t['n1'], mm, t['delta'],
                            'ρ' if t.get('kind') == 'rho' else 'dominance' if t.get('kind') == 'change' else delta_size(t['delta']),
-                           fmt_p(t['p']), t['q'], ' ✓' if t['q'] < 0.1 else '', way, need or ''))
+                           fmt_p(t['p']), t['q'], ' ✓' if t['q'] < 0.1 else '', way))
         groups = [t for t in done if t.get('kind') == 'groups']
         smallest = min([min(t['n1'], t['n0']) for t in groups] or [0])
         lead = [t for t in done if t['q'] < 0.1 and t['right_way'] is not False]
@@ -3093,9 +3183,10 @@ def planned_html(planned, groupings, covariates):
         elif lead:
             verdict, cls = ('Strong lead: %d of %d tests differ after the correction%s. Worth preregistering.'
                             % (len(lead), len(done), ', the expected way' if any(t['right_way'] for t in lead) else '')), 'yes'
-        elif groups and smallest < 8:
-            verdict, cls = ('Too few to pass the correction yet (smallest group %d; it takes at least 8). So far %d of %d tests with an expected direction point that way.'
-                            % (smallest, as_expected, len(directional))) if directional else ('Too few to pass the correction yet (smallest group %d; it takes at least 8).' % smallest), 'wait'
+        elif groups and smallest < min_n_to_pass(n_all):
+            need = min_n_to_pass(n_all)
+            verdict, cls = ('Too few to pass the correction yet (smallest group %d; over %d tests it takes at least %d). So far %d of %d tests with an expected direction point that way.'
+                            % (smallest, n_all, need, as_expected, len(directional))) if directional else ('Too few to pass the correction yet (smallest group %d; it takes at least %d).' % (smallest, need)), 'wait'
         else:
             verdict, cls = ('No sign yet. %d of %d tests with an expected direction point that way.' % (as_expected, len(directional))
                             if directional else 'No sign yet.'), 'no'
@@ -3112,8 +3203,8 @@ def planned_html(planned, groupings, covariates):
                    'alone)</span></div>' % (pct, smallest, need_alone))
         cards.append('<div class="hyp %s"><h3>%s. %s</h3><p class="muted">%s</p><p class="verdict">%s</p>%s%s<div class="tbl"><table class="leads"><tr><th class="l">Measure</th>'
                      '<th class="l">Compared</th><th>Expected</th><th>n</th><th>median or %%</th><th>effect</th><th>p</th><th>q</th><th>Direction</th>'
-                     '<th title="%s">n/group needed (effect as seen, corrected for this idea) ⓘ</th></tr>%s</table></div></div>'
-                     % (cls, esc(hid), esc(title), esc(why), esc(verdict), cost, bar, SAMPLE_TIP, ''.join(rows)))
+                     '</tr>%s</table></div></div>'
+                     % (cls, esc(hid), esc(title), esc(why), esc(verdict), cost, bar, ''.join(rows)))
     return ('<h2 id="planned">Ideas to test</h2><p class="muted">Leads worth checking, from what is known about eating in autism and ADHD '
             '(docs/sample-sizes.md). They are <b>not hypotheses</b>: nothing here is preregistered, and some have no expected direction. They are tested '
             'as one family of %d tests (%d can run on these data), so q is corrected over these only, not over the whole screen below: this is where a '
@@ -3135,37 +3226,69 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
     defs, vals = explore_measures(recs, tray)
     body, other_body, all_tests, used = [], [], [], []
     research = set(RESEARCH_GROUPINGS) | {k for k, _ in groupings if k not in dict(EXPLORE_GROUPINGS)}     # + --group columns
+    # 1. every test of the screen: each grouping, and each continuous self-report
     for key, glabel in groupings:
         levels, labels, dropped = grouping_levels(recs, key)
         if not levels:
             continue
         gdefs = [d for d in defs if d[0] not in DEFINED_BY.get(key, ())]
-        tests = explore_grouping(gdefs, vals, labels, levels, rnd)
-        if not tests:
+        ref = GROUPING_REF.get(key) if GROUPING_REF.get(key) in levels else None
+        tests = explore_grouping(gdefs, vals, labels, levels, rnd, ref)
+        if tests:
+            used.append((key, glabel, levels, labels, dropped, tests, ref))
+            all_tests += [dict(t, grouping=key) for t in tests]
+    cov_res = []
+    for ckey, clabel in covariates:
+        cv = [r.get(ckey) if isinstance(r.get(ckey), (int, float)) else None for r in recs]
+        if sum(v is not None for v in cv) < 6:
             continue
-        used.append((key, glabel, levels, labels))
+        res = []
+        for dom, k, label in defs:
+            if k != ckey:
+                rho, pv, m = spearman(vals[k], cv)
+                if rho is not None:
+                    res.append({'grouping': ckey, 'area': dom, 'key': k, 'label': label, 'level': 'Spearman rho', 'vs': '', 'n1': m, 'n0': None,
+                                'm1': None, 'm0': None, 'delta': rho, 'p': pv})
+        cov_res.append((clabel, res))
+        all_tests += res
+    # 2. the false discovery correction over a whole family of questions, not one grouping at a time: the study's
+    # groupings and the self-reports are one family; the demographic and recruitment groupings are another (they would
+    # otherwise dilute the study's questions with hundreds of tests nobody asked)
+    is_research = lambda t: t.get('grouping') in research or t.get('level') == 'Spearman rho'
+    screen = [t for t in all_tests if 'p' in t and is_research(t)]
+    others = [t for t in all_tests if 'p' in t and not is_research(t)]
+    for fam in (screen, others):
+        for t, q in zip(fam, bh([t['p'] for t in fam])):
+            t['q'] = q
+    for key, glabel, levels, labels, dropped, tests, ref in used:     # the per-grouping lists share the q-values
+        qs = {(t['key'], t['level'], t['vs']): t['q'] for t in all_tests if t.get('grouping') == key}
         for t in tests:
-            all_tests.append(dict(t, grouping=key))
-        cols = [levels[0] + ' vs ' + levels[1]] if len(levels) == 2 else levels
+            t['q'] = qs[(t['key'], t['level'], t['vs'])]
+    n_screen = len(screen)
+    need_n = min_n_to_pass(n_screen)
+    # 3. each grouping
+    for key, glabel, levels, labels, dropped, tests, ref in used:
+        cols = ([lv + ' vs ' + ref for lv in levels if lv != ref] if ref else [levels[0] + ' vs ' + levels[1]] if len(levels) == 2 else levels)
+        col_levels = [lv for lv in levels if lv != ref] if ref else (levels[:1] if len(levels) == 2 else levels)
         sig = sum(1 for t in tests if t['q'] < 0.1)
         # the strongest evidence first (p, then size), main measures only; the per-topping rows are in the folded tables
         top = sorted((t for t in tests if not t['area'].startswith(TOPPING_AREAS + ('Base and diet',))), key=lambda t: (t['p'], -abs(t['delta'])))[:10]
         rows = []
         for t in top:
-            lo, hi = boot_ci(t['x'], t['y'], rnd)
+            ci = boot_ci(t['x'], t['y'], rnd) if min(t['n1'], t['n0']) >= SMALL_N else None    # a bootstrap of 3 values says nothing
             rows.append('<tr%s><td class="l">%s<br><span class="muted">%s</span></td><td class="l">%s<br><span class="muted">vs %s</span></td><td>%d / %d</td>'
-                        '<td>%s / %s</td><td><b>%+.2f</b><br><span class="muted">%s</span></td><td class="ci">%+.2f to %+.2f</td><td>%s</td><td>%s%s</td><td class="l">%s</td></tr>'
+                        '<td>%s / %s</td><td><b>%+.2f</b><br><span class="muted">%s</span></td><td class="ci">%s</td><td>%s</td><td>%s%s</td><td class="l">%s</td></tr>'
                         % (' class="pass"' if t['q'] < 0.1 else '', esc(t['label']), esc(t['area']), esc(t['level']), esc(t['vs']), t['n1'], t['n0'],
                            fmt_m(t['m1'], t['binary'], t['key']), fmt_m(t['m0'], t['binary'], t['key']),
-                           t['delta'], delta_size(t['delta']), lo, hi, fmt_p(t['p']), '%.3f' % t['q'], ' ✓' if t['q'] < 0.1 else '',
-                           strip_svg(t['x'], t['y'], t['binary'], t['level'], t['vs'])))
+                           t['delta'], delta_size(t['delta']), ('%+.2f to %+.2f' % ci) if ci else '<span class="muted">groups under %d</span>' % SMALL_N,
+                           fmt_p(t['p']), '%.3f' % t['q'], ' ✓' if t['q'] < 0.1 else '', strip_svg(t['x'], t['y'], t['binary'], t['level'], t['vs'])))
         by = {(t['key'], t['level']): t for t in tests}
         main = [d for d in defs if not d[0].startswith(TOPPING_AREAS)]
         tops = [d for d in defs if d[0].startswith(TOPPING_AREAS)]
         def heat_rows(ds):
             out, last = [], None
             for dom, k, label in ds:
-                cells = [by.get((k, lv)) for lv in (levels[:1] if len(levels) == 2 else levels)]
+                cells = [by.get((k, lv)) for lv in col_levels]
                 if not any(cells):
                     continue
                 if dom != last:
@@ -3177,40 +3300,28 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
         counts = ''.join('<span>%s: %d</span>' % (esc(lv), sum(1 for g in labels if g == lv)) for lv in levels)
         if dropped:
             counts += '<span class="muted">left out (fewer than 3): %s</span>' % esc(', '.join('%s %d' % kv for kv in dropped.items()))
+        smallest = min(sum(1 for g in labels if g == lv) for lv in levels)
         (body if key in research else other_body).append('<h2 id="g-%s">%s</h2><div class="chips">%s</div>'
                     '%s'
                     '<div class="tbl"><table class="leads"><tr><th class="l">Measure</th><th class="l">Group</th><th>n</th><th>median or %%<br>%s</th><th>Cliff\'s δ</th><th>95%% CI of δ</th><th>p</th><th>q (FDR)</th><th class="l">Data (orange = group)</th></tr>%s</table></div>'
                     '<details class="more"><summary>Every measure (Cliff\'s δ; orange = higher in %s; outlined = q &lt; 0.10)</summary><div class="tbl"><table>%s%s</table></div></details>'
-                    '<details class="more"><summary>Every topping: used, changed mind about, considered, named with strong feelings</summary><div class="tbl"><table>%s%s</table></div></details>'
+                    '<details class="more"><summary>Every topping: on the pizza, named with strong feelings</summary><div class="tbl"><table>%s%s</table></div></details>'
                     % (esc(key), esc(glabel), counts,
-                       ('<p class="verdict pass">%d of %d comparisons pass the false discovery rate (q &lt; 0.10, ✓ below). Strongest evidence first:</p>' % (sig, len(tests)) if sig else
-                        '<p class="verdict">None of the %d comparisons passes the false discovery rate (q &lt; 0.10). The strongest are listed as leads '
-                        'for a new sample, not as findings%s:</p>' % (len(tests), '; with groups this small they describe these people only'
-                                                                      if min(sum(1 for g in labels if g == lv) for lv in levels) < LEAD_MIN else '')),
-                       'group / rest' if len(levels) > 2 else '%s / %s' % (esc(levels[0]), esc(levels[1])),
-                       ''.join(rows), 'the group' if len(levels) > 2 else esc(levels[0]), thead, heat_rows(main), thead, heat_rows(tops)))
-    # links with continuous self-reports and covariates
+                       ('<p class="verdict pass">%d of %d comparisons pass the false discovery rate (q &lt; 0.10, ✓ below; corrected over %s). Strongest evidence first:</p>'
+                        % (sig, len(tests), fam_words(key in research, n_screen, len(others))) if sig else
+                        '<p class="verdict">None of the %d comparisons passes the false discovery rate (q &lt; 0.10, corrected over %s). The strongest are '
+                        'listed as leads for a new sample, not as findings%s:</p>' % (len(tests), fam_words(key in research, n_screen, len(others)),
+                                                                                       '; with groups this small they describe these people only' if smallest < LEAD_MIN else '')),
+                       ('group / %s' % esc(ref)) if ref else 'group / rest' if len(levels) > 2 else '%s / %s' % (esc(levels[0]), esc(levels[1])),
+                       ''.join(rows), 'the group' if len(levels) > 2 or ref else esc(levels[0]), thead, heat_rows(main), thead, heat_rows(tops)))
+    # links with continuous self-reports
     cov_html = []
-    for ckey, clabel in covariates:
-        cv = [r.get(ckey) if isinstance(r.get(ckey), (int, float)) else None for r in recs]
-        if sum(v is not None for v in cv) < 6:
-            continue
-        res = []
-        for dom, k, label in defs:
-            if k == ckey:
-                continue
-            rho, p, m = spearman(vals[k], cv)
-            if rho is not None:
-                res.append({'area': dom, 'key': k, 'label': label, 'rho': rho, 'p': p, 'n': m})
-        for t, q in zip(res, bh([t['p'] for t in res])):
-            t['q'] = q
-            all_tests.append({'grouping': ckey, 'area': t['area'], 'key': t['key'], 'label': t['label'], 'level': 'Spearman rho', 'vs': '',
-                              'n1': t['n'], 'n0': None, 'm1': None, 'm0': None, 'delta': t['rho'], 'p': t['p'], 'q': q})
-        top = sorted(res, key=lambda t: -abs(t['rho']))[:10]
-        cov_html.append('<h3>%s</h3><p class="muted">%d measures; %d with q &lt; 0.10.</p><div class="tbl"><table><tr><th class="l">Measure</th><th>n</th><th>ρ</th><th>p</th><th>q</th></tr>%s</table></div>'
+    for clabel, res in cov_res:
+        top = sorted(res, key=lambda t: (t['p'], -abs(t['delta'])))[:10]
+        cov_html.append('<h3>%s</h3><p class="muted">%d measures; %d with q &lt; 0.10 (corrected with the study\'s groupings).</p><div class="tbl"><table><tr><th class="l">Measure</th><th>n</th><th>ρ</th><th>p</th><th>q</th></tr>%s</table></div>'
                         % (esc(clabel), len(res), sum(1 for t in res if t['q'] < 0.1),
                            ''.join('<tr><td class="l">%s <span class="muted">· %s</span></td><td>%d</td><td><b>%+.2f</b></td><td>%.3f</td><td>%.3f</td></tr>'
-                                   % (esc(t['label']), esc(t['area']), t['n'], t['rho'], t['p'], t['q']) for t in top)))
+                                   % (esc(t['label']), esc(t['area']), t['n1'], t['delta'], t['p'], t['q']) for t in top)))
     # how the measures go together
     cm = [d for d in defs if not d[0].startswith(TOPPING_AREAS + ('Base and diet',))]
     M = len(cm)
@@ -3221,52 +3332,25 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
                         '<td class="c" style="background:%s" title="%s × %s: ρ = %s"></td>' % (heat_color((grid[i][j] or 0) * 2.5) if grid[i][j] is not None else 'transparent',
                                                                                                esc(cm[i][2]), esc(cm[j][2]), '%.2f' % grid[i][j] if grid[i][j] is not None else 'n/a')
                         for j in range(M))) for i in range(M))))
-    # clusters (found from the profiles without any grouping) against each grouping
+    # clusters (found from the profiles without any grouping) against each grouping: only when the clusters are real
+    # (profiles.html: enough pizzas and a clear structure), with a permutation test instead of χ² tables of tiny counts
     cl_html = []
     clusters = [r.get('cluster') for r in recs]
-    k = len({c for c in clusters if c})
-    if k > 1:
-        for key, glabel, levels, labels in used:
-            tab = [[sum(1 for c, g in zip(clusters, labels) if c == ci and g == lv) for lv in levels] for ci in range(1, k + 1)]
-            rt, ct = [sum(row) for row in tab], [sum(tab[c][g] for c in range(k)) for g in range(len(levels))]
-            tot = sum(rt)
-            if not tot:
-                continue
-            chi = sum((tab[c][g] - rt[c] * ct[g] / tot) ** 2 / (rt[c] * ct[g] / tot) for c in range(k) for g in range(len(levels)) if rt[c] and ct[g])
-            df = (k - 1) * (len(levels) - 1)
-            cl_html.append('<h3>%s</h3><div class="tbl"><table class="small"><tr><th class="l">Cluster</th>%s</tr>%s</table></div><p class="muted">χ²(%d) = %.2f, p = %.3f (rough with small counts).</p>'
-                           % (esc(glabel), ''.join('<th>%s</th>' % esc(lv) for lv in levels),
-                              ''.join('<tr><td class="l">%d</td>%s</tr>' % (c + 1, ''.join('<td>%d</td>' % v for v in tab[c])) for c in range(k)), df, chi, chi2_sf(chi, df)))
-    # against chance: everyone, and each group of the first grouping
-    ch_rows, ch_tests = [], []
-    sets = [('Everyone', [True] * n)]
-    first = next((u for u in used if u[0] in research), None)        # each group of the study's first grouping
-    if first:
-        sets += [('%s: %s' % (first[1], lv), [g == lv for g in first[3]]) for lv in first[2]]
-    for key, c, label in CHANCE_LEVELS:
-        for name, mask in sets:
-            x = [r[key] for r, m in zip(recs, mask) if m and isinstance(r.get(key), (int, float))]
-            if len(x) < 5:
-                continue
-            dom, p = chance_test(x, c, rnd)
-            ch_tests.append({'grouping': 'chance', 'area': 'Against chance', 'key': key, 'label': label, 'level': name, 'vs': 'chance = %g' % c,
-                             'n1': len(x), 'n0': None, 'm1': statistics.median(x), 'm0': c, 'delta': dom, 'p': p})
-    for t, q in zip(ch_tests, bh([t['p'] for t in ch_tests])):
-        t['q'] = q
-        all_tests.append(t)
-        ch_rows.append('<tr%s><td class="l">%s</td><td class="l">%s</td><td>%d</td><td>%.2f / %g</td><td><b>%+.2f</b></td><td>%s</td><td>%.3f%s</td></tr>'
-                       % (' class="pass"' if t['q'] < 0.1 else '', esc(t['label']), esc(t['level']), t['n1'], t['m1'], t['m0'], t['delta'], fmt_p(t['p']), t['q'],
-                          ' ✓' if t['q'] < 0.1 else ''))
-    chance_html = ('<h2 id="chance">Against chance</h2><p class="muted">Does a group do this more than chance would give? Useful when a pilot has '
-                   'one group only. Dominance = (people above chance − people below) / n, from −1 to 1; p from a sign-flip permutation test; '
-                   'q over all rows of this table.</p><div class="tbl"><table><tr><th class="l">Measure</th><th class="l">Who</th><th>n</th>'
-                   '<th>median / chance</th><th>dominance</th><th>p</th><th>q</th></tr>%s</table></div>' % ''.join(ch_rows)) if ch_rows else ''
-    # leads for a larger study: the largest group differences, one per measure, with the sample size to confirm them
+    if len({c for c in clusters if c}) > 1:
+        for key, glabel, levels, labels, *_ in used:
+            res = cluster_group_test(clusters, labels, levels, rnd)
+            if res:
+                tab, chi, pv = res
+                cl_html.append('<h3>%s</h3><div class="tbl"><table class="small"><tr><th class="l">Cluster</th>%s</tr>%s</table></div><p class="muted">χ² = %.2f, '
+                               'permutation p = %s (2000 shuffles of the groups).</p>'
+                               % (esc(glabel), ''.join('<th>%s</th>' % esc(lv) for lv in levels),
+                                  ''.join('<tr><td class="l">%d</td>%s</tr>' % (c + 1, ''.join('<td>%d</td>' % v for v in row)) for c, row in enumerate(tab)), chi, fmt_p(pv)))
+    # leads for a larger study: the best-supported group differences, one per measure
     for t in all_tests:
-        if t.get('grouping') not in ('chance',) and t.get('level') != 'Spearman rho' and t.get('delta'):
-            t['n_per_group_80'], t['n_per_group_80_half'] = n_per_group(t['delta']), n_per_group(t['delta'] / 2)
+        if t.get('level') != 'Spearman rho' and t.get('delta'):
+            t['n_per_group_80_half'] = n_per_group(t['delta'] / 2)
         elif t.get('level') == 'Spearman rho' and t.get('delta'):
-            t['n_per_group_80'], t['n_per_group_80_half'] = n_for_rho(t['delta']), n_for_rho(t['delta'] / 2)
+            t['n_per_group_80_half'] = n_for_rho(t['delta'] / 2)
     seen, leads = set(), []
     for t in sorted((t for t in all_tests if t.get('grouping') in research and t.get('level') != 'Spearman rho' and min(t['n1'], t['n0'] or 0) >= LEAD_MIN
                      and not t['area'].startswith(NOT_LEADS)), key=lambda t: (t['p'], -abs(t['delta']))):
@@ -3279,20 +3363,16 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
     lead_rows = []
     for t in leads:
         word = ('more often' if t['binary'] else 'higher') if t['delta'] > 0 else ('less often' if t['binary'] else 'lower')
-        small = min(t['n1'], t['n0'] or 0) < SMALL_N
-        lead_rows.append('<tr%s><td class="l"><b>%s</b> %s: %s %s than %s%s</td><td>%d / %d</td><td><b>%+.2f</b><br><span class="muted">%s</span></td><td>%s</td><td>%.3f%s</td><td>%s</td><td>%s</td></tr>'
+        lead_rows.append('<tr%s><td class="l"><b>%s</b> %s: %s %s than %s</td><td>%d / %d</td><td><b>%+.2f</b><br><span class="muted">%s</span></td><td>%s</td><td>%.3f%s</td><td>%s</td></tr>'
                          % (' class="pass"' if t['q'] < 0.1 else '', esc(t['level']), esc(dict(groupings).get(t['grouping'], t['grouping'])), esc(t['label']), word, esc(t['vs']),
-                            '<br><span class="muted">fewer than %d in a group: very uncertain</span>' % SMALL_N if small else '',
-                            t['n1'], t['n0'], t['delta'], delta_size(t['delta']), fmt_p(t['p']), t['q'], ' ✓' if t['q'] < 0.1 else '',
-                            t['n_per_group_80'] or '', t['n_per_group_80_half'] or ''))
+                            t['n1'], t['n0'], t['delta'], delta_size(t['delta']), fmt_p(t['p']), t['q'], ' ✓' if t['q'] < 0.1 else '', t['n_per_group_80_half'] or ''))
     leads_html = ('<h2 id="leads">Leads for a larger study</h2><p class="muted">The best-supported group differences in these data (lowest p), one per measure, '
                   'from the study\'s own groupings (neurotype, eating, nutrition, study, condition), groups of %d or more, and measures of the pizza and its '
-                  'choices (not single toppings or low-level timings). Each could become an idea to test. The last two columns give how many people per group a two-group study needs for 80%% power at α = .05 '
-                  '(two-sided), if the true δ is as large as seen here, and if it is half that size (effects found by screening many measures '
-                  'in a small sample are usually overestimated; plan with the second). They are picked as the largest of many comparisons, so even '
-                  'their q values are optimistic. δ size words follow Romano et al. (2006): negligible &lt; .15, small &lt; .33, medium &lt; .47, large.</p><div class="tbl"><table class="leads"><tr><th class="l">Pattern</th><th>n</th>'
-                  '<th>δ</th><th>p</th><th>q</th><th title="%s">n/group (δ as seen) ⓘ</th><th title="%s">n/group (δ halved) ⓘ</th></tr>%s</table></div>'
-                  % (LEAD_MIN, SAMPLE_TIP, SAMPLE_TIP, ''.join(lead_rows))) if lead_rows else (
+                  'choices (not single toppings or low-level timings). Each could become an idea to test. They are the best of %d comparisons, so their effects '
+                  'are overestimated (the winner\'s curse): the last column plans a new study for <b>half</b> the δ seen, at 80%% power and α = .05. δ size words '
+                  'follow Romano et al. (2006): negligible &lt; .15, small &lt; .33, medium &lt; .47, large.</p><div class="tbl"><table class="leads"><tr><th class="l">Pattern</th><th>n</th>'
+                  '<th>δ</th><th>p</th><th>q</th><th title="%s">n/group to confirm (δ halved) ⓘ</th></tr>%s</table></div>'
+                  % (LEAD_MIN, n_screen, SAMPLE_TIP, ''.join(lead_rows))) if lead_rows else (
         '<h2 id="leads">Leads for a larger study</h2><p class="muted">None yet: a lead needs two groups of %d or more in one of the study\'s groupings '
         '(neurotype, eating, nutrition, study, condition). Until then, the tables below describe these people; they are not evidence.</p>' % LEAD_MIN)
     planned = planned_tests(recs, defs, groupings, covariates, rnd)
@@ -3301,21 +3381,19 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
             if 'p' in t:
                 all_tests.append({'grouping': 'planned', 'area': '%s %s' % (hid, title), 'key': t['key'], 'label': t['label'],
                                   'level': '%s: %s' % (t['grouping'], t['level']), 'vs': t['vs'], 'n1': t['n1'], 'n0': t['n0'], 'm1': t.get('m1'),
-                                  'm0': t.get('m0'), 'delta': t['delta'], 'p': t['p'], 'q': t['q'],
-                                  'n_per_group_80': n_for_rho(t['delta']) if t.get('kind') == 'rho' else n_per_group(t['delta']) if t.get('kind') == 'groups' else None,
-                                  'n_per_group_80_half': None})
-    nav = ''.join('<span><a href="#g-%s">%s</a></span>' % (esc(k_), esc(l_)) for k_, l_, _, _ in used)
+                                  'm0': t.get('m0'), 'delta': t['delta'], 'p': t['p'], 'q': t['q'], 'n_per_group_80_half': None})
     nav = '<span><a href="#planned"><b>Ideas to test</b></a></span><span><a href="#leads">Leads</a></span>' + ''.join(
-        '<span><a href="#g-%s">%s</a></span>' % (esc(k_), esc(l_)) for k_, l_, _, _ in used if k_ in research) + (
+        '<span><a href="#g-%s">%s</a></span>' % (esc(u[0]), esc(u[1])) for u in used if u[0] in research) + (
         '<span><a href="#other">Other groupings</a></span>' if other_body else '')
     # what these data can say: the largest smaller group among the study's groupings
-    sizes = [(min(sum(1 for g in lab if g == lv) for lv in lvs), gl) for k_, gl, lvs, lab in used if k_ in research]
+    sizes = [(min(sum(1 for g in u[3] if g == lv) for lv in u[2]), u[1]) for u in used if u[0] in research]
     best = max(sizes) if sizes else (0, '')
     can = ('<b>Nothing can be tested yet</b>: none of the study\'s groupings (neurotype, eating, nutrition, study, condition) has two groups of 3 or more. '
            'The page describes these %d pizzas.' % n if not sizes else
            '<b>Description only</b>: the best grouping (%s) has %d in its smaller group. A difference can reach p &lt; .05 from 4 per group, pass the '
-           'correction from 8, and a large effect needs about 24 per group (Methods → Sample sizes).' % (esc(best[1]), best[0]) if best[0] < 8 else
-           '<b>Screening</b>: the best grouping (%s) has %d in its smaller group, enough for a strong difference to pass the correction. A large effect needs '
+           'correction over this page\'s %d tests from %d per group, and a large effect needs about 24 per group (Methods → Sample sizes).'
+           % (esc(best[1]), best[0], n_screen, need_n) if best[0] < need_n else
+           '<b>Screening</b>: the best grouping (%s) has %d in its smaller group, enough for a strong difference to pass the correction over this page\'s tests. A large effect needs '
            'about 24 per group for 80%% power.' % (esc(best[1]), best[0]) if best[0] < 24 else
            '<b>Testing</b>: the best grouping (%s) has %d in its smaller group, enough to detect large effects (80%% power).' % (esc(best[1]), best[0]))
     readiness = '<p class="verdict%s">%d pizzas. %s</p>' % (' pass' if best[0] >= 24 else '', n, can)
@@ -3328,7 +3406,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
             + ''.join(body)
             + ('<details class="more" id="other"><summary>Other groupings: demographics and recruitment (%d)</summary>%s</details>' % (len(other_body), ''.join(other_body))
                if other_body else '')
-            + chance_html
+
             + ('<h2>Links with self-reports</h2><p class="muted">Spearman correlations (ρ) of each measure with each continuous self-report.</p>' + ''.join(cov_html) if cov_html else '')
             + '<details class="more"><summary>How the measures go together (correlations)</summary><p class="muted">Spearman correlations between the main measures '
               'across all participants (orange = rise together, blue = one rises as the other falls; hover for the value). Strongly linked measures tell the same story '
@@ -3616,7 +3694,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
     with open(os.path.join(out_dir, 'explore.html'), 'w', encoding='utf-8') as f:
         f.write(html)
     write_csv(os.path.join(out_dir, 'explore.csv'), [
-        dict({k: t.get(k) for k in ('grouping', 'level', 'vs', 'area', 'key', 'label', 'n1', 'n0', 'm1', 'm0', 'delta', 'n_per_group_80', 'n_per_group_80_half')},
+        dict({k: t.get(k) for k in ('grouping', 'level', 'vs', 'area', 'key', 'label', 'n1', 'n0', 'm1', 'm0', 'delta', 'n_per_group_80_half')},
              p='%.3g' % t['p'], q='%.3g' % t['q']) for t in tests]
         or [{'grouping': None}])
     for rec, _ in arrangement:

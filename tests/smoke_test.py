@@ -379,8 +379,17 @@ def main():
         check(len(rows) == 24, 'one row per participant')
         ex = open(os.path.join(out, 'explore.html'), encoding='utf-8').read()
         planned = [r for r in csv.DictReader(open(os.path.join(out, 'explore.csv'), encoding='utf-8')) if r['grouping'] == 'planned']
-        check(ex.count('class="hyp ') == 8 and 'Ideas to test' in ex and ex.count('class="cost"') == 8 and planned and all(r['q'] != '' for r in planned),
-              'Explore: the 8 ideas to test, as their own family, each with its number of tests and the people it needs (rows in explore.csv)')
+        check(ex.count('class="hyp ') == 9 and 'Ideas to test' in ex and ex.count('class="cost"') == 9 and planned and all(r['q'] != '' for r in planned),
+              'Explore: the 9 ideas to test, as their own family, each with its number of tests and the people it needs (rows in explore.csv)')
+        pr = open(os.path.join(out, 'profiles.html'), encoding='utf-8').read()
+        exrows = list(csv.DictReader(open(os.path.join(out, 'explore.csv'), encoding='utf-8')))
+        screen = [r for r in exrows if r['grouping'] != 'planned']
+        check('Against chance' not in ex and 'corrected over' in ex and not any(r['key'].startswith(('mv_', 'drop_', 'cons_')) or r['key'] in ('nut_vitC_mg', 'hover_total_ms') for r in screen)
+              and 'n_per_group_80' not in exrows[0] and not any(r['grouping'] == 'neurotype' and r['vs'] == 'the rest' for r in screen),
+              'Explore audit: one correction over the page, no chance tests, no movement/hover/micronutrient screening, neurotype against Not ND')
+        check(('No clear clusters' in pr) != ('Compare two clusters' in pr) and 'Compare two participants' not in pr,
+              'Profiles: clusters only with a clear structure (20+ pizzas, silhouette 0.25+), compared cluster against cluster')
+
         leads = ex[ex.index('id="leads"'):ex.index('id="g-')]
         check('Device (touch / mouse)' not in ex and 'id="other"' in ex and 'Gender' not in leads and 'Revealed the nutrition while building more often' not in ex
               and ex.index('id="planned"') < ex.index('id="leads"') < ex.index('id="g-'),

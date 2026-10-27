@@ -282,14 +282,15 @@ else and labelled with where each person came from:
    recruitment sources (`source`) like any other grouping.
 
 What a pilot gives for the larger study (in `explore.html`):
-- **Against chance** – with one group only, each systematic measure (mirror and rotational symmetry, same-topping
-  neighbours, placing in blocks, size matching, sweeping round, even spread) is tested against its chance level,
-  for everyone and for each self-described neurotype (autistic, AuDHD, ADHD … within the pilot).
+- **Ideas to test** – nine leads from what is known about eating in autism and ADHD (e.g. fewer, more familiar
+  toppings; foods kept apart; neurodivergent people make more unusual pizzas), each with an expected direction, tested
+  as their own small family, with the number of people each needs (docs/sample-sizes.md).
 - **Within-group differences** – formally diagnosed vs self-identified, with or without ADHD, eating difficulties,
   the 1-7 self-ratings and any questionnaire scores (`--covariates`).
-- **Leads for a larger study** – the largest differences, one per measure, each with the number of people per group a
-  confirmatory study would need for 80% power, at the effect seen and at half of it (plan with the second: effects
-  found by screening many measures in a small sample are usually overestimated).
+- **Leads for a larger study** – the best-supported differences (lowest p) from the study's own groupings, groups of 5
+  or more, one per measure, each with the people per group a confirmatory study would need for 80% power at half the
+  effect seen (effects found by screening many measures in a small sample are overestimated). One false discovery
+  correction covers every comparison on the page. docs/analysis-audit.md lists what is screened and what was pruned.
 - To compare the pilot with a non-autistic sample, run a second study (e.g. `general`, recruited the same way, or
   via Prolific) on the same server and look at *All studies*.
 
@@ -454,7 +455,7 @@ rest of the sample) and `--clusters <k>` fixes the number of clusters. It writes
 | `profiles.csv` | each participant's standardised profile and cluster |
 | **`dashboard.html`** | the data at a glance, for proposals and for checking data as it comes in: diet breakdown, stated diet against the pizza, the normality distribution with the most unusual pizzas, space / size / time by group, a sortable table of every participant with a thumbnail |
 | **`explore.html`** | for discovering patterns: every measure, and every topping (used / named with strong feelings), compared between the groups of every grouping, largest effects first with the data drawn, Cliff's δ with bootstrap intervals, p and false-discovery-rate q; each measure's correlation with each self-rating and covariate; how all the measures correlate with each other; and the profile clusters against every grouping. `explore.csv` holds every comparison |
-| **`profiles.html`** | every participant as a profile of 33 measures; compare any two side by side (with each person's most similar participants); hierarchical clusters with plain-language descriptions, how the groups spread across them (χ²), a map of all profiles, and a heatmap ordered by the clustering tree |
+| **`profiles.html`** | every participant as a profile of 30 measures; hierarchical clusters, reported only when there is a clear structure (20+ pizzas, mean silhouette 0.25+), with plain-language descriptions, a side-by-side comparison of any two clusters and how the groups spread across them (permutation test); a map of all profiles, and a heatmap ordered by the clustering tree |
 | **`arrangement.html`** | symmetry and contact drawn on every pizza: the best mirror axis, the best rotation (rings mark where each topping's symmetric partner would have to be: green = a matching topping is there, red = none nearby), and touching and stacked pieces, with group comparisons |
 | `pizzas/`, `gallery.html` | every pizza redrawn from its coordinates |
 | **`methods.html`** | how every column and test is counted: one formula per measure with the function that computes it (and its line number), and worked examples computed by that code and checked against the hand calculation. The researcher page has it under **Methods** |

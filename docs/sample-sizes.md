@@ -9,17 +9,19 @@ recruit about **3 × the numbers below** until the completion rate improves.
 
 | level | how much per participant | file |
 |---|---|---|
-| measures of the pizza (one row per pizza) | **333 columns**: composition, diet, nutrition, symmetry, contact and stacking, faces, size choices, order and timing, movement, changes of mind, nutrition reveal, follow-up answers, profile scores | `participants.csv` |
+| measures of the pizza (one row per pizza) | **334 columns**: composition, diet, nutrition, symmetry, contact and stacking, faces, size choices, order and timing, movement, changes of mind, nutrition reveal, follow-up answers, profile scores | `participants.csv` |
 | toppings on the tray | 20 rows × 64 columns (one per topping: picked, kept, how many, considered, feelings about it) | `ingredients_long.csv` |
 | pieces on the pizza | about 21 rows × 19 columns (position, size, rotation, when placed, touching, stacked) | `pieces_long.csv` |
 | logged actions | about 80 rows × 17 columns (every pick, drop, move, resize, removal, undo, with times) | `events_long.csv` |
 | adjustments and removals | about 5 + 4 rows (what each change did) | `adjustments_long.csv`, `removals_long.csv` |
-| profile | 33 standardised features and a cluster | `profiles.csv` |
-| "typical participant" pizza | a second row of the same 333 columns (if the study asks for it) | `participants.csv` (`build` = pzt) |
+| profile | 30 standardised features and a cluster (when there is a clear structure) | `profiles.csv` |
+| "typical participant" pizza | a second row of the same 334 columns (if the study asks for it) | `participants.csv` (`build` = pzt) |
 
-In total the data dictionary (`variables.csv`) describes **517 variables**. Explore screens **179 measures** for every
-grouping (15 groupings, such as neurotype, autistic yes/no, ADHD yes/no, picky eater, gender, age band and study, plus
-2 self-report scales). That is about 3,400 comparisons, which is why sample size matters so much here: with that many
+In total the data dictionary (`variables.csv`) describes about **520 variables**. Not all of them are tested: after the
+audit (`analysis-audit.md`) Explore screens **about 90 measures** (49 measures of the pizza and its choices, plus one row
+per topping) for each grouping. The study's own groupings (neurotype, any neurodivergence, autistic, ADHD, diagnosis,
+eating, nutrition, study, condition) and the 2 self-report scales make **about 900 comparisons**, corrected together;
+the demographic groupings (gender, age, link group, source) are corrected as a separate family. With that many
 tests, small samples produce leads, not findings.
 
 ## Minimum participants per analysis, from fewest to most
@@ -39,7 +41,7 @@ say something; the reason is in the last column. Group sizes are **per group** (
 | 8 | A grouping appears in Explore | Explore | **3 per group**, 2+ groups | **4 per group** | with 3 vs 3 the smallest possible p is 0.10 (exact Mann–Whitney: 2 / 20), so nothing can ever reach p < .05; 4 vs 4 can (0.029) |
 | 9 | Stacked bars as percentages (diet class, strong feelings) | Overview | 1 per group (counts) | **10 per group** | below 10 the bars show counts, not percentages |
 | 10 | Seeing the nutrition changed the pizza (within person, against no change) | Overview → Nutrition, Explore | 1 revealer | **6 revealers** for p < .05 at all (sign-flip: 2 / 64 = .031); **20** to detect a strong shift (dominance 0.6), **29** for a medium-large one (0.5) | only people who were offered the button and pressed it count |
-| 11 | Any Explore difference surviving the false-discovery correction | Explore (q-values) | — | **8 per group**, even for a perfect separation | with 179 measures the best result must reach p ≤ 0.05 / 179 = 0.00028; 7 vs 7 cannot (smallest p 0.00058), 8 vs 8 can (0.00016) |
+| 11 | Any Explore difference surviving the false-discovery correction | Explore (q-values) | — | **9 per group**, even for a perfect separation (7 for the ideas to test) | with about 900 comparisons the best result must reach p ≤ 0.05 / 900 = 0.00006; 8 vs 8 cannot (smallest p 0.00016), 9 vs 9 can (0.00004). The ideas are 42 tests: 0.05 / 42 = 0.0012, reached from 7 vs 7. The page computes this from its own number of tests |
 | 12 | "How normal is this pizza" bands (typical / uncommon / unusual) | Overview → How normal | 2 pizzas | **21 pizzas** (each compared with 20 others), better **40+** or an external reference set | "unusual" is above the 95th percentile of the others: it needs 20 others to exist |
 | 13 | Two groups, **very large** difference (Cliff's δ = 0.8; most of one group above most of the other) | Explore, confirmatory test | — | **9 per group** (13 with 5 primary outcomes) | Noether's formula, 80% power, α = .05 two-sided |
 | 14 | Two groups, **large** difference (δ = 0.6) | | — | **15 per group** (22) | |
@@ -86,18 +88,18 @@ The study's groups are self-described: autistic, ADHD, AuDHD (both), other neuro
 difference and a measure the task records well. **Pick 3–5 of them as preregistered primary outcomes**, and treat
 everything else in Explore as exploratory.
 
-These leads are on the **Explore** page, under **Ideas to test** (ideas 1–8). They are ideas, not hypotheses: nothing
+These leads are on the **Explore** page, under **Ideas to test** (ideas 1–9). They are ideas, not hypotheses: nothing
 is preregistered, and ideas 6 and 8 have no expected direction. Each idea shows its verdict, the measures with their
 expected direction, effect, p and q, whether the effect goes the expected way, and **how many tests it runs and how many
 people that takes**. Every extra measure or comparison adds to the correction: an idea of 4 measures in one comparison
 (4 tests) needs 34 per group for a large effect if preregistered alone (α = .05 / 4), one of 8 tests needs 38, and all
-of the ideas together (about 25 tests) need about 46 per group. A bar shows how close the smaller group is to the
+of the ideas together (42 tests) need about 50 per group. A bar shows how close the smaller group is to the
 number for that idea. They are corrected as one small family, so a real difference can show there before it would
 survive the full screen.
 
 | lead | why expect it | measures | first test |
 |---|---|---|---|
-| **1. Fewer, more familiar toppings** (autistic, AuDHD; picky eaters) | food selectivity and preference for the familiar are among the most replicated eating findings in autism | `n_distinct`, `shannon`, `prop_unusual_distinct`, `ingredient_rarity`, `atypicality_pct` | autistic (incl. AuDHD) vs not ND |
+| **1. Fewer, more familiar toppings** (autistic, AuDHD; picky eaters) | food selectivity and preference for the familiar are among the most replicated eating findings in autism | `n_distinct`, `shannon`, `prop_unusual_distinct`, `ingredient_rarity` | autistic (incl. AuDHD) vs not ND |
 | **2. Foods kept apart** (autistic) | many autistic people dislike foods touching | `prop_touching`, `prop_stacked`, `clark_evans` (spacing) | autistic vs not ND |
 | **3. Order and symmetry** (autistic) | preference for sameness and pattern | `mirror_score`, `rot_score`, `size_match_index`, `sweep_consistency` | autistic vs not ND |
 | **4. Sensory reasons and safe foods** (autistic, sensory scale) | sensory sensitivity drives food choice | `n_strong`, `n_sensory_reasons`, `n_safe_foods`; correlate with `self_sensory_food` | correlation (needs ~30 for ρ = 0.5) |
@@ -105,6 +107,7 @@ survive the full screen.
 | **6. AuDHD in between, or its own pattern** | the two traits pull in opposite directions (sameness vs novelty) | leads 1 and 5 together | AuDHD vs autistic-only vs ADHD-only: needs 3 groups of 24+ |
 | **7. Nutrition information changes the pizza** (all; interoception differs in autism) | people may revise once they see calories or salt | `nutri_revealed`, `post_nutri_d_kcal`, `post_nutri_direction` | randomise the button (half the people) and compare; within revealers, sign-flip test |
 | **8. "My pizza vs a typical person's"** | theory-of-mind and self-other differences | `typical_jaccard`, `typical_count_dev` | autistic vs not ND |
+| **9. Neurodivergent people make more unusual pizzas** (any ND; ADHD) | novelty seeking in ADHD; competes with idea 1 for autism. Read either way: "are unusual pizzas more often made by ND people?" is the same rank comparison | `atypicality_bits`, `ingredient_rarity`, `prop_unusual_distinct` | any ND vs not ND; autistic; ADHD |
 
 **A realistic plan.** For the pilot, aim for **24 per group** in two groups (autistic incl. AuDHD vs not ND), about 50
 finished pizzas, or about 150 people opening the link at today's completion rate. That detects large differences on the
@@ -113,7 +116,7 @@ need about 50–70 per group.
 
 ## Notes
 
-- **Exploratory screening is not confirmation.** Explore runs about 3,400 comparisons. Report its leads as leads, with
+- **Exploratory screening is not confirmation.** Explore runs about 900 comparisons for the study's groupings alone. Report its leads as leads, with
   their q-values, and test them in a new sample.
 - **Self-described groups overlap.** AuDHD people are counted in both "autistic yes/no" and "ADHD yes/no". Compare
   AuDHD separately when there are enough of them.

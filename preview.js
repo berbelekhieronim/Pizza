@@ -65,7 +65,7 @@
   }
   // Symmetry: the same rules, in the same order, as sym_match / best_mirror / best_rotation / symmetry() in analyse.py.
   // A piece is matched when its mirror (or rotated) image lands on a piece of the same topping, within half the sum of
-  // the two pieces' radii; one-to-one, closest pairs first. Chance comes from 12 random layouts of the same pieces.
+  // the two pieces' radii; one-to-one, closest pairs first. Chance comes from 12 random layouts of the same pieces, spaced like the pizza.
   function pieceRad(p) { return (SIZE[p.ing] || 8) * p.s / 100; }
   function symMatch(ps, T) {
     var groups = {}, cand = [];
@@ -107,13 +107,33 @@
     });
     return best;
   }
-  function randomLike(ps, rnd) { return ps.map(function (p) { var r = 0.9 * Math.sqrt(rnd()), t = rnd() * 2 * Math.PI; return { ing: p.ing, s: p.s, x: r * Math.cos(t), y: r * Math.sin(t) }; }); }
+  // random layouts spaced like the pizza: no two centres closer than its 10th-percentile nearest-neighbour distance
+  // (spacing_floor / random_like in analyse.py)
+  function spacingFloor(ps) {
+    if (ps.length < 3) return 0;
+    var nn = ps.map(function (p) { var m = Infinity; ps.forEach(function (q) { if (q !== p) m = Math.min(m, Math.hypot(p.x - q.x, p.y - q.y)); }); return m; }).sort(function (a, b) { return a - b; });
+    return nn[Math.floor(0.1 * (nn.length - 1))];
+  }
+  function randomLike(ps, rnd, d0) {
+    var out = [];
+    ps.forEach(function (p) {
+      var x, y;
+      for (var k = 0; k < 100; k++) {
+        var r = 0.9 * Math.sqrt(rnd()), t = rnd() * 2 * Math.PI;
+        x = r * Math.cos(t); y = r * Math.sin(t);
+        if (out.every(function (q) { return Math.hypot(x - q.x, y - q.y) >= d0; })) break;
+      }
+      out.push({ ing: p.ing, s: p.s, x: x, y: y });
+    });
+    return out;
+  }
   function symScore(share, ch) { return share >= ch ? (ch < 1 ? (share - ch) / (1 - ch) : 0) : (share - ch) / ch; }
   function symmetry(ps) {
     if (ps.length < 2) return null;
     var seed = 7, rnd = function () { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }, n = ps.length;
     var mi = bestMirror(ps), ro = bestRotation(ps), m0 = 0, r0 = 0;
-    for (var i = 0; i < 12; i++) { var f = randomLike(ps, rnd); m0 += bestMirror(f).m / n / 12; r0 += bestRotation(f).m / n / 12; }
+    var d0 = spacingFloor(ps);
+    for (var i = 0; i < 12; i++) { var f = randomLike(ps, rnd, d0); m0 += bestMirror(f).m / n / 12; r0 += bestRotation(f).m / n / 12; }
     return { match: mi.m / n, matched: mi.m, axis: mi.axis, c: mi.c, chance: m0, score: symScore(mi.m / n, m0),
       rotMatch: ro.m / n, rotMatched: ro.m, k: ro.k, rc: ro.c, rotChance: r0, rotScore: symScore(ro.m / n, r0) };
   }

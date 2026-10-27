@@ -60,7 +60,7 @@ SECTIONS = [
     ]),
     ('Normality: how usual is the pizza', 'Compared with a reference set of pizzas (--reference, else every other pizza in the sample).', [
         ('atypicality_bits', 'Σ over tray toppings of −log<sub>2</sub> P, where P = r<sub>k</sub> if topping k is on the pizza, else 1 − r<sub>k</sub>; r<sub>k</sub> = (reference pizzas with k + 0.5) / (N + 1).', 'atypicality'),
-        ('composition_pct', 'Percentile of atypicality_bits among the reference pizzas\' own scores (each scored leave-one-out); ties count ½.', 'normality'),
+        ('composition_pct', 'Percentile of atypicality_bits among the reference pizzas\' own scores (each scored leave-one-out); ties count ½. Empty with a reference of fewer than 20 pizzas (NORM_MIN_REF): "above the 95th percentile" needs 20 or more. The same holds for count_pct, atypicality_pct and normality_band.', 'normality'),
         ('count_pct', '100 × (1 − t), t = min(1, 2 × min(P(≤ d), P(≥ d))), d = n_distinct, P from the reference with +0.5 / (N + 1) smoothing (two-sided).', 'count_extremeness'),
         ('atypicality_pct, normality_band', 'max(composition_pct, count_pct); band typical &lt; 75 ≤ uncommon &lt; 95 ≤ unusual.', 'normality'),
         ('unusual_elements', 'Text: an extreme count (count_pct ≥ 75) and the up to 3 toppings contributing ≥ 2 bits.', 'normality'),
@@ -71,7 +71,7 @@ SECTIONS = [
     ('Symmetry', 'Three worked examples follow this table.', [
         ('mirror_match', 'Share of pieces with a mirror partner at the best axis. A piece is matched when its reflection lands on a piece of the <i>same topping</i> within ½ (r<sub>i</sub> + r<sub>j</sub>) (r = bounding radius × s). One-to-one, closest pairs first; a piece on the axis can match itself.', 'sym_match'),
         ('mirror_axis_deg, mirror_cx, mirror_cy', 'Best axis: every 3° (0-177°) through the pizza centre and through the toppings\' centroid; the 3 best refined in 0.25° steps (±1.5°). Best = most matched, then smallest summed distance.', 'best_mirror'),
-        ('mirror_chance', 'Mean mirror_match of 12 random layouts of the same pieces (same toppings and sizes, uniform positions within r = 0.9), with the same axis search. The layouts come from a random generator seeded by the pizza itself (seed, participant id, build), so a pizza gets the same chance level whichever other pizzas are analysed with it; random moves for the adjustment test use their own such generator.', 'symmetry'),
+        ('mirror_chance', 'Mean mirror_match of 12 random layouts of the same pieces (same toppings and sizes, random positions within r = 0.9, no two centres closer than the pizza\'s own 10th-percentile nearest-neighbour distance, so that the chance layouts are spread out like the pizza: up to 100 tries per piece), with the same axis search. The layouts come from a random generator seeded by the pizza itself (seed, participant id, build), so a pizza gets the same chance level whichever other pizzas are analysed with it; random moves for the adjustment test use their own such generator.', 'symmetry'),
         ('mirror_score', '(match − chance) / (1 − chance) when match ≥ chance; (match − chance) / chance below. −1 = nothing matched, 0 = chance, 1 = every piece matched.', 'symmetry'),
         ('rot_match, rot_k, rot_cx, rot_cy, rot_chance, rot_score', 'The same for turning the pizza by 360°/k, k = 2…8, about each centre. Best k = most matched; equal counts go to the higher k.', 'best_rotation'),
     ]),
@@ -202,6 +202,7 @@ SECTIONS = [
     ('About you (groupings)', None, [
         ('neurotype', 'From the ticked self-descriptions: autistic + ADHD → AuDHD; autistic → Autistic; ADHD → ADHD; dyslexic etc. or otherwise neurodivergent → Other ND; none → Not ND; prefer not to say → empty.', 'neurotype'),
         ('nd_{nd}, dx_autistic, dx_adhd', 'Each self-description ticked (0/1); how autism / ADHD was identified (formal / self / waiting / pnts).', 'about_measures'),
+        ('nd_any', '1 if the neurotype is AuDHD, Autistic, ADHD or Other ND; 0 if Not ND; empty if not stated (self-described, any neurodivergence).', 'about_measures'),
         ('nd_identified', 'formal if every ticked autism / ADHD identity is formally diagnosed, else "self or waiting".', 'about_measures'),
         ('eat_{eat}, eat_any', 'Eating history ticked (0/1); any of picky, ARFID, eating disorder, allergy.', 'about_measures'),
         ('self_picky, self_sensory_food, age_band, gender', '1-7 self-ratings; demographics (prefer not to say → empty).', 'about_measures'),
@@ -227,26 +228,25 @@ SECTIONS = [
     ]),
     ('Profiles and clusters (profiles.html, profiles.csv)', None, [
         ('z_{feature}', 'For each of the profile measures: log(1 + x) where marked, × −1 where lower means more of the trait, missing → sample median, then z = (x − mean) / SD across participants, capped at ±3.', 'build_profiles'),
-        ('cluster', 'Ward hierarchical clustering on Euclidean distances between profiles (Lance-Williams updates); k = 2…8 with the highest mean silhouette s = (b − a) / max(a, b) (a = mean distance to own cluster, b = to the nearest other), unless --clusters.', 'profile_analysis'),
+        ('cluster', 'Ward hierarchical clustering on Euclidean distances between profiles (Lance-Williams updates); k = 2…8 with the highest mean silhouette s = (b − a) / max(a, b) (a = mean distance to own cluster, b = to the nearest other), unless --clusters. Reported (and written) only with at least 20 pizzas and a mean silhouette of at least 0.25 (Kaufman &amp; Rousseeuw 1990: below that, no substantial structure); otherwise empty and the page says there are no clear clusters. Clustering always returns groups, so without this check it would invent them.', 'profile_analysis'),
         ('(profile map)', 'Principal components of the profiles\' covariance matrix (Jacobi eigen-decomposition); first two drawn.', 'profile_analysis'),
-        ('(clusters × groups)', 'χ² = Σ (O − E)² / E over the cluster × group table, df = (k − 1)(groups − 1).', 'chi2_sf'),
+        ('(clusters × groups)', 'χ² = Σ (O − E)² / E over the cluster × group table; p by permutation: the groups shuffled across people 2000 times, p = (#χ²<sub>perm</sub> ≥ χ²<sub>obs</sub> + 1) / 2001. Only for reported clusters and 20+ people (the χ² distribution is wrong with the small expected counts of a pilot).', 'cluster_group_test'),
     ]),
     ('Charts (dashboard.html, arrangement.html)', 'Descriptive only: every participant is one dot. Tests between groups are on the explore page.', [
         ('(median, IQR)', 'For groups of 5 or more: median and interquartile range Q1–Q3, with Q<sub>p</sub> = x<sub>(⌊h⌋)</sub> + (h − ⌊h⌋)(x<sub>(⌊h⌋+1)</sub> − x<sub>(⌊h⌋)</sub>), h = (n − 1)p over the sorted values (R\'s default, type 7). Smaller groups are drawn but not summarised.', 'quartiles'),
         ('(stacked bars)', 'Share of pizzas (or pieces) in each class; bars of fewer than 10 show counts instead of percentages.', 'stacked_bars'),
         ('(strong feelings)', 'Per ingredient: people naming it with a negative / positive strong feeling, as a share of everyone who answered the follow-up; counts per group beside it.', 'strong_feelings_chart'),
     ]),
-    ('Comparing groups (explore.html, explore.csv)', 'Each grouping: groups with ≥ 3 people; two groups → first vs second, more → each vs all the others.', [
+    ('Comparing groups (explore.html, explore.csv)', 'Each grouping: groups with ≥ 3 people; two groups → first vs second; neurotype → each group vs Not ND (the reference); other groupings with more groups → each vs all the others. A grouping is not compared on the measures that define it (DEFINED_BY). Screened: the measures of explore_measures less SCREEN_DROP (movement, hovering, interface counters, adjustment reasons, nutrient totals and other parts of screened measures: see docs/analysis-audit.md).', [
         ('grouping, level, vs, area, key, label, n1, n0', 'Which comparison: grouping column, group, comparison group, measure (key = participants.csv column; inc_{ing} on the pizza; neg_/pos_{ing} named with strong feelings; field=value a choice), group sizes.', 'explore_grouping'),
         ('m1, m0', 'Medians (proportions for yes/no measures).', 'explore_grouping'),
         ('delta', 'Cliff\'s δ = [#(x<sub>i</sub> > y<sub>j</sub>) − #(x<sub>i</sub> &lt; y<sub>j</sub>)] / (n1 n0) over all group × comparison pairs. For yes/no measures = difference in proportions. For covariates: Spearman ρ (Pearson r of ranks, ties = mid-ranks).', 'cliff_delta'),
         ('p', 'Mann-Whitney: rank sum R of the group (mid-ranks), two-sided. Smaller group &lt; 8: permutation, (hits + 1) / 4001 with 4000 random relabellings. Else normal approximation with tie correction and 0.5 continuity correction. Spearman: t = ρ √((n − 2) / (1 − ρ²)), df = n − 2.', 'mw_p'),
-        ('q', 'Benjamini-Hochberg within the grouping: q<sub>(i)</sub> = min<sub>j ≥ i</sub> p<sub>(j)</sub> m / j.', 'bh'),
-        ('(95% CI)', 'Percentile bootstrap of δ, 600 resamples within each group.', 'boot_ci'),
+        ('q', 'Benjamini-Hochberg over a family of questions, not one grouping at a time: the study\'s groupings (neurotype, any neurodivergence, autistic, ADHD, diagnosis, eating, nutrition, study, condition) and the self-reports form one family; the demographic and recruitment groupings another; the ideas to test a third. q<sub>(i)</sub> = min<sub>j ≥ i</sub> p<sub>(j)</sub> m / j.', 'bh'),
+        ('(95% CI)', 'Percentile bootstrap of δ, 600 resamples within each group; only when both groups have 5 or more people (with fewer, a bootstrap only reshuffles the same few values).', 'boot_ci'),
         ('(ideas to test: grouping = planned)', 'The IDEAS in analyse.py (ideas 1-8, docs/sample-sizes.md): measures in named comparisons, most with an expected direction: a group against the rest (Cliff\'s δ, Mann-Whitney p as above), a continuous self-report (Spearman ρ), or the change after seeing the nutrition within each person (dominance against 0, sign-flip p). q = Benjamini-Hochberg over these tests only. A strong lead: q &lt; 0.10 and, where a direction is expected, the effect goes that way. People needed per idea: n per group as above at α = .05 / t, t = the idea\'s number of tests (measures × comparisons), for δ = 0.474 (large) and for the δ seen.', 'planned_tests'),
-        ('n_per_group_80, n_per_group_80_half', 'People per group a new two-group study needs for 80% power at α = .05 (two-sided Mann-Whitney) if the true δ equals the observed / half the observed δ (Noether): n = 2 (z<sub>.975</sub> + z<sub>.80</sub>)² / (3 δ²). For covariate rows (ρ): total n = ((z<sub>.975</sub> + z<sub>.80</sub>) / atanh ρ)² + 3.', 'n_per_group'),
+        ('n_per_group_80_half', 'People per group a new two-group study needs for 80% power at α = .05 (two-sided Mann-Whitney) if the true δ is half the observed δ (Noether): n = 2 (z<sub>.975</sub> + z<sub>.80</sub>)² / (3 (δ/2)²). Half, because the largest of many screened effects is overestimated (winner\'s curse); the sample size at the observed δ is no longer given. For covariate rows (ρ): total n = ((z<sub>.975</sub> + z<sub>.80</sub>) / atanh(ρ/2))² + 3.', 'n_per_group'),
         ('(size of δ)', 'Words beside δ in explore.html (Romano et al. 2006): |δ| &lt; .147 negligible, &lt; .33 small, &lt; .474 medium, otherwise large. Rows with q &lt; 0.10 are marked ✓; each grouping states how many of its comparisons pass.', 'delta_size'),
-        ('(against chance)', 'Rows with grouping = chance: one group against a chance level (e.g. mirror_score 0, sweep_consistency 0.5, clark_evans 1). delta = dominance = (#above − #below) / n; m1 = median, m0 = chance; p = sign-flip permutation of the differences from chance, (hits + 1) / 4001; q = BH over all chance rows.', 'chance_test'),
     ]),
 ]
 
@@ -501,11 +501,11 @@ def sample_size_section():
     mw4 = 2 / math.comb(8, 4)
     ex.append(('smallest p, two groups', '4 vs 4, no ties, every value of one group above the other',
                'exact Mann-Whitney: 2 / C(8, 4) = 2 / 70 = <b>%.3f</b> (3 vs 3: 2 / 20 = 0.10, so p &lt; .05 is impossible)' % mw4))
-    thr = 0.05 / 179
-    assert 2 / math.comb(16, 8) < thr < 2 / math.comb(14, 7)
-    ex.append(('passing the correction', '179 measures screened per grouping (q &lt; .05)',
-               'the best p must be ≤ 0.05 / 179 = %.5f; 7 vs 7 can reach 2 / C(14, 7) = %.5f (no), 8 vs 8 can reach 2 / C(16, 8) = %.5f (yes) → <b>8 per group</b>'
-               % (thr, 2 / math.comb(14, 7), 2 / math.comb(16, 8))))
+    thr = 0.05 / 900
+    assert 2 / math.comb(18, 9) < thr < 2 / math.comb(16, 8) and A.min_n_to_pass(900) == 9
+    ex.append(('passing the correction', 'about 900 comparisons over the study\'s groupings and self-reports (q &lt; .05)',
+               'the best p must be ≤ 0.05 / 900 = %.6f; 8 vs 8 can reach 2 / C(16, 8) = %.6f (no), 9 vs 9 can reach 2 / C(18, 9) = %.6f (yes) → <b>%d per group</b> '
+               '(min_n_to_pass: the page computes this from its own number of tests)' % (thr, 2 / math.comb(16, 8), 2 / math.comb(18, 9), A.min_n_to_pass(900))))
     # unequal groups
     c = 0.25
     ex.append(('unequal groups', '1 autistic participant for every 3 others (share c = 0.25)',
@@ -530,7 +530,7 @@ def sample_size_section():
         ('Unequal groups', 'total N = (equal-group total) / (4 c (1 − c)), c = the smaller group\'s share',
          'From Noether\'s formula with c ≠ ½. A 1 : 3 split needs 1.33 times as many people in all as a 1 : 1 split; 1 : 9 needs 2.8 times.', 'n_per_group'),
         ('Smallest possible p', 'exact Mann-Whitney: 2 / C(n<sub>1</sub> + n<sub>2</sub>, n<sub>1</sub>); sign-flip with n people: 2 / 2<sup>n</sup>',
-         'With very small groups even a perfect separation cannot reach p &lt; .05 (3 vs 3) or survive the correction (fewer than 8 per group for 179 measures). '
+         'With very small groups even a perfect separation cannot reach p &lt; .05 (3 vs 3) or survive the correction (fewer than 9 per group for about 900 comparisons; min_n_to_pass computes it for the page\'s own number of tests). '
          'This sets the "runs from / meaningful from" limits in docs/sample-sizes.md.', 'mw_p'),
         ('What "large" means', 'Cliff\'s δ: negligible &lt; 0.147 ≤ small &lt; 0.33 ≤ medium &lt; 0.474 ≤ large',
          'Romano et al. (2006). δ = 0.474 means a value from the group is higher than one from the comparison about 74% of the time. Effects found by screening many '
