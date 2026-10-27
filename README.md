@@ -423,7 +423,7 @@ Set in the `PizzaBuilder.mount(box, { ... })` call:
 | `minSeconds`, `minPieces` | `0` | earliest point "I'm done" unlocks |
 | `showCounts` | `false` | count badges on the tray (off by default: numbers invite counting) |
 | `confirm`, `bake` | `true` | confirmation dialog, bake animation |
-| `grow`, `growDelay`, `growMin`, `growMax`, `growPeriod` | `true`, `500`, `0.5`, `2.5`, `3000` | hold to resize: on/off, ms of stillness before the pulse starts, smallest and largest size, ms per full pulse |
+| `grow`, `growDelay`, `growMin`, `growMax`, `growPeriod`, `growStillPx` | `true`, `300`, `0.5`, `2.5`, `3600`, `20` | hold to resize: on/off, ms of stillness before the pulse starts, smallest and largest size, ms per full pulse |
 | `desktopOnly` | `true` | phones and tablets get a notice instead of the task (`pzX_blocked = not-desktop` is saved); `false` lets them in, untested |
 | `names`, `text` | | rename toppings or translate any wording, e.g. `text: { done: 'Gotowe' }` |
 | `prefix` | `pz_` / `pzp_` / `pzf_` | embedded-data field prefix; use a new one for each extra build |

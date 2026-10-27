@@ -4,7 +4,7 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-10-27, task version 0.13.0, server 0.12.1)
+## Snapshot (2026-10-27, task version 0.13.1, server 0.12.1)
 
 - **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
@@ -186,6 +186,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 | date | session | what was done |
 |---|---|---|
+| 2026-10-27 | Claude Code (cloud) | 0.13.1 (task): hold-to-resize easier (20 px drift allowed, 0.3 s delay, ring and "let go" tip, clearer instructions, tip on click) after participants got stuck on it |
 | 2026-10-27 | Claude Code (cloud) | 0.13.0 (task): nutrition on request (reveal button, end dialog with bake / changed my mind), reveal measures, participant-only view |
 | 2026-10-27 | Claude Code (cloud) | 0.12.1: hard caps on R2 and D1 (never billed), setup reduced to one token and two GitHub secrets (deploy creates address and Turnstile) |
 | 2026-10-27 | Claude Code (cloud) | 0.12.0: Cloudflare version (Worker + D1 + R2, deploy and reports workflows, bot protection), tested in the local Workers runtime |

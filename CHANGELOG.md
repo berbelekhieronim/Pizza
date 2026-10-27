@@ -5,6 +5,15 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Task 0.13.1: hold-to-resize is easier to find and to do** (participants got stuck on it in the practice and the build)
+- **More forgiving:** the pointer may drift up to 20 px (`growStillPx`) while holding; before, 8 px of hand tremor
+  restarted the hold. The pulse starts after 0.3 s (was 0.5 s) and is a little slower (3.6 s per cycle, was 3 s),
+  so it is easier to let go at the size wanted. The movement measures (pauses, `stillPx` 8 px) are unchanged.
+- **Visible feedback:** a ring appears round a held topping, and a "Let go when it is the size you want" tip follows
+  the pointer while it grows and shrinks.
+- **Clearer words:** the build instruction and the practice step say "press it and keep the mouse button down without
+  moving"; clicking a topping on the pizza (instead of holding it) now shows a tip on how to resize.
+
 **Reports rebuild by themselves, with progress on the page**
 - **Triggered by the data, not a schedule.**
   - When a session finishes, the Cloudflare site queues one reports build on GitHub (needs `PIZZA_GITHUB_TOKEN`).

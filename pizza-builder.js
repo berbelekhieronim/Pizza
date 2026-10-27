@@ -16,7 +16,7 @@
   'use strict';
   if (global.PizzaBuilder) return;
 
-  var VERSION = '0.13.0';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
+  var VERSION = '0.13.1';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
   var VIEW = 105;        // half-width of every pizza viewBox; the pizza's outer radius is 100
   var R_SNAP = 0.9;      // with snapIn, a topping centre dropped on the crust is pulled in to this radius
   var R_OFF = 1.0;       // dropped further out than this = off the pizza
@@ -411,6 +411,10 @@
     '.pzb-ghost{position:fixed;left:0;top:0;pointer-events:none;z-index:2147483000;will-change:transform;filter:drop-shadow(0 6px 6px rgba(0,0,0,.35));transition:opacity .12s}',
     '.pzb-ghost svg{width:100%;height:100%;display:block;overflow:visible}',
     '.pzb-ghost.pzb-out{opacity:.55}',
+    '.pzb-ghost.pzb-hold::after{content:"";position:absolute;inset:20%;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 3px #d2691e;animation:pzb-ring .35s ease-out both}',
+    '@keyframes pzb-ring{from{opacity:0;transform:scale(1.5)}to{opacity:1;transform:scale(1)}}',
+    '.pzb-holdtip{position:fixed;left:0;top:0;pointer-events:none;z-index:2147483001;background:rgba(40,30,20,.92);color:#fff;padding:6px 10px;border-radius:8px;font-size:14px;white-space:nowrap;opacity:0;transition:opacity .15s}',
+    '.pzb-holdtip.pzb-show{opacity:1}',
     '.pzb-modal{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(30,20,10,.45);display:flex;align-items:center;justify-content:center;z-index:2147483001;padding:16px}',
     '.pzb-modal.pzb{max-width:none;margin:0}',
     '.pzb-dialog{background:#fff;color:var(--pzb-ink);border-radius:16px;padding:20px;max-width:360px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.25)}',
@@ -484,7 +488,7 @@
   // ---------------------------------------------------------------- text
 
   var TEXT = {
-    promptBuild: 'Make the pizza you would like to eat. Drag toppings onto the pizza. Hold a topping still to change its size: it grows and shrinks until you let go. To remove a topping, drag it off the pizza.',
+    promptBuild: 'Make the pizza you would like to eat. Drag toppings onto the pizza. To change a topping\'s size, press it and keep the mouse button down without moving: it slowly grows and shrinks, and you let go when it is the size you want. To remove a topping, drag it off the pizza.',
     promptPractice: 'Practice round: learn how to place, move and remove toppings. Nothing you do here counts as your choice.',
     toppings: 'Toppings', sauce: 'Sauce', cheese: 'Cheese',
     sauceNames: { none: 'None', tomato: 'Tomato', white: 'White', bbq: 'BBQ' },
@@ -501,8 +505,10 @@
     baked: 'Your pizza is ready!',
     steps: ['Drag a tomato slice into the dashed circle', 'Add two more slices anywhere on the pizza',
       'Move a slice that is already on the pizza: drag it somewhere else',
-      'Change a slice\'s size: click it and keep the button down without moving; let go when it is the size you want', 'Remove a slice: drag it from the pizza off the edge'],
-    growHint: 'This time, press a slice on the pizza and keep holding still: it will grow and shrink',
+      'Change a slice\'s size: press a slice on the pizza and keep the mouse button down without moving. It slowly grows and shrinks. Let go when it is the size you want', 'Remove a slice: drag it from the pizza off the edge'],
+    growHint: 'This time, press a slice on the pizza and keep the button down without moving: after a moment it grows and shrinks',
+    growTapHint: 'To change its size, keep the mouse button down on the topping until it starts to grow, then let go',
+    holdTip: 'Let go when it is the size you want',
     tryAgain: 'Nearly - drop it inside the dashed circle',
     moveHint: 'This time, press a slice that is already on the pizza and drag it to a new place',
     removeHint: 'This time, press a slice on the pizza and drag it off the edge', practiceReady: 'Well done! Press Continue to make your own pizza.',
@@ -587,7 +593,7 @@
     sauce: 'tomato', cheese: 'normal', baseChoices: true,
     minSeconds: 0, minPieces: 0, maxPieces: 250, showCounts: false,
     touchLift: 44, logHover: true, confirm: true, bake: true, autoScroll: true, snapIn: false,
-    grow: true, growDelay: 500, growMin: 0.5, growMax: 2.5, growPeriod: 3000, stillPx: 8, pauseMs: 250,
+    grow: true, growDelay: 300, growMin: 0.5, growMax: 2.5, growPeriod: 3600, growStillPx: 20, stillPx: 8, pauseMs: 250,
     target: [0.42, 0.3], targetTol: 0.12, maxEventChars: 60000,
     // researcher setting: a live nutrition panel under the pizza (whole pizza, base included unless nutritionBase: false)
     nutrition: false, nutritionShow: ['kcal', 'protein', 'carbs', 'sugars', 'fat', 'satfat', 'fibre', 'salt', 'vitA', 'vitC', 'vitD', 'calcium', 'iron'],
@@ -850,22 +856,28 @@
     var t = now();
     this.drag = { p: p, tray: trayEl, id: e.pointerId, t0: t, offX: offX, offY: offY, sx: e.clientX, sy: e.clientY,
       lx: e.clientX, ly: e.clientY, moved: false, ghost: gh, half: half, x0: p.x, y0: p.y,
-      g0: g0, g: g0, hx: e.clientX, hy: e.clientY, ht: t, lt: t, lift: trayEl ? 0 : lift,
+      g0: g0, g: g0, hx: e.clientX, hy: e.clientY, ht: t, gx: e.clientX, gy: e.clientY, gt: t, lt: t, lift: trayEl ? 0 : lift,
       path: 0, px: e.clientX, py: e.clientY, diam: 2 * 100 * g.ppu, np: 0, mp: 0, cross: 0, wasOn: null, tMoved: null };
     this._frame();
   };
 
   // Runs every frame while dragging. While the pointer stays still the piece pulses smoothly between growMin and
-  // growMax, starting from its current size and growing first; letting go keeps the size of that moment.
+  // growMax, starting from its current size and growing first; letting go keeps the size of that moment. "Still" for
+  // resizing allows a hand's tremor (growStillPx); the movement measures keep their own, stricter stillPx.
   Builder.prototype._frame = function () {
     var d = this.drag, o = this.o, self = this;
     if (!d) return;
     var t = now();
     if (Math.abs(d.lx - d.hx) + Math.abs(d.ly - d.hy) > o.stillPx) {
       if (d.tMoved != null && d.ht >= d.tMoved && t - d.ht >= o.pauseMs) { d.np++; d.mp = Math.max(d.mp, t - d.ht); }   // a pause mid-drag
-      d.hx = d.lx; d.hy = d.ly; d.ht = t; d.ph = null;
+      d.hx = d.lx; d.hy = d.ly; d.ht = t;
+    }
+    if (Math.abs(d.lx - d.gx) + Math.abs(d.ly - d.gy) > o.growStillPx) {
+      d.gx = d.lx; d.gy = d.ly; d.gt = t; d.ph = null;
+      this._holdCue(d, 0);
     } else if (o.grow) {
-      if (t - d.ht > o.growDelay) {
+      this._holdCue(d, t - d.gt > o.growDelay ? 2 : (t - d.gt > o.growDelay / 3 ? 1 : 0));
+      if (t - d.gt > o.growDelay) {
         var mid = (o.growMax + o.growMin) / 2, amp = (o.growMax - o.growMin) / 2;
         if (d.ph == null) d.ph = Math.asin(Math.max(-1, Math.min(1, (d.g - mid) / amp)));
         d.ph += 2 * Math.PI * (t - d.lt) / o.growPeriod;
@@ -874,7 +886,17 @@
     }
     d.lt = t;
     this._paint();
+    if (d.tip) { d.tip.style.transform = 'translate3d(' + (d.lx + 18) + 'px,' + (d.ly + 22) + 'px,0)'; }
     d.raf = requestAnimationFrame(function () { if (self.drag === d) self._frame(); });
+  };
+
+  // The cue while holding still: a ring round the piece (1), then also a tip by the pointer while it pulses (2).
+  Builder.prototype._holdCue = function (d, level) {
+    if (d.cue === level) return;
+    d.cue = level;
+    d.ghost.classList.toggle('pzb-hold', level > 0);
+    if (level === 2 && !d.tip) { d.tip = el('div', 'pzb-holdtip', esc(this.T.holdTip)); document.body.appendChild(d.tip); }
+    if (d.tip) d.tip.classList.toggle('pzb-show', level === 2);
   };
 
   Builder.prototype._move = function (e) {
@@ -926,7 +948,7 @@
     }
     if (!d.moved) {                     // a tap, not a drag
       this.log('tap', p.ing, p.id);
-      if (d.tray) this.toast(this.T.tapHint); else this._render();
+      if (d.tray) this.toast(this.T.tapHint); else { this.toast(this.T.growTapHint); this._render(); }
       return;
     }
     if (d.tray) {
@@ -955,6 +977,8 @@
 
   Builder.prototype._dropGhost = function (d, landed) {
     var gh = d.ghost;
+    if (d.tip && d.tip.parentNode) d.tip.parentNode.removeChild(d.tip);
+    gh.classList.remove('pzb-hold');
     if (landed) { gh.parentNode.removeChild(gh); return; }
     gh.style.transition = 'opacity .25s, transform .25s';
     gh.style.opacity = '0';
