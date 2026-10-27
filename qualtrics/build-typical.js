@@ -9,7 +9,7 @@ Qualtrics.SurveyEngine.addOnload(function () {
 
 Qualtrics.SurveyEngine.addOnReady(function () {
   var q = this;
-  var SRC = 'https://cdn.jsdelivr.net/gh/berbelekhieronim/pizza@e092f2193516ca6a0fd96613eec11d197996b4d3/pizza-builder.js';
+  var SRC = 'https://cdn.jsdelivr.net/gh/berbelekhieronim/pizza@0616ba5f4c189884a50d9c45b5f57bc147b8f7bc/pizza-builder.js';
   var save = function (k, v) {
     try { Qualtrics.SurveyEngine.setEmbeddedData(k, v); } catch (e) {}
     try { Qualtrics.SurveyEngine.setJSEmbeddedData(k, v); } catch (e) {}
