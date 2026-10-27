@@ -224,7 +224,8 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     var cards = S.studies.map(function (s) {
       return '<a class="scard" href="?' + new URLSearchParams({ key: KEY, study: s.id }) + '"><span class="name">' + esc(s.id) + '</span>'
         + '<span class="muted small">' + esc(s.description) + '</span>'
-        + '<span class="stats"><span class="stat"><b>' + s.n + '</b><span>sessions</span></span><span class="stat"><b>' + s.done + '</b><span>finished</span></span>'
+        + '<span class="stats"><span class="stat"><b>' + s.n + '</b><span>opened</span></span><span class="stat"><b>' + s.built + '</b><span>built a pizza</span></span>'
+        + '<span class="stat"><b>' + s.done + '</b><span>finished</span></span>'
         + '<span class="stat"><b>' + esc(when(s.last).slice(0, 10)) + '</b><span>last started</span></span></span>'
         + '<span class="small muted">Personal links: ' + s.invites[0] + ' made, ' + s.invites[1] + ' opened, ' + s.invites[2] + ' finished'
         + (s.nutrition_reveal ? ' · <span class="pill on">nutrition button</span>' : '') + (s.nutrition_panel ? ' · <span class="pill on">nutrition panel</span>' : '') + '</span></a>';
@@ -281,7 +282,8 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
       sel.innerHTML = '<option value="">any</option>' + vals.map(function (v) { return '<option value="' + esc(v) + '">' + esc((names || {})[v] || v) + '</option>'; }).join('');
     }
     opts(f.grp, S.options.grp); opts(f.source, S.options.source); opts(f.cond, S.options.cond);
-    opts(f.stage, Object.keys(S.stages), S.stages); opts(f.neuro, Object.keys(S.neuro), S.neuro);
+    opts(f.stage, Object.keys(S.stages).concat(['active', 'stopped']),
+      Object.assign({}, S.stages, { active: 'in progress now', stopped: 'stopped (no activity ' + (S.idle_minutes || 30) + ' min)' })); opts(f.neuro, Object.keys(S.neuro), S.neuro);
     copyButtons();
     show(location.hash.slice(1) || 'overview');
   }
@@ -362,8 +364,14 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     var d = S.study === 'all' ? S.all : current();
     if (!d) return;
     var a = analysisTile();
-    $('kpis').innerHTML = [[d.n, 'sessions started'], [d.done, 'finished'], [pct(d.done, d.n), 'completion'], [mins(d.median_seconds), 'median time (finished)'],
-      [shortTime(d.last), 'last started']].map(function (k) { return '<div class="kpi"><b>' + esc(k[0]) + '</b><span>' + esc(k[1]) + '</span></div>'; }).join('')
+    var idle = S.idle_minutes || 30;
+    $('kpis').innerHTML = [[d.n, 'opened the link', 'every session: a participant (or a new tab) opened the link'],
+      [d.built, 'built a pizza', 'pressed "I\'m done" on the build: their pizza is in the reports'],
+      [d.done + ' · ' + pct(d.done, d.n), 'finished', 'reached the thank-you page after the questions'],
+      [d.active, 'in progress now', 'unfinished, saved within the last ' + idle + ' minutes'],
+      [d.stopped, 'stopped', 'unfinished, no activity for ' + idle + ' minutes (they can still come back)'],
+      [mins(d.median_seconds), 'median time (finished)', ''], [shortTime(d.last), 'last started', '']]
+      .map(function (k) { return '<div class="kpi" title="' + esc(k[2]) + '"><b>' + esc(k[0]) + '</b><span>' + esc(k[1]) + '</span></div>'; }).join('')
       + '<div class="' + a[0] + '" title="' + esc(a[2]) + '"><b>' + esc(a[1]) + '</b><span>' + esc(a[2]) + '</span></div>';
   }
   function reloadReports() {
@@ -405,7 +413,10 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
         return '<tr>' + cols.map(function (c) {
           var v = r[c[0]];
           if (c[0] === 'study') v = v || 'main';
-          if (c[0] === 'stage') v = S.stages[v] || v;
+          if (c[0] === 'stage') {
+            var idle = r.stage !== 'done' && r.updated && Date.now() - Date.parse(r.updated) > (S.idle_minutes || 30) * 60000;
+            v = (idle ? 'stopped at ' : '') + (S.stages[v] || v) + (idle ? ' (last saved ' + shortTime(r.updated) + ')' : '');
+          }
           if (c[0] === 'neuro') v = (v || '').split(' ').filter(Boolean).map(function (x) { return S.neuro[x] || x; }).join(', ');
           if (c[0] === 'started') v = when(v);
           if (c[0] === 'seconds') v = v == null ? '' : mins(v);

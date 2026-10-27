@@ -287,6 +287,11 @@ def researcher_access_checks(base, key, study, n_study, n_all, other_pid, label)
           and {s['id'] for s in st['studies']} >= {'main', study, 'tests'} and st['global_link'], label + 'researcher page: a study chooser with every study')
     one = api(base, 'state', key, study=study)
     check(one['study'] == study and one['studies'][[s['id'] for s in one['studies']].index(study)]['n'] == n_study, label + 'researcher page: one study with its counts')
+    row = one['studies'][[s['id'] for s in one['studies']].index(study)]
+    check(row['n'] == row['done'] + row['active'] + row['stopped'] and row['done'] <= row['built'] <= row['n']
+          and api(base, 'sessions', key, study=study, stage='active')['total'] == row['active']
+          and api(base, 'sessions', key, study=study, stage='stopped')['total'] == row['stopped'],
+          label + 'sessions split into finished, in progress and stopped (no save for 30 minutes), with filters')
     skey = key_of(next(s['researcher_link'] for s in st['studies'] if s['id'] == study))
     sst, d = api(base, 'state', skey, study='main'), api(base, 'sessions', skey, study='main')
     check(sst['scope'] == 'study' and [s['id'] for s in sst['studies']] == [study] and not sst.get('global_link') and 'researcher_link' not in sst['studies'][0]

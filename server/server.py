@@ -39,7 +39,7 @@ import zipfile
 from html import escape
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from store import Store, SORTABLE, STAGES  # noqa: E402
+from store import Store, SORTABLE, STAGES, ACTIVITY  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                          # the repository root
@@ -298,7 +298,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             f['study'] = None
         else:
             f['study'] = '' if f['study'] == 'main' else f['study']
-        if f['stage'] not in STAGES:
+        if f['stage'] not in STAGES + ACTIVITY:
             f['stage'] = ''
         for k in ('since', 'until'):
             if not re.match(r'^\d{4}-\d\d-\d\d$', f[k]):
@@ -515,9 +515,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         for sid in ids:
             cfg = load_study(sid)
             invs = st.invites(sid)
-            n, done = counts.get(sid, (0, 0))
+            n, done, built, active = counts.get(sid, (0, 0, 0, 0))
             row = {'id': sid or 'main', 'title': cfg.get('title') or '', 'description': cfg.get('description') or ('The main study' if not sid else ''),
-                   'n': n, 'done': done or 0, 'last': st.last_started(sid), 'median_seconds': st.median_seconds(sid),
+                   'n': n, 'done': done or 0, 'built': built, 'active': active, 'stopped': n - (done or 0) - active, 'last': st.last_started(sid), 'median_seconds': st.median_seconds(sid),
                    'invites': [len(invs), sum(1 for i in invs if i['stage']), sum(1 for i in invs if i['stage'] == 'done')],
                    'links': self.open_links(sid), 'nutrition_reveal': bool(cfg.get('nutrition_reveal')), 'nutrition_panel': bool(cfg.get('nutrition_panel'))}
             if own:
@@ -528,7 +528,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         sig = st.signature({'study': f['study']})
         return {
             'server': 'python', 'scope': scope[0], 'scope_study': (scope[1] or 'main') if scope[0] == 'study' else None,
-            'study': sel, 'studies': out, 'all': {'n': sum(r['n'] for r in out), 'done': sum(r['done'] for r in out),
+            'study': sel, 'studies': out, 'idle_minutes': 30,
+            'all': {'n': sum(r['n'] for r in out), 'done': sum(r['done'] for r in out), 'built': sum(r['built'] for r in out),
+                    'active': sum(r['active'] for r in out), 'stopped': sum(r['stopped'] for r in out),
                                                    'last': max([r['last'] for r in out if r['last']] or [None]),
                                                    'median_seconds': st.median_seconds(None)},
             'global_link': self.base_url() + '/admin?' + urllib.parse.urlencode({'key': st.study_key(ALL_KEY)}) if own else None,

@@ -59,6 +59,12 @@ FIELD_RE = re.compile(r'^[a-z_]{2,40}$')
 INVITE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789'     # no 0/o, 1/l/i: easy to read out or type
 SORTABLE = ('pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces', 'started', 'seconds', 'restarts')
 STAGES = ('intro', 'practice', 'build', 'typical', 'followup', 'done')
+IDLE_MINUTES = 30            # an unfinished session with no save for this long counts as stopped (it can still resume)
+ACTIVITY = ('active', 'stopped')   # extra values of the "where" filter, from the time of the last save
+
+
+def idle_cutoff():
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - IDLE_MINUTES * 60))
 
 
 def now():
@@ -177,7 +183,13 @@ class Store:
         sql, args = [], []
         if f.get('study') is not None:
             sql.append('study = ?'); args.append(f['study'])
+        if f.get('stage') == 'active':
+            sql.append("stage != 'done' AND updated >= ?"); args.append(idle_cutoff())
+        elif f.get('stage') == 'stopped':
+            sql.append("stage != 'done' AND (updated IS NULL OR updated < ?)"); args.append(idle_cutoff())
         for col in ('grp', 'source', 'stage', 'cond'):
+            if col == 'stage' and f.get(col) in ACTIVITY:
+                continue
             if f.get(col):
                 sql.append('%s = ?' % col); args.append(f[col])
         if f.get('neuro'):
@@ -215,7 +227,10 @@ class Store:
         return None if not v else (v[len(v) // 2] if len(v) % 2 else (v[len(v) // 2 - 1] + v[len(v) // 2]) / 2)
 
     def counts_by_study(self):
-        return {r['study']: (r['n'], r['done']) for r in self.db().execute("SELECT study, COUNT(*) n, SUM(stage = 'done') done FROM sessions GROUP BY study")}
+        """{study: (sessions, finished, built a pizza, in progress now)}; the rest of the unfinished ones have stopped."""
+        return {r['study']: (r['n'], r['done'] or 0, r['built'] or 0, r['active'] or 0) for r in self.db().execute(
+            "SELECT study, COUNT(*) n, SUM(stage = 'done') done, SUM(stage IN ('typical', 'followup', 'done')) built, "
+            "SUM(stage != 'done' AND updated >= ?) active FROM sessions GROUP BY study", (idle_cutoff(),))}
 
     def records(self, f):
         """Every matching session as a dict with its fields (for exports and the analysis), oldest first."""

@@ -5,7 +5,7 @@
 //   (.github/workflows/reports.yml -> tools/cloud_sync.py) and kept in R2 (env.FILES), one set per study and one for
 //   all studies; this Worker serves them and asks GitHub for a rebuild when sessions finish (or on "Rebuild now").
 // Static files (index.html = server/participate.html, pizza-builder.js) are in ./public (env.ASSETS).
-import { Store, STAGES, randomToken, storageUsed, fileSizes, countOp, opsThisMonth } from './store.js';
+import { Store, STAGES, ACTIVITY, randomToken, storageUsed, fileSizes, countOp, opsThisMonth } from './store.js';
 import { adminState, deniedPage, notBuilt, ALL_KEY } from './admin.js';
 import ADMIN_HTML from '../../server/admin.html';      // the researcher page, shared with server/server.py
 import { STUDY_RE, STUDY_KEYS, FILTER_KEYS, loadStudy, studies, scopeName } from './config.js';
@@ -129,7 +129,7 @@ class Request_ {
     if (scope[0] === 'study') f.study = scope[1];
     else if (f.study === '' || f.study === 'all' || !(f.study === 'main' || STUDY_RE.test(f.study))) f.study = null;
     else f.study = f.study === 'main' ? '' : f.study;
-    if (!STAGES.includes(f.stage)) f.stage = '';
+    if (!STAGES.includes(f.stage) && !ACTIVITY.includes(f.stage)) f.stage = '';
     for (const k of ['since', 'until']) if (!/^\d{4}-\d\d-\d\d$/.test(f[k])) f[k] = '';
     return f;
   }

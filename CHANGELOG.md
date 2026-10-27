@@ -22,6 +22,10 @@ matched to the format below. Add an entry for every change that reaches particip
     cloudflare`); the full checks run alongside.
   - The reports job analyses studies side by side, and a study holding the same sessions as "all studies" reuses
     that analysis instead of repeating it.
+- **Sessions: opened, built a pizza, finished, in progress, stopped.** An unfinished session with no save for 30
+  minutes counts as stopped. This is worked out from the time of its last save, so nothing runs in the background,
+  and it turns back to in progress if the person returns. The top bar shows all five counts. The Sessions list
+  marks "stopped at …" with the last save, and **Where** can filter "in progress now" or "stopped".
 - **Less computing, same numbers.**
   - Each pizza's symmetry chance level (and the random moves of the adjustment test) is seeded by the pizza itself,
     so a pizza's numbers no longer depend on which other pizzas are analysed with it. Before, the same pizza could

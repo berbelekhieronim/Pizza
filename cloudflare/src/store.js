@@ -3,6 +3,9 @@
 
 export const SORTABLE = ['pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces', 'started', 'seconds', 'restarts'];
 export const STAGES = ['intro', 'practice', 'build', 'typical', 'followup', 'done'];
+export const ACTIVITY = ['active', 'stopped'];     // extra "where" filter values, from the time of the last save
+export const IDLE_MINUTES = 30;                    // an unfinished session with no save for this long counts as stopped
+const idleCutoff = () => new Date(Date.now() - IDLE_MINUTES * 60000).toISOString().slice(0, 19) + 'Z';
 const FIELD_RE = /^[a-z_]{2,40}$/;
 const INVITE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';     // no 0/o, 1/l/i: easy to read out or type
 
@@ -87,7 +90,9 @@ export class Store {
     // study (null = all, '' = main), grp, source, stage, cond, neuro (contains), q (pid contains), since / until
     const sql = [], args = [];
     if (f.study !== null && f.study !== undefined) { sql.push('study = ?'); args.push(f.study); }
-    for (const col of ['grp', 'source', 'stage', 'cond']) if (f[col]) { sql.push(col + ' = ?'); args.push(f[col]); }
+    if (f.stage === 'active') { sql.push("stage != 'done' AND updated >= ?"); args.push(idleCutoff()); }
+    if (f.stage === 'stopped') { sql.push("stage != 'done' AND (updated IS NULL OR updated < ?)"); args.push(idleCutoff()); }
+    for (const col of ['grp', 'source', 'stage', 'cond']) if (f[col] && !(col === 'stage' && ACTIVITY.includes(f[col]))) { sql.push(col + ' = ?'); args.push(f[col]); }
     if (f.neuro) { sql.push("(' ' || neuro || ' ') LIKE ?"); args.push(`% ${f.neuro} %`); }
     if (f.q) { sql.push('pid LIKE ?'); args.push(`%${f.q}%`); }
     if (f.since) { sql.push('started >= ?'); args.push(f.since); }
@@ -125,8 +130,10 @@ export class Store {
   }
 
   async countsByStudy() {
-    const { results } = await this.db.prepare("SELECT study, COUNT(*) AS n, SUM(stage = 'done') AS done FROM sessions GROUP BY study").all();
-    return Object.fromEntries(results.map((r) => [r.study, [r.n, r.done || 0]]));
+    // {study: [sessions, finished, built a pizza, in progress now]}; the rest of the unfinished ones have stopped
+    const { results } = await this.db.prepare("SELECT study, COUNT(*) AS n, SUM(stage = 'done') AS done, SUM(stage IN ('typical', 'followup', 'done')) AS built, "
+      + "SUM(stage != 'done' AND updated >= ?) AS active FROM sessions GROUP BY study").bind(idleCutoff()).all();
+    return Object.fromEntries(results.map((r) => [r.study, [r.n, r.done || 0, r.built || 0, r.active || 0]]));
   }
 
   async signatures() {
