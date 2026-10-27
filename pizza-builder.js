@@ -16,7 +16,7 @@
   'use strict';
   if (global.PizzaBuilder) return;
 
-  var VERSION = '0.10.1';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
+  var VERSION = '0.13.0';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
   var VIEW = 105;        // half-width of every pizza viewBox; the pizza's outer radius is 100
   var R_SNAP = 0.9;      // with snapIn, a topping centre dropped on the crust is pulled in to this radius
   var R_OFF = 1.0;       // dropped further out than this = off the pizza
@@ -412,6 +412,7 @@
     '.pzb-ghost svg{width:100%;height:100%;display:block;overflow:visible}',
     '.pzb-ghost.pzb-out{opacity:.55}',
     '.pzb-modal{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(30,20,10,.45);display:flex;align-items:center;justify-content:center;z-index:2147483001;padding:16px}',
+    '.pzb-modal.pzb{max-width:none;margin:0}',
     '.pzb-dialog{background:#fff;color:var(--pzb-ink);border-radius:16px;padding:20px;max-width:360px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.25)}',
     '.pzb-dialog h3{margin:0 0 6px;font-size:1.1em}',
     '.pzb-dialog p{margin:0 0 16px;color:var(--pzb-muted)}',
@@ -465,6 +466,12 @@
     '.pzb-nkcal{grid-column:span 2;display:flex;flex-direction:column;gap:2px;font-size:.8em}.pzb-nkcal span{color:var(--pzb-muted)}.pzb-nkcal b{font-size:1.6em;font-variant-numeric:tabular-nums}',
     '.pzb-nkcal small{color:var(--pzb-muted)}.pzb-nmac{display:flex;height:8px;border-radius:4px;overflow:hidden;margin-top:3px;background:#e9e1d7}.pzb-nmac i{width:var(--w)}',
     '.pzb-np{background:#4f7fb8}.pzb-nc{background:#d9a441}.pzb-nf{background:#c4573a}.pzb-nleg u{display:inline-block;width:8px;height:8px;border-radius:2px;margin:0 3px 0 6px;vertical-align:0}',
+    '.pzb-lcol{flex:none;display:flex;flex-direction:column;gap:8px;align-items:stretch}.pzb-lcol .pzb-board{display:flex;justify-content:center}',
+    '.pzb-rbtn{flex:none;min-height:36px;align-self:center;padding:4px 18px}',
+    '.pzb-ncompact{margin-top:0;padding:6px 10px}.pzb-ncompact .pzb-nh{margin-bottom:4px;align-items:center}',
+    '.pzb-ncompact .pzb-ngrid{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:3px 10px}.pzb-ncompact .pzb-ncell,.pzb-ncompact .pzb-nkcal{font-size:.74em}',
+    '.pzb-nhide{font:inherit;font-size:.85em;border:1px solid var(--pzb-line);background:#fff;border-radius:8px;padding:2px 10px;cursor:pointer;color:var(--pzb-ink)}',
+    '.pzb-dialog.pzb-wide{max-width:620px}.pzb-dialog.pzb-wide .pzb-nutri{margin:0 0 16px}',
     '@media (prefers-reduced-motion: reduce){.pzb *,.pzb-ghost,.pzb-toast{animation:none!important;transition:none!important}}'
   ].join('\n');
 
@@ -483,6 +490,9 @@
     sauceNames: { none: 'None', tomato: 'Tomato', white: 'White', bbq: 'BBQ' },
     cheeseNames: { none: 'None', light: 'Light', normal: 'Normal', extra: 'Extra' },
     undo: 'Undo', clear: 'Start over', done: "I'm done", practiceDone: 'Continue',
+    reveal: 'Show nutrition information', hide: 'Hide',
+    nutriDoneTitle: 'Your pizza', nutriDoneBody: 'This is the nutrition information of your pizza. Bake it as it is, or go back and change it.',
+    bakeIt: 'Bake it for me', changedMind: 'I changed my mind',
     confirmTitle: 'Is your pizza finished?', confirmBody: 'You will not be able to change it after this.',
     confirmYes: 'Yes, bake it', confirmNo: 'Keep editing',
     clearTitle: 'Remove all toppings?', clearBody: 'You can undo this.', clearYes: 'Remove all', cancel: 'Cancel',
@@ -544,7 +554,7 @@
       ['disgust', 'It puts me off / disgusts me'], ['unfamiliar', "I don't know it well"], ['notpizza', "It doesn't belong on a pizza"],
       ['nofit', 'It does not go with my other toppings'], ['noreason', 'No particular reason'], ['other', 'Something else']],
     reasonOtherPh: 'Please describe (optional)',
-    nutri: { title: 'Nutrition of your pizza (estimate)', ri: '% = share of the daily reference intake', perSlice: 'about {x} kcal per slice (1/8)',
+    nutri: { title: 'Nutrition of your pizza (estimate)', ri: '% = share of the daily reference intake', perSlice: 'about {x} kcal per slice (cut into 8 slices)',
       macroTitle: 'Where the energy comes from', names: { kcal: 'Energy', protein: 'Protein', carbs: 'Carbohydrate', sugars: 'of which sugars', fat: 'Fat',
         satfat: 'of which saturates', fibre: 'Fibre', salt: 'Salt', vitA: 'Vitamin A', vitC: 'Vitamin C', vitD: 'Vitamin D', vitB12: 'Vitamin B12', folate: 'Folate',
         calcium: 'Calcium', iron: 'Iron', potassium: 'Potassium' } },
@@ -582,6 +592,9 @@
     // researcher setting: a live nutrition panel under the pizza (whole pizza, base included unless nutritionBase: false)
     nutrition: false, nutritionShow: ['kcal', 'protein', 'carbs', 'sugars', 'fat', 'satfat', 'fibre', 'salt', 'vitA', 'vitC', 'vitD', 'calcium', 'iron'],
     nutritionBase: true,
+    // researcher setting: a "Show nutrition information" button under the pizza, and the pizza's nutrition in the
+    // "I'm done" dialog with "Bake it for me" / "I changed my mind" (back to building)
+    nutritionReveal: false,
     names: null, text: null, onSave: null, onFinish: null, onEvent: null
   };
 
@@ -590,7 +603,7 @@
     var o = this.o = extend({}, BUILD_DEFAULTS, opts);
     this.practice = o.mode === 'practice';
     if (o.prefix == null) o.prefix = this.practice ? 'pzp_' : 'pz_';
-    if (this.practice) { o.ingredients = ['tom']; o.baseChoices = false; o.confirm = false; o.bake = false; o.shuffle = false; o.nutrition = false; }
+    if (this.practice) { o.ingredients = ['tom']; o.baseChoices = false; o.confirm = false; o.bake = false; o.shuffle = false; o.nutrition = false; o.nutritionReveal = false; }
     this.T = extend({}, TEXT, o.text);
     if (o.text && o.text.nutri) this.T.nutri = extend({}, TEXT.nutri, o.text.nutri);
     this.root = root;
@@ -625,7 +638,15 @@
     var prompt = o.prompt != null ? o.prompt : (this.practice ? T.promptPractice : T.promptBuild);
     if (prompt) w.appendChild(el('p', 'pzb-prompt', esc(prompt)));
     var main = el('div', 'pzb-main'); w.appendChild(main);
-    var board = this.boardEl = el('div', 'pzb-board'); main.appendChild(board);
+    var col = main;
+    if (o.nutritionReveal && !o.nutrition) { col = el('div', 'pzb-lcol'); main.appendChild(col); }   // the pizza with the button under it
+    var board = this.boardEl = el('div', 'pzb-board'); col.appendChild(board);
+    if (col !== main) {
+      this.revealBtn = el('button', 'pzb-btn pzb-rbtn', esc(T.reveal)); this.revealBtn.type = 'button'; col.appendChild(this.revealBtn);
+      this.revealEl = el('div', 'pzb-nutri pzb-ncompact'); this.revealEl.hidden = true; this.revealEl.setAttribute('aria-live', 'polite'); col.appendChild(this.revealEl);
+      this.revealBtn.onclick = function () { self._reveal(true); };
+      this.revealEl.onclick = function (e) { if (e.target.className === 'pzb-nhide') self._reveal(false); };
+    }
     var pz = this.pizzaEl = el('div', 'pzb-pizza'); board.appendChild(pz);
     var vb = ' viewBox="' + (-VIEW) + ' ' + (-VIEW) + ' ' + (2 * VIEW) + ' ' + (2 * VIEW) + '" aria-hidden="true" focusable="false"';
     pz.innerHTML = '<svg class="pzb-base"' + vb + '>' + baseMarkup() + '</svg>' +
@@ -713,9 +734,13 @@
     // on a computer the pizza fills the window height left below its top edge (so the whole task is visible
     // without scrolling), within 380-600 px
     var top = this.boardEl ? this.boardEl.getBoundingClientRect().top + (global.scrollY || 0) : 120;
-    var size = narrow ? Math.min(W - pad, vh * 0.52, 560) : Math.min(W - (cols4 ? 390 : 318) - pad, Math.max(380, vh - top - 40), 600);
+    // room under the pizza for the "Show nutrition information" button, or for the table once it is shown
+    var below = this.revealBtn ? (this.revealEl.hidden ? 44 : (this.revealEl.offsetHeight || 170) + 24) : 0;
+    var size = narrow ? Math.min(W - pad, vh * 0.52, 560) : Math.min(W - (cols4 ? 390 : 318) - pad, Math.max(this.revealBtn ? (this.revealEl.hidden ? 330 : 280) : 380, vh - top - 40 - below), 600);
     size = Math.max(220, Math.floor(size));
     this.pizzaEl.style.width = this.pizzaEl.style.height = size + 'px';
+    // the column keeps the width it had with the table hidden: showing the table shrinks the pizza, not the layout
+    if (this.revealBtn && this.revealEl.hidden && !narrow) this.revealBtn.parentNode.style.width = (size + 24) + 'px';
     this.layout = narrow ? 'narrow' : 'wide';
   };
 
@@ -908,7 +933,7 @@
       if (on) {
         p.x = x; p.y = y; p.n = ++this.seq; p.g = gNew;
         this.pieces.push(p); this.stack.push({ a: 'add', p: p });
-        this.log('add', p.ing, p.id, x, y, ms, snap, gNew, mv);
+        this.log('add', p.ing, p.id, x, y, ms, snap, gNew, mv, p.s);   // p.s: its drawn size (for the nutrition replay)
         if (this.practice && this.step === 3 && grew) this._nextStep(); else this._practiceAdd(p);
       } else {
         this.log('reject', p.ing, p.id, x, y, ms, null, null, mv);
@@ -955,8 +980,26 @@
   };
 
   Builder.prototype._nutri = function () {
-    if (!this.nutriEl) return;
-    var o = this.o, N = this.T.nutri, t = nutrition(this.pieces, o.baseChoices ? this.sauce : o.sauce, o.baseChoices ? this.cheese : o.cheese, o.nutritionBase);
+    if (this.nutriEl) this.nutriEl.innerHTML = this._nutriHtml();
+    if (this.revealEl && !this.revealEl.hidden) this.revealEl.innerHTML = this._nutriHtml(true);
+  };
+  Builder.prototype._totals = function () {
+    var o = this.o;
+    return nutrition(this.pieces, o.baseChoices ? this.sauce : o.sauce, o.baseChoices ? this.cheese : o.cheese, o.nutritionBase);
+  };
+  // Seeing the nutrition is logged with what was seen: pieces, energy (kcal) and the base at that moment.
+  Builder.prototype._logSight = function (code) {
+    var o = this.o;
+    this.log(code, this.pieces.length, Math.round(this._totals().kcal * 10) / 10, o.baseChoices ? this.sauce : o.sauce, o.baseChoices ? this.cheese : o.cheese);
+  };
+  Builder.prototype._reveal = function (open) {
+    if (this.locked || !this.revealEl || open === !this.revealEl.hidden) return;
+    this.revealEl.hidden = !open; this.revealBtn.hidden = open;
+    if (open) { this.revealEl.innerHTML = this._nutriHtml(true); this._logSight('nshow'); } else this.log('nhide');
+    this._layout();
+  };
+  Builder.prototype._nutriHtml = function (compact) {
+    var o = this.o, N = this.T.nutri, t = this._totals();
     function fmt(v) { return v >= 100 ? String(Math.round(v)) : v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2); }
     var cells = o.nutritionShow.filter(function (k) { return k !== 'kcal' && NUTRITION.units[k]; }).map(function (k) {
       var pc = Math.round(100 * t[k] / NUTRITION.ri[k]);
@@ -968,7 +1011,8 @@
       esc(N.perSlice.replace('{x}', Math.round(t.kcal / 8))) + '</small><div class="pzb-nmac" title="' + esc(N.macroTitle) + '"><i style="--w:' + (100 * t.protein * 4 / e).toFixed(1) +
       '%" class="pzb-np"></i><i style="--w:' + (100 * t.carbs * 4 / e).toFixed(1) + '%" class="pzb-nc"></i><i style="--w:' + (100 * t.fat * 9 / e).toFixed(1) + '%" class="pzb-nf"></i></div>' +
       '<small class="pzb-nleg"><u class="pzb-np"></u>' + esc(N.names.protein) + ' <u class="pzb-nc"></u>' + esc(N.names.carbs) + ' <u class="pzb-nf"></u>' + esc(N.names.fat) + '</small></div>' : '';
-    this.nutriEl.innerHTML = '<div class="pzb-nh">' + esc(N.title) + '<span>' + esc(N.ri) + '</span></div><div class="pzb-ngrid">' + kcal + cells + '</div>';
+    return '<div class="pzb-nh">' + esc(N.title) + '<span>' + esc(N.ri) + '</span>' + (compact ? '<button type="button" class="pzb-nhide">' + esc(this.T.hide) + '</button>' : '') +
+      '</div><div class="pzb-ngrid">' + kcal + cells + '</div>';
   };
 
   Builder.prototype.undo = function () {
@@ -1042,6 +1086,13 @@
     var self = this, T = this.T;
     if (this.locked || this.doneBtn.disabled) return;
     this.log('done');
+    if (this.o.nutritionReveal) {        // the pizza's nutrition, then bake it or go back to building
+      this._logSight('nmodal');
+      nutriModal(T.nutriDoneTitle, T.nutriDoneBody, this._nutriHtml(), T.bakeIt, T.changedMind, function (yes) {
+        if (yes) { self.log('bake'); self._finish(); } else self.log('changemind');
+      });
+      return;
+    }
     if (!this.o.confirm) { this._finish(); return; }
     this.modal(T.confirmTitle, T.confirmBody, T.confirmYes, T.confirmNo, function (yes) {
       if (yes) self._finish(); else self.log('cancel');
@@ -1088,6 +1139,7 @@
       if (e[1] === 'add') { adds.push(e[0]); if (first.add == null) first.add = e[0]; }
       if (e[1] === 'pick' && first.pick == null) first.pick = e[0];
       if (e[1] === 'done' && first.done == null) first.done = e[0];
+      if (e[1] === 'nshow' && first.nshow == null) first.nshow = e[0];
     });
     var gaps = []; for (var i = 1; i < adds.length; i++) gaps.push(adds[i] - adds[i - 1]);
     var last = ev.length ? ev[ev.length - 1][0] : 0, fin = null;
@@ -1100,6 +1152,8 @@
       nPieces: this.pieces.length, nDistinct: Object.keys(counts).filter(function (k) { return counts[k] > 0; }).length,
       counts: counts, sauce: o.baseChoices ? this.sauce : null, cheese: o.baseChoices ? this.cheese : null, tray: this.tray,
       nutrition: o.nutrition ? { show: o.nutritionShow, base: o.nutritionBase !== false } : null,
+      reveal: o.nutritionReveal ? { shown: n.nshow || 0, tFirst: first.nshow == null ? null : first.nshow, doneSeen: n.nmodal || 0, changedMind: n.changemind || 0,
+        base: o.nutritionBase !== false } : null,
       n: { pick: n.pick || 0, add: n.add || 0, reject: n.reject || 0, tap: n.tap || 0, move: n.move || 0, remove: n.remove || 0, resize: n.resize || 0, undo: n.undo || 0, clear: n.clear || 0, hover: n.hover || 0 },
       nGrown: this.pieces.filter(function (p) { return (p.g || 1) > 1.01; }).length,
       nShrunk: this.pieces.filter(function (p) { return (p.g || 1) < 0.99; }).length,
@@ -1141,6 +1195,17 @@
     clearTimeout(this.toastT); this.toastT = setTimeout(function () { t.classList.remove('pzb-show'); }, 2600);
   };
   Builder.prototype.modal = modal;
+
+  function nutriModal(title, body, table, yes, no, cb) {
+    var m = el('div', 'pzb-modal pzb', '<div class="pzb-dialog pzb-wide" role="dialog" aria-modal="true"><h3>' + esc(title) + '</h3><p>' + esc(body) + '</p>' +
+      '<div class="pzb-nutri">' + table + '</div><div class="pzb-btns"><button type="button" class="pzb-btn">' + esc(no) + '</button><button type="button" class="pzb-btn pzb-primary">' + esc(yes) + '</button></div></div>');
+    var b = m.querySelectorAll('.pzb-btns button');
+    function close(v) { m.parentNode.removeChild(m); cb(v); }
+    b[0].onclick = function () { close(false); };
+    b[1].onclick = function () { close(true); };
+    document.body.appendChild(m);
+    b[1].focus();
+  }
 
   function modal(title, body, yes, no, cb) {
     var m = el('div', 'pzb-modal pzb', '<div class="pzb-dialog" role="dialog" aria-modal="true"><h3>' + esc(title) + '</h3><p>' + esc(body) + '</p>' +

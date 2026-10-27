@@ -3,6 +3,34 @@
 What changed, newest first. The task stores its version with every pizza (`summary.v` in `pz_summary`), so data can be
 matched to the format below. Add an entry for every change that reaches participants or the analysis.
 
+## 0.13.0 (2026-10-27) – task: seeing the nutrition on request; participant-only view
+
+Task data changes, so pizzas now record `summary.v` 0.13.0. The task jumps from 0.10.1 to 0.13.0 because 0.11 and
+0.12 were server versions.
+- **New study setting `nutrition_reveal`** (`nutritionReveal` in Qualtrics; also per condition):
+  - while building, a *Show nutrition information* button under the pizza;
+  - the table is shown below the pizza, with kcal per slice of a pizza cut into 8;
+  - at *I'm done*, a dialog with the pizza's nutrition offers *Bake it for me* or *I changed my mind* (back to
+    building).
+
+  The build and the dialog fit 1366×768 and 1280×720 without scrolling.
+- **Logged.**
+  - New events: `nshow` and `nmodal` (each with the pieces, kcal, sauce and cheese shown), `nhide`, `changemind`,
+    `bake`.
+  - `add` events now carry the piece's drawn size, so the pizza at any moment can be rebuilt exactly.
+  - New `summary.reveal`.
+- **Analysis.**
+  - New columns: `nutrition_reveal`, `nutri_*`, `n_changed_mind`, `post_nutri_*` (changes after the nutrition was first
+    seen: pieces, energy and nutrients, diet classes, direction, pace and removals before and after),
+    `rebuilt_after_done`, `post_done_*`.
+  - All on the Methods page, with a worked example. explore.html gets measures and the grouping "revealed the
+    nutrition".
+  - The simulator gives every other participant the setting.
+- **The participant sees only the task.** The "Part i of n" counter is gone from the participant page. The demo is
+  participant-first: the steps, the settings and the captured-data preview sit behind a small *Researcher view*
+  switch, remembered per browser.
+- **Fix:** a dialog's dark backdrop now covers the whole window.
+
 ## 0.12.1 (2026-10-27) – Cloudflare: hard caps, simpler setup
 
 - **Hard caps so Cloudflare never bills.** R2 is the only product that bills by use, so the Worker caps it below the

@@ -167,6 +167,7 @@ def cloudflare_checks(tmp, fields):
             time.sleep(0.2)
         code, page = http('GET', base + '/')
         check(code == 200 and b'pizza-builder.js' in page, 'Worker: participant page')
+        check('nutrition_reveal' in json.loads(http('GET', base + '/study.json')[1]), 'Worker: passes the nutrition-reveal setting to the page')
         check(http('GET', base + '/pizza-builder.js')[0] == 200, 'Worker: serves the task script')
         check(json.loads(http('GET', base + '/api/start?group=ASD&pid=CFSMOKE1')[1]).get('pid') == 'CFSMOKE1', 'Worker: starts a session')
         check(http('POST', base + '/api/save', {'pid': 'CFSMOKE1', 'stage': 'done', 'fields': fields})[0] == 200, 'Worker: saves a session')
@@ -283,8 +284,25 @@ def main():
         for col in ('diet_class', 'atypicality_pct', 'mirror_match', 'mirror_score', 'rot_score', 'n_on_crust', 'face_detected', 'size_match_same', 't_submit', 'cluster',
                     'n_strong', 'n_safe_foods', 'n_sensory_reasons', 'neurotype', 'nd_identified', 'eat_any', 'self_picky', 'age_band',
                     'mv_straight', 'mv_pauses', 'mv_dwell', 'group', 'nut_kcal', 'nut_salt_g', 'top_kcal', 'nutrition_panel', 'n_adjustments',
-                    'n_adj_symmetry', 'adj_symmetry_excess', 'revision_rate'):
+                    'n_adj_symmetry', 'adj_symmetry_excess', 'revision_rate', 'nutri_revealed', 'n_changed_mind', 'post_nutri_d_kcal', 'post_nutri_direction'):
             check(col in rows[0], 'column ' + col)
+        # the nutrition-reveal setting (every other simulated participant): columns filled only where it was on, and the
+        # replay that finds the pizza at the moment the nutrition was seen ends with exactly the finished pizza
+        on = [r for r in rows if r['nutrition_reveal'] == '1']
+        off = [r for r in rows if r['nutrition_reveal'] == '0']
+        check(on and off and all(r['nutri_seen'] == '1' and r['post_nutri_direction'] != 'NA' for r in on)
+              and all(r['nutri_revealed'] == 'NA' and r['post_nutri_d_kcal'] == 'NA' for r in off)
+              and any(r['nutri_revealed'] == '1' for r in on) and any(r['n_changed_mind'] == '1' for r in on),
+              'reveal setting: who revealed, changed their mind and how the pizza changed, only where it was on')
+        sys.path[:0] = [os.path.join(ROOT, 'analysis')]
+        import analyse as AN
+        ok_replay = True
+        for path in sorted(glob.glob(os.path.join(tmp, 'sample', '*.json'))):
+            d = json.load(open(path, encoding='utf-8'))
+            fin, ev = json.loads(d['pz_final']), json.loads(d['pz_events'])
+            st = AN.replay_pieces(ev, len(ev) - 1, {f[0]: f[5] for f in fin})
+            ok_replay &= sorted((k, v['ing'], round(v['s'], 6)) for k, v in st.items()) == sorted((f[0], f[1], round(f[5] * f[8], 6)) for f in fin)
+        check(ok_replay, 'reveal setting: the replay of every simulated log ends with the finished pizza, sizes included')
         # every output column must be described on the Methods page (analysis/methods.py)
         sys.path[:0] = [os.path.join(ROOT, 'analysis')]
         import methods
@@ -338,7 +356,8 @@ def main():
                 except OSError:
                     time.sleep(0.2)
             code, page = http('GET', base + '/')
-            check(code == 200 and b'pizza-builder.js' in page, 'participant page')
+            check(code == 200 and b'pizza-builder.js' in page and b'Part ' not in page, 'participant page (the task only: no part counter)')
+            check('nutrition_reveal' in json.loads(http('GET', base + '/study.json')[1]), 'passes the nutrition-reveal setting to the page')
             check(http('GET', base + '/pizza-builder.js')[0] == 200, 'serves the task script')
             code, body = http('GET', base + '/api/start?group=ASD&pid=SMOKE001')
             check(code == 200 and json.loads(body)['pid'] == 'SMOKE001', 'starts a session')

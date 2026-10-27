@@ -495,7 +495,12 @@
         return '<div class="pv-group"><h4>Nutrition (estimate)</h4>' + stat('Whole pizza', Math.round(t.kcal) + ' kcal', Math.round(t.grams) + ' g · protein ' + t.protein.toFixed(0) +
           ' g · carbohydrate ' + t.carbs.toFixed(0) + ' g · fat ' + t.fat.toFixed(0) + ' g · salt ' + t.salt.toFixed(1) + ' g') +
           stat('Toppings', Math.round(top.kcal) + ' kcal', Math.round(top.grams) + ' g · fibre ' + top.fibre.toFixed(1) + ' g · vitamin C ' + top.vitC.toFixed(1) + ' mg') +
-          stat('Panel shown', summ.nutrition ? 'yes' : 'no', 'the nutrition panel is a study setting') + '</div>';
+          stat('Panel shown', summ.nutrition ? 'yes' : 'no', 'the nutrition panel is a study setting') +
+          (summ.reveal ? (function (r) {      // the reveal setting: counted from the log as analyse.py's reveal_measures does
+            var first = ev.filter(function (e) { return e[1] === 'nshow' || e[1] === 'nmodal'; })[0];
+            return stat('Revealed while building', r.shown ? r.shown + '× (first at ' + (r.tFirst / 1000).toFixed(1) + ' s)' : 'no', '"Show nutrition information"') +
+              stat('"I changed my mind"', r.changedMind + '×', first ? 'first saw it at ' + (first[0] / 1000).toFixed(1) + ' s: ' + Math.round(first[3]) + ' kcal then, ' + Math.round(t.kcal) + ' kcal now' : '');
+          })(summ.reveal) : '') + '</div>';
       })() : '') +
       (mvs.length ? '<div class="pv-group"><h4>Movement</h4>' + stat('Direct drags', (function (v) { return v == null ? '-' : v.toFixed(2); })(fmedian(mvs.map(function (m) { return m[1]; }))), 'straight-line distance / path; 1 = straight') +
         stat('Pauses per drag', (mvs.reduce(function (a, m) { return a + m[2]; }, 0) / mvs.length).toFixed(2), Math.round(100 * mvs.filter(function (m) { return m[2] > 0; }).length / mvs.length) + '% of drags paused (250 ms+)') +

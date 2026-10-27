@@ -21,7 +21,6 @@
   .code { font:600 1.6rem/1.2 ui-monospace, Menlo, Consolas, monospace; letter-spacing:.06em; background:#f4efe9; border-radius:10px; padding:10px 14px; display:inline-block; user-select:all; }
   .status { color:var(--muted); font-size:.85rem; margin:8px 0 0; }
   .status:empty { display:none; }   /* no empty line under the task: the page fits the window */
-  .progress { color:var(--muted); font-size:.85rem; margin:0 0 10px; }
   .notice { background:#f4efe9; border-radius:10px; padding:8px 12px; margin:0 0 10px; font-size:.95rem; }
   .notice[hidden] { display:none; }
 </style>
@@ -29,7 +28,6 @@
 <body>
 <div class="wrap">
   <div class="sheet">
-    <p class="progress" id="progress"></p>
     <p class="notice" id="notice" hidden></p>
     <div id="stage"></div>
     <div class="next" id="next" hidden><button class="go" type="button">Next &rarr;</button></div>
@@ -74,8 +72,7 @@
     widget = null;
     stage.innerHTML = '';
     next.hidden = true;
-    var o = order(), i = o.indexOf(name);
-    document.getElementById('progress').textContent = (name === 'intro' || name === 'done') ? '' : 'Part ' + i + ' of ' + (o.length - 2);
+    var o = order(), i = o.indexOf(name);     // no "part i of n": the participant only sees the task itself
     window.scrollTo(0, 0);
     send(true);
     if (name === 'intro') return intro();
@@ -93,6 +90,8 @@
       // study settings for what people see while building; condition_settings can vary them by condition (an experiment)
       var cs = (S.study.condition_settings || {})[S.cond] || {};
       opts.nutrition = cs.nutrition_panel != null ? !!cs.nutrition_panel : !!S.study.nutrition_panel;
+      // "Show nutrition information" button + nutrition in the "I'm done" dialog: the own build, the typical build only by condition
+      opts.nutritionReveal = cs.nutrition_reveal != null ? !!cs.nutrition_reveal : (name === 'build' && !!S.study.nutrition_reveal);
       var show = cs.nutrition_show || S.study.nutrition_show;
       if (show) opts.nutritionShow = show;
       if ((cs.nutrition_base != null ? cs.nutrition_base : S.study.nutrition_base) === false) opts.nutritionBase = false;

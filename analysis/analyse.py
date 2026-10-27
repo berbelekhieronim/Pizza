@@ -851,6 +851,127 @@ def nutrition_measures(pieces, summary):
     return out
 
 
+NUTRI_SIGHTS = ('nshow', 'nmodal')     # the nutrition shown: "Show nutrition information", or the "I'm done" dialog
+NUTRI_SAME_KCAL = 10                   # kcal: a smaller change in the pizza's energy counts as the same energy
+NUTRI_DELTAS = ['kcal', 'protein', 'fat', 'satfat', 'sugars', 'salt', 'fibre']
+REVEAL_KEYS = (['nutrition_reveal', 'nutri_revealed', 'nutri_n_reveals', 'nutri_first_reveal_ms', 'nutri_reveal_share', 'nutri_open_ms',
+                'n_nutri_done_seen', 'n_changed_mind', 'nutri_seen', 'nutri_first_seen_ms', 'nutri_first_seen_how', 'nutri_kcal_at_sight',
+                'post_nutri_changed', 'post_nutri_added', 'post_nutri_removed']
+               + ['post_nutri_d_' + NUT_COL[k][4:] for k in NUTRI_DELTAS]
+               + ['post_nutri_d_%s_pieces' % c for c in ('vegan', 'vegetarian', 'seafood', 'meat')]
+               + ['post_nutri_base_changed', 'post_nutri_direction', 'pre_nutri_adds_per_min', 'post_nutri_adds_per_min',
+                  'pre_nutri_removal_share', 'post_nutri_removal_share', 'rebuilt_after_done', 'post_done_d_kcal', 'post_done_direction'])
+
+
+def replay_pieces(events, upto, s_rand):
+    """The pieces on the pizza just after events[upto]: {id: {'ing', 's'}}, s = drawn size (random variation x hold-to-resize
+    g), following adds, removals, Start over, resizes and every kind of Undo. The random variation is logged with each add
+    from 0.13.0 on; for older logs it comes from the finished pizza (pieces removed before the end: 1)."""
+    on, gone, cleared, gprev = {}, {}, [], {}
+    for e in events[:upto + 1]:
+        typ = e[1]
+        if typ == 'add' and len(e) > 5:
+            on[e[3]] = {'ing': e[2], 's0': e[10] if len(e) > 10 and e[10] else s_rand.get(e[3], 1.0), 'g': e[8] if len(e) > 8 and e[8] else 1}
+        elif typ == 'remove' and len(e) > 3 and e[3] in on:
+            gone[e[3]] = on.pop(e[3])
+        elif typ == 'clear':
+            cleared.append(on)
+            on = {}
+        elif typ in ('resize', 'move') and len(e) > 3 and e[3] in on:
+            g = e[4] if typ == 'resize' else (e[8] if len(e) > 8 and e[8] else on[e[3]]['g'])
+            gprev.setdefault(e[3], []).append(on[e[3]]['g'])
+            on[e[3]]['g'] = g
+        elif typ == 'undo' and len(e) > 3:
+            act, ref = e[2], e[3]
+            if act == 'add':
+                on.pop(ref, None)
+            elif act == 'remove' and ref in gone:
+                on[ref] = gone.pop(ref)
+            elif act == 'clear' and cleared:
+                on.update(cleared.pop())
+            elif act in ('move', 'resize') and ref in on and gprev.get(ref):
+                on[ref]['g'] = gprev[ref].pop()
+    return {k: {'ing': v['ing'], 's': v['s0'] * v['g']} for k, v in on.items()}
+
+
+def reveal_measures(events, final, summary):
+    """The nutrition-reveal setting (0.13.0): whether, when and how often the participant chose to see the pizza's
+    nutrition, whether they went back to building from the "I'm done" dialog ("I changed my mind"), and how the pizza
+    changed after they first saw its nutrition. The pizza at that moment comes from replaying the log (replay_pieces) and
+    its nutrients from nutrition_measures, with the sauce and cheese logged with the sight; change = final - then."""
+    out = dict.fromkeys(REVEAL_KEYS)
+    setting = (summary or {}).get('reveal')
+    out['nutrition_reveal'] = int(bool(setting))
+    if not setting:
+        return out
+    s_rand = {f[0]: f[5] for f in final}
+    final_p = [{'ing': f[1], 's': f[5] * (f[8] if len(f) > 8 else 1)} for f in final]
+    base = (summary.get('sauce') or 'tomato', summary.get('cheese') or 'normal')
+    nut_final = nutrition_measures(final_p, {'sauce': base[0], 'cheese': base[1]})
+    t_end = next((e[0] for e in events if e[1] == 'finish'), events[-1][0] if events else 0)
+    shows = [e for e in events if e[1] == 'nshow']
+    out.update(nutri_revealed=int(bool(shows)), nutri_n_reveals=len(shows), n_nutri_done_seen=sum(e[1] == 'nmodal' for e in events),
+               n_changed_mind=sum(e[1] == 'changemind' for e in events))
+    open_ms, t_open = 0, None
+    for e in events:
+        if e[1] == 'nshow':
+            t_open = e[0]
+        elif e[1] in ('nhide', 'finish') and t_open is not None:
+            open_ms += e[0] - t_open
+            t_open = None
+    out['nutri_open_ms'] = open_ms
+    if shows:
+        out['nutri_first_reveal_ms'] = shows[0][0]
+        out['nutri_reveal_share'] = shows[0][0] / t_end if t_end else None
+    sights = [i for i, e in enumerate(events) if e[1] in NUTRI_SIGHTS]
+    out['nutri_seen'] = int(bool(sights))
+    if not sights:
+        return out
+
+    def state(i):
+        e = events[i]
+        b = (e[4], e[5]) if len(e) > 5 and e[4] else base
+        pcs = list(replay_pieces(events, i, s_rand).values())
+        return pcs, b, nutrition_measures(pcs, {'sauce': b[0], 'cheese': b[1]})
+
+    def changed(pcs, b):
+        key = lambda ps: sorted((p['ing'], round(p['s'], 4)) for p in ps)
+        return int(key(pcs) != key(final_p) or tuple(b) != base)
+
+    def direction(ch, dk):
+        return 'unchanged' if not ch else 'lighter' if dk <= -NUTRI_SAME_KCAL else 'heavier' if dk >= NUTRI_SAME_KCAL else 'same energy'
+
+    i = sights[0]
+    t0 = events[i][0]
+    pcs, b, nut = state(i)
+    ch = changed(pcs, b)
+    out.update(nutri_first_seen_ms=t0, nutri_first_seen_how='reveal' if events[i][1] == 'nshow' else 'done', nutri_kcal_at_sight=nut['nut_kcal'], post_nutri_changed=ch)
+    for k in NUTRI_DELTAS:
+        out['post_nutri_d_' + NUT_COL[k][4:]] = nut_final[NUT_COL[k]] - nut[NUT_COL[k]]
+    for c in ('vegan', 'vegetarian', 'seafood', 'meat'):
+        out['post_nutri_d_%s_pieces' % c] = sum(topping_diet(p['ing']) == c for p in final_p) - sum(topping_diet(p['ing']) == c for p in pcs)
+    out['post_nutri_base_changed'] = int(any(e[1] in ('sauce', 'cheese') for e in events[i + 1:]))
+    out['post_nutri_direction'] = direction(ch, out['post_nutri_d_kcal'])
+
+    def adds_removals(evs):
+        return (sum(e[1] == 'add' for e in evs),
+                sum(1 if e[1] == 'remove' or (e[1] == 'undo' and len(e) > 2 and e[2] == 'add') else (e[2] if e[1] == 'clear' and len(e) > 2 and isinstance(e[2], int) else 0) for e in evs))
+    a0, r0 = adds_removals(events[:i])
+    a1, r1 = adds_removals(events[i + 1:])
+    out.update(post_nutri_added=a1, post_nutri_removed=r1,
+               pre_nutri_adds_per_min=a0 / (t0 / 60000) if t0 >= 1000 else None,
+               post_nutri_adds_per_min=a1 / ((t_end - t0) / 60000) if t_end - t0 >= 1000 else None,
+               pre_nutri_removal_share=r0 / a0 if a0 else None, post_nutri_removal_share=r1 / a1 if a1 else None)
+    j = next((k for k in sights if events[k][1] == 'nmodal'), None)      # the first "I'm done" dialog
+    if j is not None:
+        pj, bj, nj = state(j)
+        chj = changed(pj, bj)
+        out['post_done_d_kcal'] = nut_final['nut_kcal'] - nj['nut_kcal']
+        out['post_done_direction'] = direction(chj, out['post_done_d_kcal'])
+        out['rebuilt_after_done'] = int(out['n_changed_mind'] > 0 and chj)
+    return out
+
+
 def action_history(events):
     """Replays the log to follow every piece: added, moved, removed (dragged off, undone, or wiped by "Start over")
     and restored (undo of a removal or of "Start over"). Returns (pieces still on the pizza {id: piece},
@@ -2238,6 +2359,11 @@ EXPLORE_EXTRA = [
     ('Nutrition', 'top_kcal_share', 'Share of energy from toppings'), ('Nutrition', 'nut_protein_g', 'Protein'), ('Nutrition', 'nut_satfat_g', 'Saturated fat'),
     ('Nutrition', 'nut_sugars_g', 'Sugars'), ('Nutrition', 'nut_fibre_g', 'Fibre'), ('Nutrition', 'nut_salt_g', 'Salt'),
     ('Nutrition', 'nut_vitC_mg', 'Vitamin C'), ('Nutrition', 'nut_vitA_ug', 'Vitamin A'),
+    ('Seeing nutrition', 'nutri_revealed', 'Revealed the nutrition while building'), ('Seeing nutrition', 'nutri_reveal_share', 'How far into building they revealed it'),
+    ('Seeing nutrition', 'nutri_open_ms', 'Time the nutrition table was open'), ('Seeing nutrition', 'n_changed_mind', '"I changed my mind" at the end'),
+    ('Seeing nutrition', 'post_nutri_changed', 'Pizza changed after seeing the nutrition'), ('Seeing nutrition', 'post_nutri_d_kcal', 'Energy change after seeing the nutrition'),
+    ('Seeing nutrition', 'post_nutri_d_satfat_g', 'Saturated fat change after seeing it'), ('Seeing nutrition', 'post_nutri_d_meat_pieces', 'Meat pieces change after seeing it'),
+    ('Seeing nutrition', 'post_nutri_removal_share', 'Removals per add after seeing it'), ('Seeing nutrition', 'rebuilt_after_done', 'Rebuilt after the end dialog'),
     ('Process', 'n_considered_not_picked', 'Toppings considered (hovered), never picked'), ('Process', 'hover_total_ms', 'Time resting on tray toppings'),
     ('Movement', 'mv_straight', 'Direct drags'), ('Movement', 'mv_pauses', 'Pauses per drag'), ('Movement', 'mv_paused_share', 'Drags with a pause'),
     ('Movement', 'mv_dwell', 'Dwell before letting go'), ('Movement', 'mv_hold', 'Hold before moving'),
@@ -2253,7 +2379,7 @@ EXPLORE_GROUPINGS = [
     ('neurotype', 'Neurotype (self-described)'), ('nd_autistic', 'Autistic, incl. AuDHD (yes / no)'), ('nd_adhd', 'ADHD, incl. AuDHD (yes / no)'),
     ('nd_identified', 'Autism / ADHD: formally diagnosed or not'), ('eat_any', 'Any eating difficulty, allergy or intolerance (yes / no)'),
     ('eat_picky', 'Picky eating since childhood (yes / no)'), ('gender', 'Gender'), ('age_band', 'Age'), ('pointer', 'Device (touch / mouse)'),
-    ('nutrition_panel', 'Nutrition panel shown (yes / no)'), ('group', 'Recruitment group (study link)'), ('source', 'Recruitment source'), ('study', 'Study'), ('condition', 'Condition'),
+    ('nutrition_panel', 'Nutrition panel shown (yes / no)'), ('nutri_revealed', 'Revealed the nutrition while building (yes / no)'), ('group', 'Recruitment group (study link)'), ('source', 'Recruitment source'), ('study', 'Study'), ('condition', 'Condition'),
 ]
 EXPLORE_COVARIATES = [('self_picky', '"I am a picky eater" (1-7)'), ('self_sensory_food', '"Food textures, smells or looks bother me" (1-7)')]
 
@@ -2426,7 +2552,7 @@ def explore_measures(recs, tray):
 
 def grouping_levels(recs, key, min_n=3):
     raw = [r.get(key) for r in recs]
-    if key in ('nd_autistic', 'nd_adhd', 'eat_any', 'eat_picky', 'nutrition_panel'):
+    if key in ('nd_autistic', 'nd_adhd', 'eat_any', 'eat_picky', 'nutrition_panel', 'nutri_revealed'):
         raw = [None if v is None else ('yes' if v else 'no') for v in raw]
     raw = [None if v in (None, '') else str(v) for v in raw]
     cnt = Counter(v for v in raw if v is not None)
@@ -2810,6 +2936,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             rec.update(timing(events, summary))
             rec.update(movement_measures(events))
             rec.update(nutrition_measures(pieces, summary))
+            rec.update(reveal_measures(events, final, summary))
             acts, act_per, removals = action_measures(events, final)
             rec.update(acts)
             adj, adj_rows = adjustment_measures(events, final, rec, rnd)

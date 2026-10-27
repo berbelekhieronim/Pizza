@@ -4,7 +4,7 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-10-27, task version 0.10.1, server 0.12.0)
+## Snapshot (2026-10-27, task version 0.13.0, server 0.12.1)
 
 - **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
@@ -118,6 +118,13 @@ push, check the GitHub Actions run, and republish the demo artifact.
 - **Setup reduced to one token and two secrets.** deploy.py finds the account, registers the workers.dev subdomain
   and creates the Turnstile widget through Cloudflare's API. The user found the manual Turnstile and token steps
   confusing.
+- **Nutrition on request (user's request).** A *Show nutrition information* button under the build, and the
+  nutrition in the *I'm done* dialog with *Bake it for me* / *I changed my mind*. The user replaced an earlier idea:
+  a question after *I'm done*. Every sight is logged with what was shown. The analysis replays the log to the first
+  sight and compares that pizza with the final one (`reveal_measures`, `replay_pieces`). The table shrinks the pizza
+  rather than scrolling the page (everything in one window).
+- **Participant-only view (user's request).** Participants see the task only: no part counter, and no data preview or
+  steps in the demo unless *Researcher view* is ticked.
 - **Two servers, one behaviour.** `server/server.py` (Codespace, local) and `cloudflare/src/` (Cloudflare) must stay
   in step: same routes, page and schema. The smoke test runs the same kinds of checks against both.
 - **Standard library only** (Python 3.10+, base R, no JS dependencies). The repository must run in a fresh Codespace,
@@ -175,6 +182,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 | date | session | what was done |
 |---|---|---|
+| 2026-10-27 | Claude Code (cloud) | 0.13.0 (task): nutrition on request (reveal button, end dialog with bake / changed my mind), reveal measures, participant-only view |
 | 2026-10-27 | Claude Code (cloud) | 0.12.1: hard caps on R2 and D1 (never billed), setup reduced to one token and two GitHub secrets (deploy creates address and Turnstile) |
 | 2026-10-27 | Claude Code (cloud) | 0.12.0: Cloudflare version (Worker + D1 + R2, deploy and reports workflows, bot protection), tested in the local Workers runtime |
 | 2026-10-27 | Claude Code (cloud) | 0.11.0: SQLite database for the study server, session browser (filter, sort, pages) with filtered exports, per-study researcher links, `analyse.py` reads `study.db` |

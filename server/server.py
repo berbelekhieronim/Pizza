@@ -51,7 +51,7 @@ BUILD_LOCK = threading.Lock()
 
 STUDY_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 STUDY_KEYS = ('title', 'intro', 'consent', 'completion_message', 'completion_redirect', 'typical_build', 'about_you', 'conditions', 'groups',
-              'nutrition_panel', 'nutrition_show', 'nutrition_base', 'condition_settings')
+              'nutrition_panel', 'nutrition_show', 'nutrition_base', 'nutrition_reveal', 'condition_settings')
 
 
 def load_study(study_id=''):

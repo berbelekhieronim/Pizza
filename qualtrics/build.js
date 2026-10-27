@@ -25,6 +25,7 @@ Qualtrics.SurveyEngine.addOnReady(function () {
       // minSeconds: 20,                       // optional: earliest moment "I'm done" becomes available
       // prompt: 'Make the pizza you would like to eat. ...',
       // nutrition: true,                      // optional: live nutrition panel under the pizza (see README, Nutrition panel)
+      // nutritionReveal: true,                // optional: "Show nutrition information" button + nutrition at "I'm done" (README)
       onSave: save,
       onFinish: function () { q.showNextButton(); q.clickNextButton(); }   // the task's own button moves on
     });
