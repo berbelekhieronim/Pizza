@@ -300,9 +300,9 @@ class Request_ {
     }
     if (route === '/admin/sessions.csv') {
       const { rows } = await st.query(f, this.arg('sort', 'started'), this.arg('dir', 'desc') !== 'asc', 1e9);
-      const cols = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'inclusion'];
+      const cols = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'analysis', 'inclusion'];
       let out = csvRow(cols.map((c) => (c === 'grp' ? 'group' : c)));
-      for (const r of rows) out += csvRow(cols.map((c) => (c === 'study' && !r[c] ? 'main' : r[c] === null ? 'NA' : r[c])));
+      for (const r of rows) out += csvRow(cols.map((c) => (c === 'study' && !r[c] ? 'main' : c === 'inclusion' && !r[c] ? 'auto' : r[c] === null ? 'NA' : r[c])));
       return this.download(out, 'text/csv; charset=utf-8', `sessions-${filterSlug(f) || 'all'}-${stamp()}.csv`);
     }
     if (route === '/admin/invites.csv') {

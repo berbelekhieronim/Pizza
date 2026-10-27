@@ -230,7 +230,9 @@ Tables (UTF-8 CSV, missing values = NA, yes/no = 1/0, times in ms, positions in 
     events_long.csv       one row per logged action
     profiles.csv          one row per participant: standardised profile scores and cluster
     explore.csv           one row per group comparison shown in explore.html
-    excluded.csv          builds saved part-way but never finished ("I'm done" not pressed): left out of everything
+    excluded.csv          pizzas left out of every table: unfinished ("I'm done" not pressed) or excluded by a researcher
+                          on the Sessions tab (column reason); a researcher can also keep an unfinished one in
+                          (participants.csv column inclusion = researcher)
     data_check.json       sessions, analysed and left-out pizzas, and whether they add up (also on the Overview page)
     variables.csv         every column of every table: type, factor levels, unit, description
     methods.html          how every number is counted (open in a browser)
@@ -393,10 +395,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             rows, _, _ = st.query(f, self.arg('sort', 'started'), self.arg('dir', 'desc') != 'asc', limit=10 ** 9)
             buf = io.StringIO()
             w = csv.writer(buf)
-            cols = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'inclusion']
+            cols = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'analysis', 'inclusion']
             w.writerow(['group' if c == 'grp' else c for c in cols])
             for r in rows:
-                w.writerow(['main' if c == 'study' and not r[c] else ('NA' if r[c] is None else r[c]) for c in cols])
+                w.writerow(['main' if c == 'study' and not r[c] else 'auto' if c == 'inclusion' and not r[c] else ('NA' if r[c] is None else r[c]) for c in cols])
             return self.download(buf.getvalue().encode('utf-8'), 'text/csv; charset=utf-8', 'sessions%s.csv' % self.tag(f))
         if route == '/admin/invites.csv':
             sid = f['study']

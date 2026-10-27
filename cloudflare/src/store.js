@@ -10,6 +10,8 @@ export const INCLUSION_VALUES = ['include', 'exclude', 'auto'];
 const INCL_SQL = "COALESCE((SELECT NULLIF(value, 'auto') FROM fields WHERE fields.pid = sessions.pid AND name = 'inclusion'), '')";
 const LEFT_OUT_SQL = `(${INCL_SQL} = 'exclude' OR (${INCL_SQL} = '' AND stage NOT IN ('typical', 'followup', 'done') AND n_pieces IS NOT NULL))`;
 const INCLUDED_SQL = `(${INCL_SQL} = 'include' OR (${INCL_SQL} = '' AND stage IN ('typical', 'followup', 'done')))`;
+// what the analysis does with a session: included / left_out / no_pizza (shown on the Sessions tab and in sessions.csv)
+const ANALYSIS_SQL = `CASE WHEN n_pieces IS NULL THEN 'no_pizza' WHEN ${INCLUDED_SQL} THEN 'included' ELSE 'left_out' END`;
 export const IDLE_MINUTES = 30;                    // an unfinished session with no save for this long counts as stopped
 const idleCutoff = () => new Date(Date.now() - IDLE_MINUTES * 60000).toISOString().slice(0, 19) + 'Z';
 const FIELD_RE = /^[a-z_]{2,40}$/;
@@ -113,7 +115,7 @@ export class Store {
     sort = SORTABLE.includes(sort) ? sort : 'started';
     const [total, rows] = await this.db.batch([
       this.db.prepare(`SELECT COUNT(*) AS n, SUM(stage = 'done') AS done FROM sessions${w}`).bind(...a),
-      this.db.prepare(`SELECT *, ${INCL_SQL} AS inclusion FROM sessions${w} ORDER BY ${sort} ${desc ? 'DESC' : 'ASC'}, pid LIMIT ? OFFSET ?`).bind(...a, limit, offset),
+      this.db.prepare(`SELECT *, ${INCL_SQL} AS inclusion, ${ANALYSIS_SQL} AS analysis FROM sessions${w} ORDER BY ${sort} ${desc ? 'DESC' : 'ASC'}, pid LIMIT ? OFFSET ?`).bind(...a, limit, offset),
     ]);
     return { rows: rows.results, total: total.results[0].n, done: total.results[0].done || 0 };
   }

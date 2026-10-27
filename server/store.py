@@ -70,6 +70,8 @@ INCLUSION_VALUES = ('include', 'exclude', 'auto')
 INCL_SQL = "COALESCE((SELECT NULLIF(value, 'auto') FROM fields WHERE fields.pid = sessions.pid AND name = 'inclusion'), '')"
 LEFT_OUT_SQL = "(%s = 'exclude' OR (%s = '' AND stage NOT IN ('typical', 'followup', 'done') AND n_pieces IS NOT NULL))" % (INCL_SQL, INCL_SQL)
 INCLUDED_SQL = "(%s = 'include' OR (%s = '' AND stage IN ('typical', 'followup', 'done')))" % (INCL_SQL, INCL_SQL)
+# what the analysis does with a session: included / left_out / no_pizza (shown on the Sessions tab and in sessions.csv)
+ANALYSIS_SQL = "CASE WHEN n_pieces IS NULL THEN 'no_pizza' WHEN %s THEN 'included' ELSE 'left_out' END" % INCLUDED_SQL
 
 
 def idle_cutoff():
@@ -220,7 +222,7 @@ class Store:
         sort = sort if sort in SORTABLE else 'started'
         db = self.db()
         total = db.execute("SELECT COUNT(*), SUM(stage = 'done') FROM sessions" + w, a).fetchone()
-        rows = db.execute('SELECT *, ' + INCL_SQL + ' AS inclusion FROM sessions%s ORDER BY %s %s, pid LIMIT ? OFFSET ?' % (w, sort, 'DESC' if desc else 'ASC'),
+        rows = db.execute('SELECT *, ' + INCL_SQL + ' AS inclusion, ' + ANALYSIS_SQL + ' AS analysis FROM sessions%s ORDER BY %s %s, pid LIMIT ? OFFSET ?' % (w, sort, 'DESC' if desc else 'ASC'),
                           a + [limit, offset]).fetchall()
         return [dict(r) for r in rows], total[0], total[1] or 0
 

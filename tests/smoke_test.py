@@ -289,6 +289,11 @@ def inclusion_checks(base, key, skey, study, other_pid, label):
     code, body = post_form(base + '/admin/api/inclusion?key=' + key, {'pid': pid, 'value': 'exclude'})
     check(code == 200 and json.loads(body)['ok'] and find()['inclusion'] == 'exclude' and find(stage='left_out') and not find(stage='included'),
           label + 'Sessions tab: a researcher excludes a session; it shows, and the "left out" filter finds it')
+    code, body = http('GET', base + '/admin/sessions.csv?' + urllib.parse.urlencode({'key': key, 'study': study}))
+    rows = list(csv.DictReader(io.StringIO(body.decode('utf-8-sig')))) if code == 200 else []
+    mine = [r for r in rows if r['pid'] == pid]
+    check(mine and mine[0]['analysis'] == 'left_out' and mine[0]['inclusion'] == 'exclude' and all(r['analysis'] in ('included', 'left_out', 'no_pizza') for r in rows),
+          label + 'the session list download says what the analysis does with each session, and the researcher\'s choice')
     code, _ = post_form(base + '/admin/api/inclusion?key=' + skey, {'pid': other_pid, 'value': 'include'})
     check(code == 404, label + 'a study\'s researcher link cannot change a session of another study')
     code, _ = post_form(base + '/admin/api/inclusion?key=' + skey, {'pid': pid, 'value': 'auto'})
