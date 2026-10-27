@@ -2356,27 +2356,106 @@ def chi2_sf(x, df):
 CLUSTER_COLORS = ['#2457a6', '#c2571a', '#3f8f4a', '#8a4fa8', '#b8892a', '#1f8a8a', '#b8432a', '#5d6b7a']
 
 
-CLUSTER_MIN_N, CLUSTER_MIN_SIL = 20, 0.25     # clusters are reported only with this many pizzas and this mean silhouette
-                                              # (Kaufman & Rousseeuw 1990: below 0.25 "no substantial structure")
+CLUSTER_MIN_N = 20         # types are searched for only with this many pizzas
+
+
+def null_cloud(Z, vals, vecs, rnd):
+    """One dataset with no types but the profiles' own correlations and each measure's own values (a Gaussian copula):
+    correlated normal scores Y = Σ √λ g v, then each column takes the observed values of that measure in the order of
+    its scores. Skewed, capped or zero-heavy measures split more easily than a bell-shaped cloud, so a plain normal null
+    would let such data pass as "clustered"."""
+    n, p = len(Z), len(Z[0])
+    g = [[rnd.gauss(0, 1) for _ in range(p)] for _ in range(n)]
+    Y = [[sum(math.sqrt(max(vals[c], 0)) * g[i][c] * vecs[c][a] for c in range(p)) for a in range(p)] for i in range(n)]
+    for a in range(p):
+        obs = sorted(Z[i][a] for i in range(n))
+        for rank, i in enumerate(sorted(range(n), key=lambda i: Y[i][a])):
+            Y[i][a] = obs[rank]
+    return Y
+
+
+# Cluster discovery: are there types of pizza-makers, in all the measures together or in one family of them? Each
+# family is searched the same way and must beat CLUSTER_NULLS no-types datasets; the threshold is divided by the number
+# of families tried (Bonferroni), so trying four searches does not make finding something four times easier.
+CLUSTER_FAMILIES = [('all', 'All measures', None),
+                    ('behaviour', 'Build behaviour (order, timing, changes of mind)', ('Order', 'Time', 'Process')),
+                    ('preferences', 'Preferences (toppings, unusualness, feelings)', ('Composition', 'Normality', 'Feelings')),
+                    ('arrangement', 'Arrangement (space, size, faces)', ('Space', 'Size', 'Figurative'))]
+CLUSTER_ALPHA = 0.05
+CLUSTER_NULLS = round(len(CLUSTER_FAMILIES) / CLUSTER_ALPHA) - 1     # 79: p = 1 / 80 = .0125 = .05 / 4 when no null split is as good
+CLUSTER_TEST_MAX = 200     # larger samples are tested on a random 200 (the null splits take n³ time); everyone is still clustered
+
+
+def search_types(Z, cols, rnd, ks):
+    """One family: Ward clusters of the profile columns cols, the best k by silhouette, and the test against no-types
+    datasets (null_cloud). Stops drawing nulls as soon as the family can no longer pass. Returns a dict."""
+    n = len(Z)
+    X = [[row[c] for c in cols] for row in Z]
+    merges = ward(X)
+    dist = [[euclid(X[i], X[j]) for j in range(n)] for i in range(n)]
+    sil = {k: silhouette(X, cut(merges, n, k), dist) for k in ks}
+    k = max(sil, key=lambda kk: (sil[kk] or -1))
+    idx = sorted(rnd.sample(range(n), CLUSTER_TEST_MAX)) if n > CLUSTER_TEST_MAX else list(range(n))
+    T = [X[i] for i in idx]
+    m = len(T)
+    if len(idx) < n:                                      # the observed split of the tested sample, for a fair comparison
+        dT = [[euclid(T[i], T[j]) for j in range(m)] for i in range(m)]
+        mT = ward(T)
+        best = max((silhouette(T, cut(mT, m, kk), dT) or -1) for kk in ks)
+    else:
+        best = sil[k] if sil[k] is not None else -1
+    p = len(cols)
+    C = [[sum(T[i][a] * T[i][b] for i in range(m)) / (m - 1) for b in range(p)] for a in range(p)]
+    vals, vecs = jacobi_eig(C)
+    alpha = CLUSTER_ALPHA / len(CLUSTER_FAMILIES)
+    nulls, hits = [], 0
+    for _ in range(CLUSTER_NULLS):
+        Y = null_cloud(T, vals, vecs, rnd)
+        dY, mY = [[euclid(Y[i], Y[j]) for j in range(m)] for i in range(m)], ward(Y)
+        v = max((silhouette(Y, cut(mY, m, kk), dY) or -1) for kk in ks)
+        nulls.append(v)
+        hits += v >= best
+        if (1 + hits) / (1 + CLUSTER_NULLS) > alpha:      # cannot pass any more
+            break
+    pv = (1 + hits) / (1 + len(nulls))
+    found = hits == 0 and len(nulls) == CLUSTER_NULLS
+    return {'cols': cols, 'k': k, 'sil': sil, 'best_sil': sil[k], 'labels': cut(merges, n, k), 'merges': merges, 'dist': dist,
+            'nulls': nulls, 'p': pv, 'found': found, 'early': len(nulls) < CLUSTER_NULLS, 'tested': m}
+
+
+def discover_types(Z, ks):
+    """Every family of CLUSTER_FAMILIES searched for types: {family id: search_types result}."""
+    out = {}
+    for fid, label, areas in CLUSTER_FAMILIES:
+        cols = [i for i, f in enumerate(PROFILE_FEATURES) if areas is None or f[0] in areas]
+        if len(cols) >= 2:
+            out[fid] = dict(search_types(Z, cols, random.Random('types:' + fid), ks), label=label)
+    return out
 
 
 def profile_analysis(entries, k_force=None):
-    """Profiles, distances, Ward clusters (k chosen by silhouette unless forced), PCA. 'valid' says whether the clusters
-    are a finding (enough pizzas, a clear structure) or only a convenient split of a cloud of points."""
+    """Profiles, distances, Ward clusters, PCA, and the search for types (discover_types). Clusters of all the measures
+    are 'valid' (reported as types) only when that family passes its test; --clusters forces a number, shown as such."""
     recs = [r for r, _ in entries]
     Z = build_profiles(recs)
     n = len(Z)
-    out = {'Z': Z, 'labels': [0] * n, 'k': 1, 'sil': {}, 'order': list(range(n)), 'merges': [], 'pcs': None, 'valid': False, 'best_sil': None}
+    out = {'Z': Z, 'labels': [0] * n, 'k': 1, 'sil': {}, 'order': list(range(n)), 'merges': [], 'pcs': None, 'valid': False, 'best_sil': None,
+           'families': {}, 'forced': bool(k_force)}
     if n < 4:
         return out
-    dist = [[euclid(Z[i], Z[j]) for j in range(n)] for i in range(n)]
-    merges = ward(Z)
-    ks = range(2, min(8, n - 1) + 1)
-    sil = {k: silhouette(Z, cut(merges, n, k), dist) for k in ks}
+    ks = range(2, min(6, n - 1) + 1)
+    if n >= CLUSTER_MIN_N:
+        out['families'] = discover_types(Z, ks)
+        al = out['families']['all']
+        merges, dist, sil = al['merges'], al['dist'], al['sil']
+    else:
+        merges = ward(Z)
+        dist = [[euclid(Z[i], Z[j]) for j in range(n)] for i in range(n)]
+        sil = {k: silhouette(Z, cut(merges, n, k), dist) for k in ks}
     k = k_force or max(sil, key=lambda kk: (sil[kk] or -1))
-    valid = bool(k_force) or (n >= CLUSTER_MIN_N and (sil.get(k) or -1) >= CLUSTER_MIN_SIL)
+    valid = bool(k_force) or bool(out['families'] and out['families']['all']['found'])
     out.update({'labels': cut(merges, n, k) if valid else [0] * n, 'k': k if valid else 1, 'sil': sil, 'order': leaf_order(merges, n), 'merges': merges,
-                'dist': dist, 'valid': valid, 'best_sil': sil.get(k), 'best_k': k, 'forced': bool(k_force)})
+                'dist': dist, 'valid': valid, 'best_sil': sil.get(k), 'best_k': k})
     p = len(Z[0])
     C = [[sum(Z[i][a] * Z[i][b] for i in range(n)) / (n - 1) for b in range(p)] for a in range(p)]
     vals, vecs = jacobi_eig(C)
@@ -2384,6 +2463,17 @@ def profile_analysis(entries, k_force=None):
     out['pcs'] = {'var': [vals[0] / tot, vals[1] / tot], 'vecs': vecs[:2],
                   'xy': [[sum(Z[i][a] * vecs[c][a] for a in range(p)) for c in range(2)] for i in range(n)]}
     return out
+
+
+def null_words(prof):
+    """The test of the clusters of all the measures, in words."""
+    f = (prof.get('families') or {}).get('all')
+    if not f:
+        return 'no test was run'
+    return ('the best split (k = %d, silhouette %.2f) %s the best split of %s %d datasets with no types but the same measures and correlations '
+            '(theirs: %.2f to %.2f; p = %.3f, needed ≤ %.4f)' % (f['k'], f['best_sil'] or 0, 'beats' if f['found'] else 'does not beat',
+                                                               'each of' if f['found'] else 'all', len(f['nulls']), min(f['nulls']), max(f['nulls']), f['p'],
+                                                               CLUSTER_ALPHA / len(CLUSTER_FAMILIES)))
 
 
 def describe_cluster(Zc):
@@ -2449,6 +2539,78 @@ PROFILE_CSS = """
 .sim li { margin: 2px 0; } .sim button { font: inherit; background: none; border: 0; color: var(--g0); text-decoration: underline; cursor: pointer; padding: 0; }
 .scatter .pt { stroke: var(--panel); stroke-width: 1.2; } .scatter .axis-l { stroke: var(--line); } .scatter text { fill: var(--muted); font-size: 11px; }
 """
+
+
+BEHAVIOUR_KEYS = [f[1] for f in PROFILE_FEATURES if f[0] in ('Order', 'Time', 'Process')]
+PREFERENCE_KEYS = [f[1] for f in PROFILE_FEATURES if f[0] in ('Composition', 'Normality', 'Feelings')]
+
+
+def discovery_html(recs, prof):
+    """profiles.html: the search for types in each family of measures, the types found (with how neurodivergent and not
+    neurodivergent people spread across them), and how build behaviour goes with preferences."""
+    fams = prof.get('families') or {}
+    n = len(recs)
+    names = {f[1]: f[2] for f in PROFILE_FEATURES}
+    alpha = CLUSTER_ALPHA / len(CLUSTER_FAMILIES)
+    if not fams:
+        table = '<p class="note">The search needs at least %d pizzas (here %d).</p>' % (CLUSTER_MIN_N, n)
+    else:
+        rows = []
+        for fid, f in fams.items():
+            verdict = ('<b class="ok">types found</b>' if f['found'] else
+                       'no types: a no-types dataset split %s' % ('at least as well (stopped after %d)' % len(f['nulls']) if f['early'] else 'as well'))
+            rows.append('<tr><td class="l">%s<br><span class="muted">%d measures</span></td><td>%d</td><td>%.2f</td><td>%.2f – %.2f</td><td>%s</td><td class="l">%s</td></tr>'
+                        % (esc(f['label']), len(f['cols']), f['k'], f['best_sil'] or 0, min(f['nulls']), max(f['nulls']),
+                           ('%.3f' % f['p']) if not f['early'] else '&gt; %.4f' % alpha, verdict))
+        table = ('<div class="tbl"><table class="leads"><tr><th class="l">Searched in</th><th>best k</th><th>silhouette</th><th>no-types datasets</th><th>p</th>'
+                 '<th class="l">result</th></tr>%s</table></div>' % ''.join(rows))
+    # the types found in each family (other than all the measures, whose clusters are shown below in full)
+    found = []
+    for fid, f in fams.items():
+        if not f['found'] or fid == 'all':
+            continue
+        lab, k = f['labels'], f['k']
+        cards = []
+        for c in range(k):
+            idx = [i for i in range(n) if lab[i] == c]
+            means = [statistics.mean(prof['Z'][i][col] for i in idx) for col in f['cols']]
+            top = sorted(range(len(f['cols'])), key=lambda j: -abs(means[j]))[:4]
+            nd = Counter('ND' if recs[i].get('nd_any') else 'not ND' if recs[i].get('nd_any') == 0 else 'not stated' for i in idx)
+            cards.append('<div class="cl-card"><h3><span class="sw" style="background:%s"></span>Type %d <span class="muted" style="font-weight:400">%d pizzas</span></h3>'
+                         '<p style="margin:0 0 6px">%s.</p><p class="note">%s</p></div>'
+                         % (CLUSTER_COLORS[c % 8], c + 1, len(idx), esc(', '.join('%s %s (%+.1f SD)' % ('more' if means[j] > 0 else 'less',
+                                                                                                          PROFILE_FEATURES[f['cols'][j]][2].lower(), means[j]) for j in top)),
+                            esc(' · '.join('%s: %d' % kv for kv in sorted(nd.items())))))
+        res = cluster_group_test([l + 1 for l in lab], ['yes' if r.get('nd_any') else 'no' if r.get('nd_any') == 0 else None for r in recs], ['yes', 'no'], random.Random(2))
+        nd_txt = ('Neurodivergent vs not: χ² = %.2f, permutation p = %s.' % (res[1], fmt_p(res[2]))) if res else 'Too few people with a stated neurotype to test.'
+        found.append('<h3>%s: %d types</h3><div class="cl-cards">%s</div><p class="note">%s Types were found without using the groups.</p>'
+                     % (esc(f['label']), k, ''.join(cards), nd_txt))
+    # build behaviour × preferences
+    pairs = []
+    for b in BEHAVIOUR_KEYS:
+        for pk in PREFERENCE_KEYS:
+            xs = [r.get(b) if isinstance(r.get(b), (int, float)) else None for r in recs]
+            ys = [r.get(pk) if isinstance(r.get(pk), (int, float)) else None for r in recs]
+            rho, pv, m = spearman(xs, ys)
+            if rho is not None:
+                pairs.append((b, pk, rho, pv, m))
+    for i, q in enumerate(bh([x[3] for x in pairs])):
+        pairs[i] = pairs[i] + (q,)
+    top = sorted(pairs, key=lambda x: (x[3], -abs(x[2])))[:10]
+    corr = ('<div class="tbl"><table class="leads"><tr><th class="l">Build behaviour</th><th class="l">Preference</th><th>n</th><th>ρ</th><th>p</th><th>q</th></tr>%s</table></div>'
+            % ''.join('<tr%s><td class="l">%s</td><td class="l">%s</td><td>%d</td><td><b>%+.2f</b></td><td>%s</td><td>%.3f%s</td></tr>'
+                      % (' class="pass"' if q < 0.1 else '', esc(names[b]), esc(names[pk]), m, rho, fmt_p(pv), q, ' ✓' if q < 0.1 else '')
+                      for b, pk, rho, pv, m, q in top)) if top else '<p class="note">Too few pizzas.</p>'
+    return ('<h2 id="types">Searching for types</h2><p class="muted">Are there distinct <i>types</i> of pizza-makers, rather than people spread along '
+            'continuous dimensions? Each family of measures is clustered (Ward\'s method, the number of clusters with the best average silhouette) and '
+            'compared with %d datasets that have no types but the same values of each measure and the same correlations between them, clustered the '
+            'same way (stopping early once a family cannot pass). Four searches are tried, so a family counts only at p ≤ %.4f (.05 / 4). Clustering '
+            'always returns groups; this is what keeps it from inventing them.</p>%s%s'
+            '<h2 id="behaviour-preferences">Build behaviour and preferences</h2><p class="muted">How the way people build goes with what they choose: '
+            'Spearman ρ between each build-behaviour measure (%s) and each preference measure (%s), %d pairs, q = Benjamini-Hochberg over them. '
+            'The ten best supported:</p>%s'
+            % (CLUSTER_NULLS, alpha, table, ''.join(found), esc(', '.join(names[k].lower() for k in BEHAVIOUR_KEYS)),
+               esc(', '.join(names[k].lower() for k in PREFERENCE_KEYS)), len(pairs), corr))
 
 
 CLUSTER_COMPARE_JS = """<script>
@@ -2579,31 +2741,30 @@ def profiles_report(entries, prof, group_label):
                'A − B, in standard deviations). Bars run from the sample average (centre line) towards less (left) or more (right) of each trait. The pizzas '
                'shown are the three closest to each cluster\'s average.</p></div></div>')
     if prof['valid'] and prof.get('forced'):
-        intro_cl = ('Profiles are grouped with hierarchical clustering (Ward\'s method) into %d clusters, a number fixed by hand (--clusters). Mean silhouette %.2f%s.'
-                    % (k, prof['best_sil'] or 0, '' if (prof['best_sil'] or 0) >= CLUSTER_MIN_SIL else ': below %.2f, so these clusters overlap and are a convenient split, not a finding' % CLUSTER_MIN_SIL))
+        intro_cl = ('Profiles are grouped with hierarchical clustering (Ward\'s method) into %d clusters, a number fixed by hand (--clusters). Mean silhouette %.2f; %s.'
+                    % (k, prof['best_sil'] or 0, null_words(prof)))
         clusters_html = compare + '<h2>Clusters</h2><div class="cl-cards">%s</div>%s' % (''.join(cards), cross)
     elif prof['valid']:
         intro_cl = ('Profiles are grouped with hierarchical clustering (Ward\'s method) into %d clusters, the number with the best average silhouette (%s). '
-                    'The clusters are reported because there are %d pizzas (at least %d) and the silhouette is %.2f (at least %.2f).'
-                    % (k, esc(sil), n, CLUSTER_MIN_N, prof['best_sil'], CLUSTER_MIN_SIL))
+                    'They are reported because %s.' % (k, esc(sil), null_words(prof)))
         clusters_html = compare + '<h2>Clusters</h2><div class="cl-cards">%s</div>%s' % (''.join(cards), cross)
     else:
         intro_cl = ''
-        clusters_html = ('<h2>Clusters</h2><p class="verdict">No clear clusters%s. Hierarchical clustering always splits people into groups, wanted or not: '
-                         'the split is reported only with at least %d pizzas and a mean silhouette of at least %.2f (Kaufman &amp; Rousseeuw 1990: below that '
-                         'there is no substantial structure). The map and the table below still show how people differ.</p>'
-                         % ((': %d pizzas, best mean silhouette %.2f (k = %d)' % (n, prof['best_sil'], prof['best_k'])) if prof.get('best_sil') is not None else
-                            (': %d pizzas' % n), CLUSTER_MIN_N, CLUSTER_MIN_SIL))
+        clusters_html = ('<h2>Clusters</h2><p class="verdict">No clear clusters: %s. Hierarchical clustering always splits people into groups, wanted or '
+                         'not, so a split is reported only when it is better than the best split of %d datasets drawn from a single cloud of people with '
+                         'the same correlations between the measures (no types), clustered the same way. People can still differ a lot along continuous '
+                         'dimensions: the map and the table below show how.</p>' % (null_words(prof) if prof.get('families') else
+                                                                                   'it takes at least %d pizzas (here %d)' % (CLUSTER_MIN_N, n), CLUSTER_NULLS))
     return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
             '<title>Pizza Profiles</title><style>%s%s%s</style></head><body><div class="wrap">'
             '<h1>Pizza profiles and clusters</h1>'
             '<p class="muted">Each participant\'s pizza is summarised as a profile of %d measures in %d areas. Each score is standardised across these %d '
             'participants (0 = sample average, ±1 = one standard deviation) and signed so that higher always means <i>more</i> of the named trait. %s</p>'
-            '%s%s'
+            '%s%s%s'
             '<h2>All profiles</h2><p class="muted">One row per participant, ordered by the clustering tree; the coloured band is the cluster. '
             'Orange = above the sample average, blue = below.</p>%s'
             '</div>%s</body></html>'
-            % (REPORT_CSS, DASH_CSS, PROFILE_CSS, len(PROFILE_FEATURES), len({f[0] for f in PROFILE_FEATURES}), n, intro_cl, clusters_html, scatter, heat, script))
+            % (REPORT_CSS, DASH_CSS, PROFILE_CSS, len(PROFILE_FEATURES), len({f[0] for f in PROFILE_FEATURES}), n, intro_cl, discovery_html(recs, prof), clusters_html, scatter, heat, script))
 
 
 def bar_style(z):

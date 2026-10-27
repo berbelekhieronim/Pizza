@@ -5,12 +5,15 @@ The data has KNOWN, built-in differences between groups (the ground truth below)
 test, so the reports should find them: if they do not, the analysis is not working. No result from synthetic data says
 anything about real people.
 
-Ground truth (each person's neurotype is drawn first; everything else follows from it, with noise):
-- autistic (incl. AuDHD): fewer different toppings (each topping 0.75 x as likely, unusual ones 0.5 x), toppings kept
-  apart (spaced layouts), placed in order (mirror or ring layouts 40% vs 15%, grouped by topping 75% vs 45%), more strong
-  feelings with sensory reasons and safe foods, picky eating more common;
-- ADHD (incl. AuDHD): quicker decisions (0.75 x the time), more changes of mind (16% vs 6% per piece), unusual
-  toppings 1.8 x as likely;
+Ground truth. Each person's neurotype is drawn first, then a latent eating STYLE that depends on it, then the pizza:
+- styles (the types the clustering should find):
+  selective - 1-3 familiar toppings, orderly layout (mirror, ring or evenly spaced), grouped by topping, few changes;
+  abundant  - many toppings incl. unusual ones, many pieces piled and touching round a few spots, mixed order;
+  typical   - the usual toppings scattered over the pizza.
+  P(style | neurotype): autistic .60 / .10 / .30 (selective / abundant / typical); ADHD .10 / .55 / .35;
+  AuDHD .35 / .35 / .30; not ND and others .15 / .15 / .70.
+- direct effects as well: ADHD (incl. AuDHD) decides quicker (0.75 x the time) and changes their mind more (16% vs 6%
+  per piece); autistic (incl. AuDHD) report more strong feelings with sensory reasons and safe foods, and picky eating.
 - everyone: half are offered the nutrition button; 60% of them reveal it and 45% of those then take a piece off
   (no group difference built in).
 
@@ -44,14 +47,31 @@ def spaced(R, k, min_d=.2):
     return pts
 
 
+STYLE_P = {'autistic': [.6, .1, .3], 'adhd': [.1, .55, .35], 'audhd': [.35, .35, .3], 'other': [.15, .15, .7]}   # selective / abundant / typical
+
+
+def piled(R, k):
+    """k points in 2-3 heaps: pieces touching and stacked round a few spots."""
+    spots = [(.55 * math.sqrt(R.random()) * math.cos(t), .55 * math.sqrt(R.random()) * math.sin(t)) for t in [R.random() * 6.283 for _ in range(R.choice([2, 3]))]]
+    out = []
+    for _ in range(k):
+        cx, cy = R.choice(spots)
+        out.append((cx + R.gauss(0, .08), cy + R.gauss(0, .08)))
+    return out
+
+
 def person(R, i):
     neuro = R.choices([n for n, _ in NEURO], [w for _, w in NEURO])[0]
     aut, adhd = 'autistic' in neuro, 'adhd' in neuro
+    style = R.choices(['selective', 'abundant', 'typical'], STYLE_P['audhd' if aut and adhd else 'autistic' if aut else 'adhd' if adhd else 'other'])[0]
     diet = R.choices(['none', 'vegetarian', 'vegan', 'pescatarian'], [.76, .14, .05, .05])[0]
-    # which toppings
+    # which toppings: by style
     def p(k):
-        v = BASE[k] * (0.75 if aut else 1) * ((0.5 if aut else 1) * (1.8 if adhd else 1) if k in UNUSUAL else 1)
-        return min(.9, v)
+        if style == 'selective':
+            return 0.0 if k in UNUSUAL else BASE[k] * .45
+        if style == 'abundant':
+            return min(.9, BASE[k] * (2.4 if k in UNUSUAL else 1.6))
+        return BASE[k]
     chosen = [k for k in TRAY if R.random() < p(k)]
     if diet in ('vegetarian', 'vegan'):
         chosen = [k for k in chosen if k not in MEAT | FISH]
@@ -61,13 +81,16 @@ def person(R, i):
         chosen = [k for k in chosen if k not in ANIMAL]
     if not chosen:
         chosen = ['mus'] if diet != 'none' else ['pep']
+    if style == 'selective' and len(chosen) > 3:
+        chosen = chosen[:3]
     plan = []
     for k in chosen:
         plan += [k] * (R.randint(4, 9) if k == 'pep' else R.randint(1, 3) if k in UNUSUAL else R.randint(2, 6))
-    if R.random() > (.75 if aut else .45):          # grouped by topping, or mixed
+    if R.random() > {'selective': .85, 'abundant': .2, 'typical': .45}[style]:     # grouped by topping, or mixed
         R.shuffle(plan)
-    # where the pieces go
-    layout = R.choices(['spaced', 'mirror', 'ring', 'scatter'], [.35, .25, .15, .25] if aut else [.15, .1, .05, .7])[0]
+    # where the pieces go: by style
+    layout = R.choices(['spaced', 'mirror', 'ring', 'scatter', 'piled'],
+                       {'selective': [.4, .35, .25, 0, 0], 'abundant': [0, 0, 0, .25, .75], 'typical': [.1, .05, 0, .85, 0]}[style])[0]
     n = len(plan)
     if layout == 'mirror':
         half = spaced(R, (n + 1) // 2, .25)
@@ -80,6 +103,8 @@ def person(R, i):
         pts = [((.3 if j % 2 else .62) * math.cos(2 * math.pi * j / max(1, n) + .2), (.3 if j % 2 else .62) * math.sin(2 * math.pi * j / max(1, n) + .2)) for j in range(n)]
     elif layout == 'spaced':
         pts = spaced(R, n, .22)
+    elif layout == 'piled':
+        pts = piled(R, n)
     else:
         pts = [(.82 * math.sqrt(R.random()) * math.cos(t), .82 * math.sqrt(R.random()) * math.sin(t)) for t in [R.random() * 6.283 for _ in range(n)]]
     # the log: picks, drops, changes of mind
@@ -91,7 +116,7 @@ def person(R, i):
         if r > .98:
             x, y = x * .98 / r, y * .98 / r
         x, y = round(x, 3), round(y, 3)
-        if R.random() < (.16 if adhd else .06):     # a change of mind: a piece added, then taken back
+        if R.random() < (.16 if adhd else .06) * {'selective': .5, 'abundant': 1.5, 'typical': 1}[style]:     # a change of mind: added, then taken back
             jj, other = 1000 + j, R.choice(TRAY)
             t += int(R.lognormvariate(6.9, .5) * speed); ev.append([t, 'pick', other, jj, 'm'])
             t += 600; ev.append([t, 'add', other, jj, round(R.uniform(-.6, .6), 3), round(R.uniform(-.6, .6), 3), 600, 0, 1, None])
@@ -140,7 +165,7 @@ def person(R, i):
     fol = {'style': 'strong', 'strong': strong, 'none': not strong, 'items': items, 'about': about,
            'diet': [diet] if diet != 'none' else ['none'], 'health': ['none'], 'freq': '1-3m', 'pizza': {}, 'finished': True}
     return {'pz_final': json.dumps(final), 'pz_events': json.dumps(ev), 'pz_summary': json.dumps(summ), 'pzf_data': json.dumps(fol),
-            'synthetic': '1', 'consent': 'synthetic'}, neuro, t
+            'synthetic': '1', 'synthetic_style': style, 'consent': 'synthetic'}, neuro, t
 
 
 def sessions(n=100, study='tests', seed=2026):

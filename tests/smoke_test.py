@@ -394,8 +394,9 @@ def main():
         check('Against chance' not in ex and 'corrected over' in ex and not any(r['key'].startswith(('mv_', 'drop_', 'cons_')) or r['key'] in ('nut_vitC_mg', 'hover_total_ms') for r in screen)
               and 'n_per_group_80' not in exrows[0] and not any(r['grouping'] == 'neurotype' and r['vs'] == 'the rest' for r in screen),
               'Explore audit: one correction over the page, no chance tests, no movement/hover/micronutrient screening, neurotype against Not ND')
-        check(('No clear clusters' in pr) != ('Compare two clusters' in pr) and 'Compare two participants' not in pr,
-              'Profiles: clusters only with a clear structure (20+ pizzas, silhouette 0.25+), compared cluster against cluster')
+        check(('No clear clusters' in pr) != ('Compare two clusters' in pr) and 'Compare two participants' not in pr
+              and 'Searching for types' in pr and pr.count('<td class="l">') >= 4 and 'Build behaviour and preferences' in pr,
+              'Profiles: types searched in four families against no-types datasets; clusters only when they pass; behaviour × preferences')
 
         leads = ex[ex.index('id="leads"'):ex.index('id="g-')]
         check('Device (touch / mouse)' not in ex and 'id="other"' in ex and 'Gender' not in leads and 'Revealed the nutrition while building more often' not in ex
