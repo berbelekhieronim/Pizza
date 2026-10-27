@@ -228,9 +228,13 @@ def live():
     key = os.environ.get('PIZZA_ADMIN_KEY', '')
     code, body = get('/admin', key)
     line(code == 200 and 'Owner: all studies' in body, 'researcher page with PIZZA_ADMIN_KEY', 'HTTP %d' % code)
-    unsafe = sorted(set(c for c in key if not (c.isalnum() or c in '-_.~')))
-    line(not unsafe, 'password is safe to type in a link',
-         'contains %s: use the link with those characters encoded, or choose a password of letters, digits, - and _' % ' '.join(repr(c) for c in unsafe) if unsafe else '')
+    # characters that change a link's meaning when typed into it ('#' cuts it off, '&' starts a new field, ...)
+    unsafe = sorted(set(c for c in key if c in '#&+% ?'))
+    if unsafe:
+        print('::warning::The researcher password contains %s, which breaks it in a link. In the browser type %s as %s, '
+              'or change PIZZA_ADMIN_KEY to letters, digits, - and _ and deploy again.'
+              % (' '.join(repr(c) for c in unsafe), ', '.join(repr(c) for c in unsafe), ', '.join(urllib.parse.quote(c, safe='') for c in unsafe)))
+        print('  note  password in a link                         type %s as %s' % (' '.join(unsafe), ' '.join(urllib.parse.quote(c, safe='') for c in unsafe)))
     return ok
 
 
