@@ -227,7 +227,12 @@ def live():
              res.get('error') or ('bot check first' if res.get('verify') else 'starts'))
     key = os.environ.get('PIZZA_ADMIN_KEY', '')
     code, body = get('/admin', key)
-    line(code == 200 and 'Owner: all studies' in body, 'researcher page with PIZZA_ADMIN_KEY', 'HTTP %d' % code)
+    scode, sbody = get('/admin/api/state', key)
+    try:
+        scope = json.loads(sbody).get('scope')
+    except ValueError:
+        scope = None
+    line(code == 200 and 'Choose a study' in body and scope == 'owner', 'researcher page with PIZZA_ADMIN_KEY', 'HTTP %d, %s' % (code, scope or 'no access'))
     # characters that change a link's meaning when typed into it ('#' cuts it off, '&' starts a new field, ...)
     unsafe = sorted(set(c for c in key if c in '#&+% ?'))
     if unsafe:
