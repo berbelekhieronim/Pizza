@@ -37,6 +37,9 @@ h1{font-size:1.35rem;margin:4px 0 4px}h2{font-size:1.05rem;margin:0 0 10px}
 .kpi.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--panel))}.kpi.ok b{color:var(--ok)}
 .kpi.warn{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--panel))}.kpi.warn b{color:var(--warn)}
 b.warn{color:var(--warn)}
+.synbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:10px 0 0;padding:8px 12px;border:1px solid #7b3fa0;border-left-width:4px;border-radius:10px;background:color-mix(in srgb,#7b3fa0 7%,var(--panel));font-size:.9rem}
+.synbar b{color:#7b3fa0}.synbar select{padding:3px 6px}
+.syn{display:inline-block;margin-left:6px;font-size:.72rem;padding:0 6px;border-radius:999px;border:1px solid #7b3fa0;color:#7b3fa0;font-weight:600}
 .incl{font-size:.8rem;padding:1px 7px;border-radius:999px;white-space:nowrap;border:1px solid var(--line)}
 .incl.in{color:var(--ok,#2e7d32);border-color:currentColor}.incl.out{color:var(--warn);border-color:currentColor}.incl.none{color:var(--muted)}
 select.incl{font-size:.8rem;padding:2px 6px;border-radius:999px;border:1.5px solid currentColor;background:var(--panel);cursor:pointer;font-weight:600}
@@ -97,6 +100,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
   <!-- 2. one study -->
   <section id="view" hidden>
     <div class="head"><div><h1 id="title"></h1><p class="muted small" id="desc"></p></div><div class="kpis" id="kpis"></div></div>
+    <div class="synbar" id="synbar" hidden></div>
     <nav class="tabs" role="tablist" id="tabs">
       <button role="tab" data-tab="overview">Overview</button>
       <button role="tab" data-tab="sessions">Sessions</button>
@@ -217,7 +221,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     if (scope !== 'study') {
       pick.hidden = false;
       pick.innerHTML = '<option value="">Choose a study…</option><option value="all">All studies together</option>'
-        + S.studies.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.id) + ' (' + s.n + ')</option>'; }).join('');
+        + S.studies.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.id) + ' (' + s.n + (s.synthetic && s.synthetic.stored ? ' + ' + s.synthetic.stored + ' synthetic' : '') + ')</option>'; }).join('');
       pick.value = S.study || '';
     }
     if (S.msg && !render.shown) { $('msg').textContent = S.msg; $('msg').hidden = false; render.shown = true; }
@@ -234,6 +238,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
         + '<span class="stat"><b>' + s.done + '</b><span>finished</span></span>'
         + '<span class="stat"><b>' + esc(when(s.last).slice(0, 10)) + '</b><span>last started</span></span></span>'
         + '<span class="small muted">Personal links: ' + s.invites[0] + ' made, ' + s.invites[1] + ' opened, ' + s.invites[2] + ' finished'
+        + (s.synthetic && s.synthetic.stored ? ' · <span class="syn">+' + s.synthetic.stored + ' synthetic</span>' : '')
         + (s.nutrition_reveal ? ' · <span class="pill on">nutrition button</span>' : '') + (s.nutrition_panel ? ' · <span class="pill on">nutrition panel</span>' : '') + '</span></a>';
     });
     cards.push('<a class="scard" href="?' + new URLSearchParams({ key: KEY, study: 'all' }) + '"><span class="name">All studies together</span>'
@@ -255,6 +260,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     $('desc').textContent = all ? 'Every session, all studies.' : s.description;
     kpiRefresh();
     buildBar();
+    synBar();
     // links & data
     var studiesHere = all ? S.studies : [s];
     $('plinks').innerHTML = studiesHere.map(function (st) {
@@ -292,9 +298,9 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
       sel.innerHTML = '<option value="">any</option>' + vals.map(function (v) { return '<option value="' + esc(v) + '">' + esc((names || {})[v] || v) + '</option>'; }).join('');
     }
     opts(f.grp, S.options.grp); opts(f.source, S.options.source); opts(f.cond, S.options.cond);
-    opts(f.stage, Object.keys(S.stages).concat(['active', 'stopped', 'included', 'left_out']),
+    opts(f.stage, Object.keys(S.stages).concat(['active', 'stopped', 'included', 'left_out', 'real', 'synthetic']),
       Object.assign({}, S.stages, { active: 'in progress now', stopped: 'stopped (no activity ' + (S.idle_minutes || 30) + ' min)',
-        included: 'pizza in the analysis', left_out: 'pizza left out of the analysis' })); opts(f.neuro, Object.keys(S.neuro), S.neuro);
+        included: 'pizza in the analysis', left_out: 'pizza left out of the analysis', synthetic: 'synthetic (simulated) only', real: 'real participants only' })); opts(f.neuro, Object.keys(S.neuro), S.neuro);
     copyButtons();
     show(location.hash.slice(1) || 'overview');
   }
@@ -387,7 +393,9 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     if (!d) return;
     var a = analysisTile();
     var idle = S.idle_minutes || 30;
-    $('kpis').innerHTML = [[d.n, 'opened the link', 'every session: a participant (or a new tab) opened the link'],
+    var syn = (S.study === 'all' ? S.studies : [d]).reduce(function (t, x) { return t + (x.synthetic ? x.synthetic.stored : 0); }, 0);
+    $('kpis').innerHTML = [[d.n, 'opened the link' + (syn ? ' (+' + syn + ' synthetic)' : ''), 'every real session: a participant (or a new tab) opened the link'
+      + (syn ? '; the synthetic test sessions are not counted in these tiles' : '')],
       [d.built, 'built a pizza', 'pressed "I\'m done" on the build: their pizza is in the reports'],
       [d.done + ' · ' + pct(d.done, d.n), 'finished', 'reached the thank-you page after the questions'],
       [d.active, 'in progress now', 'unfinished, saved within the last ' + idle + ' minutes'],
@@ -395,6 +403,31 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
       [mins(d.median_seconds), 'median time (finished)', ''], [shortTime(d.last), 'last started', '']]
       .map(function (k) { return '<div class="kpi" title="' + esc(k[2]) + '"><b>' + esc(k[0]) + '</b><span>' + esc(k[1]) + '</span></div>'; }).join('')
       + '<div class="' + a[0] + '" title="' + esc(a[2]) + '"><b>' + esc(a[1]) + '</b><span>' + esc(a[2]) + '</span></div>';
+  }
+  // A test study's synthetic data: how many synthetic pizzas it holds (0 = none), chosen here, always on top of the page
+  function synStudy() {
+    if (S.study === 'all') return S.studies.filter(function (x) { return x.synthetic; })[0] || null;
+    var s = current(); return s && s.synthetic ? s : null;
+  }
+  function synBar() {
+    var s = synStudy(), el = $('synbar');
+    if (!s) { el.hidden = true; return; }
+    var y = s.synthetic, pending = y.stored !== y.n;
+    el.hidden = false;
+    el.innerHTML = '<span><b>Synthetic test data</b>' + (S.study === 'all' ? ' (study ' + esc(s.id) + ')' : '') + '</span>'
+      + '<label class="small">Include <select id="synn">' + y.choices.map(function (c) { return '<option value="' + c + '"' + (c === y.n ? ' selected' : '') + '>' + c + '</option>'; }).join('')
+      + '</select> simulated pizzas</label><button type="button" class="small" id="synbuild">Generate and build</button>'
+      + '<span class="muted small">' + (pending ? 'Now ' + y.stored + ' stored: the next build brings it to ' + y.n + '.' : y.stored + ' synthetic sessions in this study, flagged SYN-… everywhere; the real counts above leave them out.')
+      + ' They have known, built-in group differences, so the reports show what each comparison looks like and whether it finds them. 0 removes them.</span>';
+    $('synbuild').onclick = function () {
+      var b = this; b.disabled = true;
+      fetch('/admin/api/synthetic?' + q(), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+        body: new URLSearchParams({ study: s.id, n: $('synn').value, build: '1' }) })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { if (!d.ok) throw new Error('refused'); return load(S.study); })
+        .then(function () { if (S.reports_build_on_open) reloadReports(); })
+        .catch(function () { b.disabled = false; alert('Could not change the synthetic data. Reload the page and try again.'); });
+    };
   }
   function reloadReports() {
     [].forEach.call(document.querySelectorAll('iframe.report'), function (fr) { fr.removeAttribute('src'); });
@@ -437,6 +470,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
         return '<tr>' + cols.map(function (c) {
           var v = r[c[0]];
           if (c[0] === 'study') v = v || 'main';
+          if (c[0] === 'pid' && String(v).indexOf('SYN-') === 0) return '<td>' + esc(v) + '<span class="syn" title="Synthetic test data (simulated), not a participant">synthetic</span></td>';
           if (c[0] === 'stage') {
             var idle = r.stage !== 'done' && r.updated && Date.now() - Date.parse(r.updated) > (S.idle_minutes || 30) * 60000;
             v = (idle ? 'stopped at ' : '') + (S.stages[v] || v) + (idle ? ' (last saved ' + shortTime(r.updated) + ')' : '');

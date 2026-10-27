@@ -281,6 +281,12 @@ else and labelled with where each person came from:
    hold that study only. *All studies* puts everything together, and the analysis then compares studies (`study`) and
    recruitment sources (`source`) like any other grouping.
 
+**Synthetic test data.** The `tests` study can hold simulated pizzas (study.json `"synthetic": 100`; the bar at the top
+of its researcher page chooses 0, 25, 50, 100, 200 or 500). They are made by `analysis/synthetic.py` with known,
+built-in group differences, flagged everywhere (ids SYN-…, a badge, a filter, a banner on every report, a `synthetic`
+column) and left out of the real counts. Use them to see every report filled in, and to check that the analysis finds
+differences that are really there.
+
 What a pilot gives for the larger study (in `explore.html`):
 - **Ideas to test** – nine leads from what is known about eating in autism and ADHD (e.g. fewer, more familiar
   toppings; foods kept apart; neurodivergent people make more unusual pizzas), each with an expected direction, tested

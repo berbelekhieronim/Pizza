@@ -1,6 +1,6 @@
 // The researcher page's data on Cloudflare: /admin/api/state, the same shape as Handler.state() in server/server.py.
 // The page itself is server/admin.html, shared by both servers.
-import { loadStudy, studies, scopeName } from './config.js';
+import { loadStudy, studies, scopeName, SYNTHETIC_CHOICES } from './config.js';
 
 export const ALL_KEY = '*';               // study_keys row of the researcher link for all studies
 const STAGE_NAMES = { intro: 'reading the intro', practice: 'practice', build: 'building', typical: 'typical pizza', followup: 'questions', done: 'finished' };
@@ -29,12 +29,21 @@ function openLinks(r, sid) {
   return [['Anyone', base + (sid ? '?' + enc(q) : '')]].concat((loadStudy(sid).groups || []).map((g) => ['Group ' + g, base + '?' + enc({ ...q, group: g })]));
 }
 
+export async function syntheticN(st, sid) {
+  // how many synthetic sessions a test study holds: the researcher's choice, else its study.json default (0 = none)
+  const cfg = loadStudy(sid);
+  if (!sid || !cfg.synthetic) return 0;
+  const v = await st.meta('synthetic_n:' + sid);
+  return v !== null && /^\d+$/.test(v) ? parseInt(v, 10) : cfg.synthetic;
+}
+
 async function buildStatus(st, token, autoReports) {
   // the reports job as the researcher page shows it: running / done / failed with its log, and a pending request
   let status = null;
   try { status = JSON.parse((await st.meta('reports_status')) || 'null'); } catch (e) { status = null; }
   if (status && status.state === 'running' && Date.now() - Date.parse(status.updated) > 30 * 60 * 1000) status.state = 'failed';   // silent for 30 min
-  const last = (await st.db.prepare("SELECT MAX(u) AS u FROM (SELECT MAX(updated) AS u FROM sessions UNION ALL SELECT MAX(updated) FROM fields WHERE name = 'inclusion')").first()).u;
+  const last = (await st.db.prepare("SELECT MAX(u) AS u FROM (SELECT MAX(updated) AS u FROM sessions UNION ALL SELECT MAX(updated) FROM fields WHERE name = 'inclusion' "
+    + "UNION ALL SELECT MAX(v) FROM meta WHERE k LIKE 'synthetic_at:%')").first()).u;
   const built = await st.meta('reports_built_upto');
   const pending = !!last && (!built || last > built);
   return { status, wanted: await st.meta('reports_wanted'), instant: token, auto: token && autoReports, pending, last_save: last,
@@ -50,12 +59,13 @@ export async function adminState(r, scope, f) {
   for (const sid of ids) {
     const cfg = loadStudy(sid);
     const invs = await st.invites(sid);
-    const [n, done, built, active] = counts[sid] || [0, 0, 0, 0];
+    const [n, done, built, active, syn] = counts[sid] || [0, 0, 0, 0, 0];
     const row = {
       id: sid || 'main', title: cfg.title || '', description: cfg.description || (sid ? '' : 'The main study'), n, done, built, active, stopped: n - done - active,
       last: await st.lastStarted(sid), median_seconds: await st.medianSeconds(sid),
       invites: [invs.length, invs.filter((i) => i.stage).length, invs.filter((i) => i.stage === 'done').length],
       links: openLinks(r, sid), nutrition_reveal: !!cfg.nutrition_reveal, nutrition_panel: !!cfg.nutrition_panel,
+      synthetic: sid && cfg.synthetic ? { n: await syntheticN(st, sid), stored: syn, choices: SYNTHETIC_CHOICES } : null,
     };
     if (own) row.researcher_link = r.base() + '/admin?' + new URLSearchParams({ key: await st.studyKey(sid) });
     out.push(row);

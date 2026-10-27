@@ -5,10 +5,10 @@
 //   (.github/workflows/reports.yml -> tools/cloud_sync.py) and kept in R2 (env.FILES), one set per study and one for
 //   all studies; this Worker serves them and asks GitHub to build them on "Build reports" (or, with REPORTS_AUTO, when sessions finish).
 // Static files (index.html = server/participate.html, pizza-builder.js) are in ./public (env.ASSETS).
-import { Store, STAGES, ACTIVITY, ANALYSIS, randomToken, storageUsed, fileSizes, countOp, opsThisMonth } from './store.js';
-import { adminState, deniedPage, notBuilt, ALL_KEY } from './admin.js';
+import { Store, STAGES, ACTIVITY, ANALYSIS, now, randomToken, storageUsed, fileSizes, countOp, opsThisMonth } from './store.js';
+import { adminState, deniedPage, notBuilt, syntheticN, ALL_KEY } from './admin.js';
 import ADMIN_HTML from '../../server/admin.html';      // the researcher page, shared with server/server.py
-import { STUDY_RE, STUDY_KEYS, FILTER_KEYS, loadStudy, studies, scopeName } from './config.js';
+import { STUDY_RE, STUDY_KEYS, FILTER_KEYS, SYNTHETIC_CHOICES, loadStudy, studies, scopeName } from './config.js';
 
 const PID_RE = /^[A-Za-z0-9_-]{4,64}$/;
 const MAX_BODY = 2_000_000;
@@ -288,7 +288,8 @@ class Request_ {
       return html(deniedPage(), 403);
     }
     const owner = scope[0] === 'owner';
-    if (this.req.method === 'PUT' || route === '/admin/signatures' || route === '/admin/storage' || route === '/admin/status' || route.startsWith('/admin/export') || route.startsWith('/admin/files/')) {
+    if (this.req.method === 'PUT' || route === '/admin/signatures' || route === '/admin/storage' || route === '/admin/status' || route === '/admin/synthetic-sync'
+        || route.startsWith('/admin/export') || route.startsWith('/admin/files/')) {
       if (!owner) return text('Not found', 404);
       return this.machine(route);
     }
@@ -338,6 +339,18 @@ class Request_ {
 
   async post(route, scope, f) {
     let msg = '';
+    if (route === '/admin/api/synthetic') {
+      // a test study's synthetic sessions: how many. Saved now; the next build adds or removes them and rebuilds
+      const form = Object.fromEntries(new URLSearchParams((await this.req.text()).slice(0, 2000)));
+      const sid = form.study || '', n = parseInt(form.n, 10);
+      const ok = studies().includes(sid) && !!loadStudy(sid).synthetic && SYNTHETIC_CHOICES.includes(n) && (scope[0] !== 'study' || scope[1] === sid);
+      if (ok) {
+        await this.store.setMeta('synthetic_n:' + sid, String(n));
+        await this.store.setMeta('synthetic_at:' + sid, now());
+        if (form.build) await this.requestReports(true);
+      }
+      return json({ ok }, ok ? 200 : 404);
+    }
     if (route === '/admin/api/inclusion') {
       // the Sessions tab: analyse this session or not. The choice counts as new data (signatures), so the reports show
       // as out of date until the next build; with automatic reports, one build is queued (several choices = one build).
@@ -379,7 +392,16 @@ class Request_ {
   async machine(route) {
     // owner-only routes for the reports job (tools/cloud_sync.py): what changed, the data, and storing the results
     if (route === '/admin/signatures') {
-      return json({ signatures: await this.store.signatures(), studies: studies(), wanted: await this.store.meta('reports_wanted') });
+      const synthetic = {};
+      for (const sid of studies()) if (loadStudy(sid).synthetic) synthetic[sid] = await syntheticN(this.store, sid);
+      return json({ signatures: await this.store.signatures(), studies: studies(), wanted: await this.store.meta('reports_wanted'), synthetic });
+    }
+    if (route === '/admin/synthetic-sync' && this.req.method === 'POST') {
+      // the reports job brings a test study's synthetic sessions to the chosen number (body: {study, add: [...], keep})
+      let b;
+      try { b = JSON.parse(await this.req.text()); } catch (e) { return json({ ok: false }, 400); }
+      if (!loadStudy(b.study).synthetic || !studies().includes(b.study) || !Array.isArray(b.add) || b.add.length > 60) return json({ ok: false }, 400);
+      return json({ ok: true, stored: await this.store.syncSynthetic(b.study, b.add, Math.max(0, parseInt(b.keep, 10) || 0)) });
     }
     if (route === '/admin/status' && this.req.method === 'POST') {
       // progress of the reports job, shown on the researcher page: {state: running|done|failed, line, run_url}

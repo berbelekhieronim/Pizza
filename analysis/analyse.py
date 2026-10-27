@@ -1835,6 +1835,22 @@ def inclusion_choice(row):
     return v if v in ('include', 'exclude') else ''
 
 
+def synthetic_banner(entries):
+    """A function that puts a banner under a report's title when synthetic pizzas (analysis/synthetic.py) are in it."""
+    n_syn = sum(1 for r, _ in entries if r.get('synthetic'))
+    if not n_syn:
+        return lambda html: html
+    note = ('<p class="verdict" style="border-left-color:#7b3fa0;background:color-mix(in srgb,#7b3fa0 8%%,transparent)"><b>Includes %d synthetic pizzas</b> '
+            '(simulated, ids SYN-…) and %d real ones. The synthetic people have known, built-in differences (autistic: fewer and more familiar '
+            'toppings, kept apart, in order, more sensory reasons; ADHD: quicker, more changes of mind, more unusual toppings; analysis/synthetic.py), '
+            'so the reports should find those: a check that the analysis works, and a preview of what each comparison looks like. '
+            'Nothing here describes real people.</p>' % (n_syn, len(entries) - n_syn))
+    def add(html):
+        i = html.find('</h1>')
+        return html if i < 0 else html[:i + 5] + note + html[i + 5:]
+    return add
+
+
 def data_check(rows, builds, people, left_out):
     """Do the sessions and the analysed pizzas add up? Counts for the Data check section and the researcher page."""
     own, typ = builds[0].rstrip('_'), (builds[1].rstrip('_') if len(builds) > 1 else None)
@@ -1853,7 +1869,8 @@ def data_check(rows, builds, people, left_out):
            'flags': {k: sorted(p['pid'] for p in mine if p.get(k)) for k in ('flag_fast', 'flag_empty', 'flag_tab_away')},
            'restarted': sorted(p['pid'] for p in mine if p.get('restarts')),
            'versions': dict(Counter(str(p.get('task_version') or '?') for p in mine)),
-           'test_sessions': sum((r.get('study') or '') == 'tests' for r in rows)}
+           'test_sessions': sum((r.get('study') or '') == 'tests' for r in rows),
+           'synthetic': sum(1 for p in mine if p.get('synthetic'))}
     if staged:
         # the sessions whose own pizza should be in the analysis: past the build, or kept in by the researcher; less those
         # the researcher left out
@@ -1873,7 +1890,9 @@ def data_check_html(c):
         return ''
     li = lambda s: '<li>%s</li>' % s
     st = ', '.join('%s %d' % (l, c['stages'][k]) for k, l in STAGE_LABELS if c['stages'].get(k))
-    items = [li('<b>%d sessions</b> in this data%s.' % (c['sessions'], ('. Where each one is now: ' + esc(st)) if st else '')),
+    items = [li('<b>%d sessions</b> in this data%s.' % (c['sessions'], ('. Where each one is now: ' + esc(st)) if st else ''))] + (
+        [li('<b>%d of the analysed pizzas are synthetic</b> (simulated test data, ids SYN-…), %d are real.' % (c['synthetic'], c['own'] - c['synthetic']))]
+        if c.get('synthetic') else []) + [
              li('<b>%d own pizzas analysed</b>: everyone who pressed "I\'m done" on their own pizza. Every chart, test and download uses these.' % c['own'])]
     if c['left_out']:
         parts = []
@@ -3400,7 +3419,8 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
     html = (head + readiness + '<p class="lead"><b>For exploring, not confirming.</b> First the ideas worth testing, then the best-supported leads, then each '
             'grouping in full (%d measures, %d of them per topping). Effects are Cliff\'s δ (−1 to 1: how often a value from the group is higher than one from '
             'the comparison, minus how often lower; for yes/no measures, the difference in percentages); p from a Mann-Whitney test (by permutation under 8 '
-            'per group); q the Benjamini-Hochberg false discovery rate within each grouping; bootstrap 95%% intervals.</p><div class="chips">%s</div>'
+            'per group); q the Benjamini-Hochberg false discovery rate over a family of questions (the study\'s groupings with the self-reports; demographics '
+            'apart; the ideas apart); bootstrap 95%% intervals for groups of 5 or more.</p><div class="chips">%s</div>'
             % (len(defs), len([d for d in defs if d[0].startswith(TOPPING_AREAS)]), nav)
             + planned_html(planned, groupings, covariates) + leads_html
             + ''.join(body)
@@ -3542,6 +3562,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             rec['flag_fast'] = int(rec['t_finish'] is not None and rec['t_finish'] < 15000)
             rec['flag_empty'] = int(n == 0)
             rec['task_version'] = summary.get('v')
+            rec['synthetic'] = int(str(pid).startswith('SYN-') or field(row, 'synthetic') == '1')   # analysis/synthetic.py
             rec['inclusion'] = 'researcher' if choice == 'include' else 'auto'
             try:                                   # study server: times the participant came back and restarted a part
                 rec['restarts'] = int(field(row, 'restarts') or 0)
@@ -3674,15 +3695,16 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
     for rec, _ in arrangement:
         v = rec.get(primary)
         rec['_group'] = str(v) if v not in (None, '') else ('not stated' if primary == 'neurotype' else 'all')
+    flag = synthetic_banner(own_entries)          # on every report when synthetic pizzas are in it
     with open(os.path.join(out_dir, 'arrangement.html'), 'w', encoding='utf-8') as f:
-        f.write(arrangement_report(arrangement, group_label))
+        f.write(flag(arrangement_report(arrangement, group_label)))
     with open(os.path.join(out_dir, 'dashboard.html'), 'w', encoding='utf-8') as f:
-        f.write(dashboard_report(own_entries, ref_info, group_label, check))
+        f.write(flag(dashboard_report(own_entries, ref_info, group_label, check)))
     prof = profile_analysis(own_entries, k_force)
     for (rec, _), z, lab in zip(own_entries, prof['Z'], prof['labels']):
         rec['cluster'] = lab + 1 if prof['k'] > 1 else None
     with open(os.path.join(out_dir, 'profiles.html'), 'w', encoding='utf-8') as f:
-        f.write(profiles_report(own_entries, prof, group_label))
+        f.write(flag(profiles_report(own_entries, prof, group_label)))
     write_csv(os.path.join(out_dir, 'profiles.csv'), [
         dict([('pid', r['pid']), ('group', r['_group']), ('cluster', r.get('cluster'))] + [('z_' + f[1], round(v, 4)) for f, v in zip(PROFILE_FEATURES, z)])
         for (r, _), z in zip(own_entries, prof['Z'])])
@@ -3692,7 +3714,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
     covs = EXPLORE_COVARIATES + [(c, c) for c in covariates or [] if c not in dict(EXPLORE_COVARIATES)]
     html, tests = explore_report([r for r, _ in own_entries], toppings, groupings, covs, seed)
     with open(os.path.join(out_dir, 'explore.html'), 'w', encoding='utf-8') as f:
-        f.write(html)
+        f.write(flag(html))
     write_csv(os.path.join(out_dir, 'explore.csv'), [
         dict({k: t.get(k) for k in ('grouping', 'level', 'vs', 'area', 'key', 'label', 'n1', 'n0', 'm1', 'm0', 'delta', 'n_per_group_80_half')},
              p='%.3g' % t['p'], q='%.3g' % t['q']) for t in tests]

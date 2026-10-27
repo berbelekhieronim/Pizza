@@ -34,6 +34,7 @@ import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'server'))
+sys.path.insert(1, os.path.join(ROOT, 'analysis'))                # synthetic.py
 from store import Store  # noqa: E402
 from server import R_FILES, R_README  # noqa: E402
 
@@ -176,6 +177,31 @@ def build_scope(st, db_path, scope, work):
     return files, n, check
 
 
+def sync_synthetic(site, wanted):
+    """Brings each test study's synthetic sessions (analysis/synthetic.py) to the number chosen on the researcher page:
+    sends the missing ones, and the site removes those above it. True if anything changed."""
+    import synthetic
+    changed = False
+    for sid, n in wanted.items():
+        have, page = set(), 1
+        while True:                                             # the synthetic sessions the site holds now
+            d = site.get_json('/admin/api/sessions', study=sid, stage='synthetic', page=page) or {'rows': [], 'pages': 1}
+            have |= {r['pid'] for r in d['rows']}
+            if page >= d.get('pages', 1):
+                break
+            page += 1
+        add = [x for x in synthetic.sessions(n, sid) if x['pid'] not in have]
+        drop = sum(1 for p in have if int(p[len(synthetic.PREFIX):]) > n)
+        if not add and not drop:
+            continue
+        for i in range(0, max(len(add), 1), 50):
+            body = json.dumps({'study': sid, 'add': add[i:i + 50], 'keep': n}).encode()
+            site._req('POST', '/admin/synthetic-sync', data=body, ctype='application/json')
+        site.status('waiting', '%s: synthetic sessions brought to %d (%d added, %d removed).' % (sid, n, len(add), drop))
+        changed = True
+    return changed
+
+
 def brief_check(c):
     """What the researcher page shows of the data check: the counts and whether sessions and pizzas add up."""
     return {k: c[k] for k in ('sessions', 'typical', 'left_out', 'built_sessions', 'ok') if k in c} or None
@@ -206,6 +232,8 @@ def main():
             break
         site.status('waiting', step='Waiting for %d quiet minutes after the last save (last save %s UTC)' % (a.wait // 60, last[11:19]))
         time.sleep(min(left + 2, 60))
+        info = site.get_json('/admin/signatures')
+    if sync_synthetic(site, info.get('synthetic') or {}):    # a test study's synthetic sessions changed: new signatures
         info = site.get_json('/admin/signatures')
     sigs = info['signatures']
     state = site.get_json('/admin/files/state.json') or {}

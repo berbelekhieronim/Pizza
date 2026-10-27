@@ -61,7 +61,8 @@ SORTABLE = ('pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces
 STAGES = ('intro', 'practice', 'build', 'typical', 'followup', 'done')
 IDLE_MINUTES = 30            # an unfinished session with no save for this long counts as stopped (it can still resume)
 ACTIVITY = ('active', 'stopped')   # extra values of the "where" filter, from the time of the last save
-ANALYSIS = ('included', 'left_out')  # ... and from whether the session's pizza is in the analysis
+ANALYSIS = ('included', 'left_out', 'synthetic', 'real')  # ... from whether the session's pizza is analysed, or is synthetic
+SYN_SQL = "pid LIKE 'SYN-%'"        # synthetic sessions of a test study (analysis/synthetic.py): ids SYN-001 ...
 # The researcher's choice for a session (field 'inclusion', never taken from a participant's save): 'include',
 # 'exclude' or 'auto' (kept, so that going back to automatic also rebuilds the reports); no field = automatic: a session past the build (its own pizza finished) is analysed, one that stopped
 # with a pizza started is left out (analysis/analyse.py applies the same rule)
@@ -202,6 +203,10 @@ class Store:
             sql.append(INCLUDED_SQL)
         elif f.get('stage') == 'left_out':
             sql.append(LEFT_OUT_SQL)
+        elif f.get('stage') == 'synthetic':
+            sql.append(SYN_SQL)
+        elif f.get('stage') == 'real':
+            sql.append('NOT ' + SYN_SQL)
         for col in ('grp', 'source', 'stage', 'cond'):
             if col == 'stage' and f.get(col) in ACTIVITY + ANALYSIS:
                 continue
@@ -231,21 +236,57 @@ class Store:
         return [r[0] for r in self.db().execute('SELECT DISTINCT %s FROM sessions%s ORDER BY 1' % (col, w), a) if r[0] != '']
 
     def last_started(self, study):
-        """When the newest session of a study (None = all) started."""
+        """When the newest real session of a study (None = all) started."""
         w, a = self.where({'study': study})
-        return self.db().execute('SELECT MAX(started) FROM sessions' + w, a).fetchone()[0]
+        return self.db().execute('SELECT MAX(started) FROM sessions%s %s NOT %s' % (w, 'AND' if w else 'WHERE', SYN_SQL), a).fetchone()[0]
 
     def median_seconds(self, study):
-        """Median time taken by the finished sessions of a study (None = all)."""
+        """Median time taken by the finished real sessions of a study (None = all)."""
         w, a = self.where({'study': study, 'stage': 'done'})
-        v = sorted(r[0] for r in self.db().execute('SELECT seconds FROM sessions%s' % w, a) if r[0] is not None)
+        v = sorted(r[0] for r in self.db().execute('SELECT seconds FROM sessions%s AND NOT %s' % (w, SYN_SQL), a) if r[0] is not None)
         return None if not v else (v[len(v) // 2] if len(v) % 2 else (v[len(v) // 2 - 1] + v[len(v) // 2]) / 2)
 
     def counts_by_study(self):
-        """{study: (sessions, finished, built a pizza, in progress now)}; the rest of the unfinished ones have stopped."""
-        return {r['study']: (r['n'], r['done'] or 0, r['built'] or 0, r['active'] or 0) for r in self.db().execute(
-            "SELECT study, COUNT(*) n, SUM(stage = 'done') done, SUM(stage IN ('typical', 'followup', 'done')) built, "
-            "SUM(stage != 'done' AND updated >= ?) active FROM sessions GROUP BY study", (idle_cutoff(),))}
+        """{study: (sessions, finished, built a pizza, in progress now, synthetic)} of the real sessions (the synthetic
+        ones are counted apart); the rest of the unfinished real ones have stopped."""
+        return {r['study']: (r['n'] or 0, r['done'] or 0, r['built'] or 0, r['active'] or 0, r['syn'] or 0) for r in self.db().execute(
+            "SELECT study, SUM(NOT %s) n, SUM(NOT %s AND stage = 'done') done, SUM(NOT %s AND stage IN ('typical', 'followup', 'done')) built, "
+            "SUM(NOT %s AND stage != 'done' AND updated >= ?) active, SUM(%s) syn FROM sessions GROUP BY study" % ((SYN_SQL,) * 5), (idle_cutoff(),))}
+
+    # ---- settings kept in the database
+    def meta(self, k):
+        r = self.db().execute('SELECT v FROM meta WHERE k = ?', (k,)).fetchone()
+        return r['v'] if r else None
+
+    def set_meta(self, k, v):
+        with self.tx() as db:
+            db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', (k, str(v)))
+
+    # ---- synthetic sessions of a test study
+    def synthetic_count(self, study):
+        return self.db().execute('SELECT COUNT(*) FROM sessions WHERE study = ? AND ' + SYN_SQL, (study,)).fetchone()[0]
+
+    def sync_synthetic(self, study, n):
+        """Makes the study hold exactly synthetic sessions SYN-001 … SYN-n (analysis/synthetic.py; the same ids always
+        give the same sessions). Returns (added, removed)."""
+        import synthetic                                     # analysis/ is on the path (server.py)
+        have = {r[0] for r in self.db().execute('SELECT pid FROM sessions WHERE study = ? AND ' + SYN_SQL, (study,))}
+        want = synthetic.sessions(n, study) if n else []
+        keep = {x['pid'] for x in want}
+        add = [x for x in want if x['pid'] not in have]
+        drop = [p for p in have if p not in keep]
+        with self.tx() as db:
+            for x in add:
+                db.execute('INSERT OR IGNORE INTO sessions (pid, study, grp, source, invite, cond, stage, started, updated, finished, seconds, restarts, consent, '
+                           'n_pieces, neuro) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                           [x[c] for c in ('pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'seconds',
+                                           'restarts', 'consent', 'n_pieces', 'neuro')])
+                db.executemany('INSERT OR REPLACE INTO fields (pid, name, value, updated) VALUES (?, ?, ?, ?)',
+                               [(x['pid'], k, v, x['updated']) for k, v in x['fields'].items()])
+            for p in drop:
+                db.execute('DELETE FROM fields WHERE pid = ?', (p,))
+                db.execute('DELETE FROM sessions WHERE pid = ?', (p,))
+        return len(add), len(drop)
 
     def records(self, f):
         """Every matching session as a dict with its fields (for exports and the analysis), oldest first."""

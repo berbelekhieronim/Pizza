@@ -5,6 +5,20 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Synthetic test data for the test study** (`analysis/synthetic.py`)
+- A bar at the top of the researcher page (test study, and "all studies"): **Include [0 / 25 / 50 / 100 / 200 / 500]
+  simulated pizzas → Generate and build**. Default 100 (study.json `"synthetic": 100`, only on `tests`). On Cloudflare
+  the build adds or removes synthetic sessions to match; on the codespace server it happens at once.
+- The synthetic people have **known, built-in group differences** (autistic: fewer and more familiar toppings, kept
+  apart, in order, more sensory reasons; ADHD: quicker, more changes of mind, more unusual toppings), so the reports
+  show what every comparison looks like and whether the analysis finds a difference that is really there. The same
+  number always gives the same people (200 = the first 100 + 100 more).
+- **Flagged everywhere**: ids SYN-…; a "synthetic" badge and a "real / synthetic only" filter on the Sessions tab;
+  "+100 synthetic" on the study picker and the tiles, which count real sessions only (also last started and median
+  time); a banner on every report ("Includes 100 synthetic pizzas … nothing here describes real people"); a
+  `synthetic` column in participants.csv; synthetic and real counts in the Data check.
+- 500 synthetic sessions take about 1.6 MB of the database.
+
 **Analysis audit: no smoke and mirrors** (`docs/analysis-audit.md` lists every change and its reason)
 - **One correction per family of questions.** The false discovery rate was corrected within each grouping while the
   page made about 3,400 comparisons. Now the study's groupings and the self-reports are corrected together (about 900

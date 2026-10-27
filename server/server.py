@@ -39,6 +39,7 @@ import zipfile
 from html import escape
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(1, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'analysis'))   # synthetic.py
 from store import Store, SORTABLE, STAGES, ACTIVITY, ANALYSIS  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -51,7 +52,17 @@ BUILD_LOCK = threading.Lock()
 
 STUDY_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 STUDY_KEYS = ('title', 'intro', 'consent', 'completion_message', 'completion_redirect', 'typical_build', 'about_you', 'conditions', 'groups',
-              'nutrition_panel', 'nutrition_show', 'nutrition_base', 'nutrition_reveal', 'condition_settings')
+              'nutrition_panel', 'nutrition_show', 'nutrition_base', 'nutrition_reveal', 'condition_settings', 'synthetic')
+SYNTHETIC_CHOICES = (0, 25, 50, 100, 200, 500)        # synthetic pizzas a test study can hold (study.json "synthetic" = the default)
+
+
+def synthetic_n(store, sid):
+    """How many synthetic sessions a study holds: the researcher's choice, else its study.json default (0 = none)."""
+    cfg = load_study(sid) if sid else {}
+    if not cfg.get('synthetic'):
+        return 0
+    v = store.meta('synthetic_n:' + sid)
+    return int(v) if v is not None and v.isdigit() else int(cfg['synthetic'])
 
 
 def load_study(study_id=''):
@@ -81,6 +92,9 @@ class Study:
         n = self.store.import_files(self.data)              # sessions saved as JSON files by earlier versions, once
         if n:
             print('  Imported %d earlier session%s into the database.' % (n, '' if n == 1 else 's'), flush=True)
+        for sid in studies():                               # a test study's synthetic sessions (study.json "synthetic")
+            if load_study(sid).get('synthetic'):
+                self.store.sync_synthetic(sid, synthetic_n(self.store, sid))
 
     def resolve(self, invite, study):
         """(study id, invite record or None, error message or None) for a link's ?i= / ?study=."""
@@ -470,6 +484,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(403, self.denied_page())
         f = self.filters(scope)
         msg = ''
+        if route == '/admin/api/synthetic':                 # a test study's synthetic sessions: how many (the reports rebuild when opened)
+            form = self.body_form()
+            sid = form.get('study', '')
+            try:
+                n = int(form.get('n', ''))
+            except ValueError:
+                n = -1
+            ok = (sid in studies() and bool(load_study(sid).get('synthetic')) and n in SYNTHETIC_CHOICES
+                  and (scope[0] != 'study' or scope[1] == sid))
+            if ok:
+                st = self.study.store
+                st.set_meta('synthetic_n:' + sid, n)
+                st.sync_synthetic(sid, n)
+            return self.send(200 if ok else 404, json.dumps({'ok': ok}), 'application/json')
         if route == '/admin/api/inclusion':                 # the Sessions tab: analyse this session or not (the reports rebuild when opened)
             form = self.body_form()
             ok = self.study.store.set_inclusion(form.get('pid', ''), form.get('value', ''), scope[1] if scope[0] == 'study' else None)
@@ -526,11 +554,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         for sid in ids:
             cfg = load_study(sid)
             invs = st.invites(sid)
-            n, done, built, active = counts.get(sid, (0, 0, 0, 0))
+            n, done, built, active, syn = counts.get(sid, (0, 0, 0, 0, 0))
             row = {'id': sid or 'main', 'title': cfg.get('title') or '', 'description': cfg.get('description') or ('The main study' if not sid else ''),
                    'n': n, 'done': done or 0, 'built': built, 'active': active, 'stopped': n - (done or 0) - active, 'last': st.last_started(sid), 'median_seconds': st.median_seconds(sid),
                    'invites': [len(invs), sum(1 for i in invs if i['stage']), sum(1 for i in invs if i['stage'] == 'done')],
-                   'links': self.open_links(sid), 'nutrition_reveal': bool(cfg.get('nutrition_reveal')), 'nutrition_panel': bool(cfg.get('nutrition_panel'))}
+                   'links': self.open_links(sid), 'nutrition_reveal': bool(cfg.get('nutrition_reveal')), 'nutrition_panel': bool(cfg.get('nutrition_panel')),
+                   'synthetic': {'n': synthetic_n(st, sid), 'stored': syn, 'choices': SYNTHETIC_CHOICES} if sid and cfg.get('synthetic') else None}
             if own:
                 row['researcher_link'] = self.base_url() + '/admin?' + urllib.parse.urlencode({'key': st.study_key(sid)})
             out.append(row)

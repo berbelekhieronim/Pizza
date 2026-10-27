@@ -47,7 +47,8 @@
     },
     "tests": {
       "description": "Tests by the research team: not participant data",
-      "nutrition_reveal": true
+      "nutrition_reveal": true,
+      "synthetic": 100
     }
   }
 }
