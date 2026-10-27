@@ -20,11 +20,12 @@ jobs:
       - name: Wrangler, to test the Cloudflare version in the local Workers runtime
         run: npm ci --no-audit --no-fund
         working-directory: cloudflare
-      - name: R, to check load_pizza.R (prebuilt; the apt mirror sometimes stalls for many minutes)
+      - name: R, to check load_pizza.R (one job is enough; the download sometimes stalls for minutes)
+        if: matrix.python == '3.12'
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: release
-        timeout-minutes: 6
+        timeout-minutes: 4
         continue-on-error: true            # a stalled download must not block the checks; the R check is then reported as skipped
       # every check is listed on the run's summary page; the full log and the reports built from simulated data are
       # kept as artifacts of the run
