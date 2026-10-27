@@ -19,21 +19,26 @@
   .tools { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0; }
   pre { margin:0; max-height:320px; overflow:auto; background:#faf8f5; border:1px solid var(--line); border-radius:8px; padding:8px; font-size:12px; white-space:pre-wrap; word-break:break-all; }
   .muted { color:var(--muted); font-size:.85rem; }
+  /* participant-first: the steps, settings and captured data are for researchers, behind "Researcher view" */
+  body:not(.researcher) .rv { display:none !important; }
+  .rvtoggle { position:fixed; right:10px; bottom:8px; font-size:.75rem; color:var(--muted); background:rgba(255,255,255,.8); border:1px solid var(--line);
+    border-radius:8px; padding:3px 8px; cursor:pointer; z-index:5; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
+  <header class="rv">
     <h1>Pizza Builder demo</h1>
     <nav id="nav">
       <button data-step="practice">1 Practice</button>
       <button data-step="build">2 Build</button>
       <button data-step="followup">3 Questions</button>
       <label class="muted" style="margin-left:8px"><input type="checkbox" id="nutriBox"> Nutrition panel</label>
+      <label class="muted"><input type="checkbox" id="revealBox"> Nutrition button</label>
     </nav>
   </header>
   <div class="stage" id="stage"></div>
-  <details id="dataBox" open>
+  <details id="dataBox" class="rv" open>
     <summary>Captured data preview</summary>
     <p class="muted">Updated with every action. Nothing leaves this page.</p>
     <div id="preview"></div>
@@ -44,6 +49,7 @@
     </details>
   </details>
 </div>
+<label class="rvtoggle"><input type="checkbox" id="rvBox"> Researcher view</label>
 <script src="pizza-builder.js"></script>
 <script src="preview.js"></script>
 <script>
@@ -86,17 +92,28 @@
     }
     if (step === 'followup') opts.counts = store.pz_counts || null;
     if (params.get('minSeconds')) opts.minSeconds = +params.get('minSeconds');
-    opts.nutrition = document.getElementById('nutriBox').checked;     // the researcher setting, to see what participants would see
+    opts.nutrition = document.getElementById('nutriBox').checked;     // the researcher settings, to see what participants would see
+    opts.nutritionReveal = step === 'build' && document.getElementById('revealBox').checked;
     widget = PizzaBuilder.mount(box, opts);
   }
   document.getElementById('nutriBox').checked = params.get('nutrition') === '1';
-  document.getElementById('nutriBox').onchange = function () { if (current === 'build') go('build'); };
+  document.getElementById('revealBox').checked = params.get('reveal') === '1';
+  document.getElementById('nutriBox').onchange = document.getElementById('revealBox').onchange = function () { if (current === 'build') go('build'); };
+  // Researcher view (remembered in this browser): the steps, the settings and the captured data
+  var rv = params.get('researcher') === '1';
+  try { rv = rv || localStorage.getItem('pzb-demo-researcher') === '1'; } catch (e) {}
+  document.getElementById('rvBox').checked = rv;
+  document.body.classList.toggle('researcher', rv);
+  document.getElementById('rvBox').onchange = function () {
+    document.body.classList.toggle('researcher', this.checked);
+    try { localStorage.setItem('pzb-demo-researcher', this.checked ? '1' : '0'); } catch (e) {}
+  };
   function finished() {
     var i = steps.indexOf(current);
     if (i < steps.length - 1) {          // the task's own button (Continue / I'm done) moves on: no second Next button
       go(steps[i + 1]); window.scrollTo(0, 0);
     } else {
-      document.getElementById('stage').innerHTML = '<p>All done - thank you! Open <b>Recorded data</b> below to see what was stored.</p>';
+      document.getElementById('stage').innerHTML = '<p>All done - thank you!</p>';
       document.getElementById('dataBox').open = true;
     }
   }

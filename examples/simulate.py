@@ -101,6 +101,31 @@ def person(style, pid):
     if diet == 'vegan' and sauce == 'white': sauce = 'tomato'
     summ = {'finished': True, 'cond': 'simulated', 'sauce': sauce, 'cheese': cheese, 'tray': TRAY, 'hiddenMs': 0,
             'pointer': R.choice(['touch', 'mouse'])}
+    # the nutrition-reveal setting for every other participant (its own random numbers, so the rest stays as it was):
+    # some reveal the nutrition while building, some then take a piece off; at "I'm done" the dialog shows it, and some
+    # change their mind once and take another piece off before baking
+    Q = random.Random('reveal-%d' % pid)
+    if pid % 2 == 0 and final:
+        ev = ev[:-2]
+        t_done = ev[-1][0] + 1500
+        adds = [k for k, e in enumerate(ev) if e[1] == 'add']
+        shows = 0
+        if Q.random() < .6:
+            at = Q.choice(adds[len(adds) // 3:] or adds)
+            ev.insert(at + 1, [ev[at][0] + 1, 'nshow', None, None, sauce, cheese]); shows = 1
+            if Q.random() < .45 and len(final) > 1:              # took a piece off after seeing the nutrition
+                f = final.pop(); t_done += 900; ev.append([t_done, 'remove', f[1], f[0], .99, .99, 500, None, None, None])
+            if Q.random() < .5:
+                t_done += 700; ev.append([t_done, 'nhide'])
+        changed = 0
+        t_done += 1500; ev.append([t_done, 'done']); ev.append([t_done, 'nmodal', None, None, sauce, cheese])
+        if Q.random() < .3 and len(final) > 1:                   # "I changed my mind", then another piece off
+            changed = 1
+            t_done += 1200; ev.append([t_done, 'changemind'])
+            f = final.pop(); t_done += 900; ev.append([t_done, 'remove', f[1], f[0], .99, .99, 500, None, None, None])
+            t_done += 1500; ev.append([t_done, 'done']); ev.append([t_done, 'nmodal', None, None, sauce, cheese])
+        t_done += 1100; ev += [[t_done, 'bake'], [t_done, 'finish']]
+        summ['reveal'] = {'shown': shows, 'tFirst': next((e[0] for e in ev if e[1] == 'nshow'), None), 'doneSeen': 1 + changed, 'changedMind': changed, 'base': True}
     # follow-up (default style): strong feelings about a few ingredients, five answers about each
     strong = R.sample(TRAY, R.choice([0, 1, 1, 2, 2, 3, 4] if style == 'A' else [0, 0, 1, 1, 2, 3]))
     items = {}

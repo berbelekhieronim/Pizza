@@ -31,6 +31,7 @@
     "iron"
   ],
   "nutrition_base": true,
+  "nutrition_reveal": false,
   "condition_settings": {},
   "studies": {
     "pilot-asd": {

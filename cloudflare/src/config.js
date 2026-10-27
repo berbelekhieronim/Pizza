@@ -3,7 +3,7 @@ import STUDY from '../../server/study.json';
 
 export const STUDY_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const STUDY_KEYS = ['title', 'intro', 'consent', 'completion_message', 'completion_redirect', 'typical_build', 'about_you', 'conditions', 'groups',
-  'nutrition_panel', 'nutrition_show', 'nutrition_base', 'condition_settings'];
+  'nutrition_panel', 'nutrition_show', 'nutrition_base', 'nutrition_reveal', 'condition_settings'];
 export const FILTER_KEYS = ['study', 'grp', 'source', 'stage', 'neuro', 'cond', 'q', 'since', 'until'];
 
 export function loadStudy(id = '') {

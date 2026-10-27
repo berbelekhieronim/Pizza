@@ -309,6 +309,39 @@ or a sauce / cheese change. It is off by default. Turn it on:
 Every pizza records whether the panel was shown (`nutrition_panel`). The analysis computes the nutrients of every
 pizza either way (`nut_*`, `top_kcal`, `top_grams`, …), so nutritional quality is an outcome even without the panel.
 
+### Seeing the nutrition on request (a study setting)
+
+Instead of a live panel, the nutrition can be something participants **choose** to look at, and see once more before
+they finish. This shows who wants to know and whether knowing changes the pizza.
+- **While building:** a *Show nutrition information* button sits under the pizza. Clicking it shows the same table
+  (energy, kcal per slice of a pizza cut into 8, nutrients against reference intakes) below the pizza. The pizza
+  shrinks a little so that everything still fits the window without scrolling. *Hide* puts it away again.
+- **At "I'm done":** a dialog shows the pizza's nutrition with two choices. *Bake it for me* finishes. *I changed my
+  mind* goes back to building, and the participant can change anything.
+
+Turn it on:
+- **study server:** `"nutrition_reveal": true` for the own pizza. Per condition:
+  `"condition_settings": {"reveal": {"nutrition_reveal": true}}`, which also applies to the typical-participant pizza.
+- **Qualtrics:** `nutritionReveal: true` in `build.js`.
+- **demo:** *Researcher view* → the *Nutrition button* switch.
+
+If the live panel is on as well, there is no button, but the dialog still shows at the end.
+
+The analysis records:
+- **Who looked:** `nutri_revealed`, how often and when (`nutri_n_reveals`, `nutri_first_reveal_ms`,
+  `nutri_reveal_share`), and for how long (`nutri_open_ms`).
+- **The dialog:** "I changed my mind" clicks (`n_changed_mind`).
+- **What changed after the first sight** of the nutrition (`post_nutri_*`):
+  - pieces added and removed;
+  - the change in energy, protein, fat, saturates, sugars, salt and fibre, and in meat, seafood, vegetarian and vegan
+    pieces;
+  - the direction (`lighter` / `same energy` / `heavier` / `unchanged`, with a 10 kcal threshold);
+  - adds per minute and removals per add, before and after.
+- **After the dialog:** whether the pizza was rebuilt (`rebuilt_after_done`, `post_done_d_kcal`).
+
+The pizza at the moment it was seen comes from replaying the log. explore.html compares people who looked with those
+who did not. Formulas: the Methods page.
+
 **How the amounts are counted.**
 - **Data:** nutrients per 100 g come from the USDA National Nutrient Database for Standard Reference, Release 28
   (public domain), via `tools/build_nutrition.py` → `analysis/nutrition.json`. The task embeds the same table.

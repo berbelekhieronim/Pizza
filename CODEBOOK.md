@@ -51,7 +51,7 @@ A JSON array of `[t, type, ...]`:
 |---|---|---|
 | `start` | tray order (space-separated codes) | task shown |
 | `pick` | code, id, pointer (`m`ouse/`t`ouch/`p`en) | topping lifted from the tray |
-| `add` | code, id, x, y, drag_ms, snapped, size, movement | dropped on the pizza |
+| `add` | code, id, x, y, drag_ms, snapped, size, movement, drawn size | dropped on the pizza (drawn size = its random 0.9-1.1 variation, from 0.13.0) |
 | `reject` | code, id, x, y, drag_ms, -, -, movement | lifted from the tray, then dropped off the pizza |
 | `tap` | code, id | touched without dragging (a hint is shown) |
 | `grab` | code, id | placed topping picked up again |
@@ -66,6 +66,11 @@ A JSON array of `[t, type, ...]`:
 | `hover` | code, ms | mouse rested ≥150 ms on a tray item (desktop only) |
 | `hide`, `show` | | tab hidden or visible again |
 | `done`, `cancel`, `finish` | | "I'm done" pressed, confirmation declined, task finished |
+| `nshow` | pieces, kcal, sauce, cheese (what was shown) | "Show nutrition information" clicked (nutrition-reveal setting) |
+| `nhide` | | the nutrition table hidden again |
+| `nmodal` | pieces, kcal, sauce, cheese | the "I'm done" dialog with the pizza's nutrition shown (reveal setting) |
+| `changemind` | | "I changed my mind" in that dialog: back to building |
+| `bake` | | "Bake it for me" in that dialog (then `finish`) |
 
 `movement` (the 10th element, index 9; `null` for a drag that never moved) describes how the drag went:
 `[path, straightness, pauses, longest_pause_ms, dwell_ms, crossings, hold_ms]`: path length in pizza diameters;
@@ -272,6 +277,10 @@ salt in g; vitC, calcium, iron, potassium in mg; vitA, vitD, vitB12, folate in �
 `top_kcal` (toppings only), `top_kcal_share`, `nutrition_panel` (1 = the participant saw the panel). Per topping in
 `ingredients_long`: `grams`, `kcal`. Sources and the size rule: README → *Nutrition panel*; formulas: Methods page.
 `pz_summary.nutrition` is `{show: [...], base: true}` when the panel was shown, else `null`.
+
+### Seeing the nutrition (reveal setting, from 0.13.0)
+
+`pz_summary.reveal` is `{shown, tFirst, doneSeen, changedMind, base}` when the setting was on (times the table was shown, ms of the first, "I'm done" dialogs seen, "I changed my mind" clicks, base counted), else `null`. Columns (participants.csv; empty when the setting was off): `nutrition_reveal`, `nutri_revealed`, `nutri_n_reveals`, `nutri_first_reveal_ms`, `nutri_reveal_share`, `nutri_open_ms`, `n_nutri_done_seen`, `n_changed_mind`, `nutri_seen`, `nutri_first_seen_ms`, `nutri_first_seen_how` (reveal / done), `nutri_kcal_at_sight`; after the first sight: `post_nutri_changed`, `post_nutri_added`, `post_nutri_removed`, `post_nutri_d_kcal` and `post_nutri_d_{protein,fat,satfat,sugars,salt,fibre}_g` (finished − then), `post_nutri_d_{vegan,vegetarian,seafood,meat}_pieces`, `post_nutri_base_changed`, `post_nutri_direction` (lighter / same energy / heavier / unchanged), `pre_nutri_adds_per_min`, `post_nutri_adds_per_min`, `pre_nutri_removal_share`, `post_nutri_removal_share`; from the first "I'm done" dialog: `rebuilt_after_done`, `post_done_d_kcal`, `post_done_direction`. Formulas: the Methods page.
 
 ### `removals_long.csv` (one row per piece taken off the pizza)
 

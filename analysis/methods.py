@@ -132,6 +132,22 @@ SECTIONS = [
         ('nut_grams, top_grams, top_kcal, top_kcal_share', 'Weight of the whole pizza; weight and energy of the toppings alone; top_kcal / nut_kcal.', 'nutrition_measures'),
         ('nutrition_panel', '1 if the participant saw the live nutrition panel while building (a study setting or condition).', 'nutrition_measures'),
     ]),
+    ('Seeing the nutrition (reveal setting)', 'Study setting nutrition_reveal (from task 0.13.0): a "Show nutrition information" button under the pizza, and the pizza\'s nutrition in the "I\'m done" dialog with "Bake it for me" / "I changed my mind" (back to building). Logged: nshow / nhide (table shown / hidden), nmodal (the dialog shown), changemind, bake. A <b>sight</b> = nshow or nmodal. The pizza at a sight comes from replaying the log up to that event (adds, removals, Start over, resizes and every Undo; each add logs its drawn size); its nutrients are computed like nut_* with the sauce and cheese logged with the sight. Empty when the setting was off, except nutrition_reveal.', [
+        ('nutrition_reveal', '1 if the setting was on for this build.', 'reveal_measures'),
+        ('nutri_revealed, nutri_n_reveals, nutri_first_reveal_ms, nutri_reveal_share', 'Clicked "Show nutrition information" at least once (1/0); how often; time of the first click (ms since the build started); that time / time of finishing (0 = at once, 1 = at the end).', 'reveal_measures'),
+        ('nutri_open_ms', 'Total time the table was shown: Σ from each nshow to the next nhide or finish.', 'reveal_measures'),
+        ('n_nutri_done_seen, n_changed_mind', '"I\'m done" dialogs seen (each shows the nutrition); "I changed my mind" clicks.', 'reveal_measures'),
+        ('nutri_seen, nutri_first_seen_ms, nutri_first_seen_how', 'Saw the nutrition at all (1/0: always 1 for a finished build, the dialog shows it); time of the first sight; how: reveal (the button, before finishing) or done (only in the dialog).', 'reveal_measures'),
+        ('nutri_kcal_at_sight', 'Energy of the whole pizza at the first sight (what the participant was shown).', 'reveal_measures'),
+        ('post_nutri_changed, post_nutri_added, post_nutri_removed', 'After the first sight: 1 if the finished pizza differs from the pizza then (pieces, their sizes, sauce or cheese); pieces added after it; pieces removed after it (dragged off, Undo of an add, Start over).', 'reveal_measures'),
+        ('post_nutri_d_kcal, post_nutri_d_protein_g, post_nutri_d_fat_g, post_nutri_d_satfat_g, post_nutri_d_sugars_g, post_nutri_d_salt_g, post_nutri_d_fibre_g', 'Finished pizza − pizza at the first sight, whole pizza (toppings + base): energy and nutrients. &lt; 0 = less after seeing the nutrition.', 'reveal_measures'),
+        ('post_nutri_d_{class}_pieces', 'Pieces of each diet class (vegan, vegetarian, seafood, meat; as n_{class}_pieces): finished − at the first sight.', 'reveal_measures'),
+        ('post_nutri_base_changed', '1 if sauce or cheese was changed after the first sight.', 'reveal_measures'),
+        ('post_nutri_direction', 'unchanged if post_nutri_changed = 0; else lighter if post_nutri_d_kcal ≤ −10 kcal, heavier if ≥ +10 kcal, otherwise same energy (NUTRI_SAME_KCAL = 10, about one slice of pepperoni).', 'reveal_measures'),
+        ('pre_nutri_adds_per_min, post_nutri_adds_per_min', 'Pieces added per minute before the first sight (adds / (time of the sight / 60 s)) and after it (adds / ((finish − sight) / 60 s)); empty for periods under 1 s.', 'reveal_measures'),
+        ('pre_nutri_removal_share, post_nutri_removal_share', 'Pieces removed / pieces added, before and after the first sight (as revision_rate, counting removals when they happen); empty without adds in the period.', 'reveal_measures'),
+        ('rebuilt_after_done, post_done_d_kcal, post_done_direction', 'From the first "I\'m done" dialog: 1 if the participant chose "I changed my mind" and the finished pizza differs from the pizza in that dialog; finished − dialog energy; direction as post_nutri_direction.', 'reveal_measures'),
+    ]),
     ('Changes of mind and other actions', 'The log is replayed piece by piece: added, moved, removed (dragged off, undone, or wiped by "Start over"), restored (undo). The replay must end with exactly the pieces on the finished pizza (replay_matches_final).', [
         ('n_added_pieces, n_removed_pieces', 'Pieces ever added; pieces removed and not restored.', 'action_measures'),
         ('n_removed_dragged, n_removed_undo, n_removed_start_over, n_restored', 'Removed pieces by how (dragged off the pizza; Undo of their adding; "Start over"); removals undone again.', 'action_history'),
@@ -396,6 +412,26 @@ def small_examples():
     rows.append(('adjustment reason', 'pepperoni and olive placed symmetrically; mushrooms at (−0.3, −0.3) and (0.5, −0.1); the second mushroom moved to (0.3, −0.3)',
                  'final best axis %.0f°: matched pieces before %d → after %d, sym_gain = <b>%+d</b> → reason <b>%s</b>; by chance %d of 12 random moves of that length gain (sym_chance %.2f)'
                  % (rec['mirror_axis_deg'], round(rec['mirror_match'] * 5) - mv['sym_gain_mirror'], round(rec['mirror_match'] * 5), mv['sym_gain'], mv['reason'], round(mv['sym_chance'] * 12), mv['sym_chance'])))
+    # seeing the nutrition: two pepperoni and a mushroom, the table shown, one pepperoni dragged off and an olive added;
+    # "I'm done", "I changed my mind", the olive grown to double size, "I'm done" again, bake
+    ev = [[0, 'start', ''], [1000, 'add', 'pep', 1, .2, .2, 0, 0, 1, None, 1], [2000, 'add', 'pep', 2, -.2, .2, 0, 0, 1, None, 1],
+          [3000, 'add', 'mus', 3, 0, -.3, 0, 0, 1, None, 1], [4000, 'nshow', 3, 0, 'tomato', 'normal'], [5000, 'remove', 'pep', 2, .99, .99, 0, None, None, None],
+          [6000, 'add', 'oli', 4, .3, -.3, 0, 0, 1, None, 1], [7000, 'nhide'], [8000, 'done'], [8000, 'nmodal', 3, 0, 'tomato', 'normal'], [9000, 'changemind'],
+          [10000, 'resize', 'oli', 4, 2, 900], [11000, 'done'], [11000, 'nmodal', 3, 0, 'tomato', 'normal'], [12000, 'bake'], [12000, 'finish']]
+    final = [[1, 'pep', .2, .2, 0, 1, 0, 1, 1], [3, 'mus', 0, -.3, 0, 1, 0, 3, 1], [4, 'oli', .3, -.3, 0, 1, 0, 4, 2]]
+    rv = A.reveal_measures(ev, final, {'reveal': {'shown': 1}, 'sauce': 'tomato', 'cheese': 'normal'})
+    tops = A.NUTRITION['toppings']
+    kc = lambda k, s: tops[k]['grams'] * s * s * tops[k]['per100']['kcal'] / 100
+    d_hand = kc('oli', 2) - kc('pep', 1)                 # the base is the same before and after
+    d_done = kc('oli', 2) - kc('oli', 1)
+    assert abs(rv['post_nutri_d_kcal'] - d_hand) < 1e-9 and abs(rv['post_done_d_kcal'] - d_done) < 1e-9
+    assert (rv['nutri_revealed'], rv['nutri_open_ms'], rv['n_changed_mind'], rv['post_nutri_added'], rv['post_nutri_removed'], rv['rebuilt_after_done']) == (1, 3000, 1, 1, 1, 1)
+    assert abs(rv['pre_nutri_adds_per_min'] - 3 / (4000 / 60000)) < 1e-9 and rv['post_nutri_d_meat_pieces'] == -1
+    rows.append(('seeing the nutrition', '2 pepperoni and a mushroom; "Show nutrition information" at 4 s; a pepperoni dragged off, an olive added; hidden at 7 s; '
+                 '"I\'m done" → "I changed my mind" → olive grown to 2×; "I\'m done" → bake',
+                 'nutri_open_ms = 7000 − 4000 = <b>%d</b>; post_nutri_d_kcal = olive at 2× (%.1f kcal) − pepperoni (%.1f kcal) = <b>%+.1f</b> → <b>%s</b>; '
+                 'post_done_d_kcal = olive 2× − olive 1× = <b>%+.1f</b>, rebuilt_after_done = <b>%d</b>; pre_nutri_adds_per_min = 3 / (4 s / 60 s) = <b>%.0f</b>'
+                 % (rv['nutri_open_ms'], kc('oli', 2), kc('pep', 1), rv['post_nutri_d_kcal'], rv['post_nutri_direction'], rv['post_done_d_kcal'], rv['rebuilt_after_done'], rv['pre_nutri_adds_per_min'])))
     rows.append(('q (BH)', 'p = 0.001, 0.02, 0.03, 0.2', 'q = ' + ', '.join('%.3g' % v for v in q)))
     ref = [frozenset('a'), frozenset('ab'), frozenset('b'), frozenset('a')]
     bits, _ = A.atypicality(frozenset('b'), ref, ['a', 'b'])
