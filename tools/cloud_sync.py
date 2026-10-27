@@ -138,7 +138,9 @@ def build_scope(st, db_path, scope, work):
     f = {'study': None if scope == 'all' else '' if scope == 'main' else scope}
     out = os.path.join(work, 'out-' + scope)
     cmd = [sys.executable, os.path.join(ROOT, 'analysis', 'analyse.py'), db_path, '--out', out] + ([] if scope == 'all' else ['--study', scope])
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    # the measure cache: each pizza's slow measures are computed once and reused by every study and later runs
+    env = dict(os.environ, PIZZA_MEASURE_CACHE=os.environ.get('PIZZA_MEASURE_CACHE') or os.path.join(work, 'measure-cache'))
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600, env=env)
     files, n = {}, 0
     records = list(st.records(f))
     raw = [('raw/%s.json' % rec['pid'], json.dumps(rec)) for rec in records]

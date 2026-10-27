@@ -22,6 +22,15 @@ matched to the format below. Add an entry for every change that reaches particip
     cloudflare`); the full checks run alongside.
   - The reports job analyses studies side by side, and a study holding the same sessions as "all studies" reuses
     that analysis instead of repeating it.
+- **Less computing, same numbers.**
+  - Each pizza's symmetry chance level (and the random moves of the adjustment test) is seeded by the pizza itself,
+    so a pizza's numbers no longer depend on which other pizzas are analysed with it. Before, the same pizza could
+    differ slightly between "all studies" and its own study.
+  - The slow per-pizza measures are cached between report builds.
+  - The data dictionary and the Methods page are no longer rebuilt from scratch for every study (2.7× faster for 8
+    pizzas; identical output).
+  - Participant pages save every 4 seconds instead of every second (a quarter of the requests and writes).
+  - CI skips documentation-only pushes, runs R and the Cloudflare tests in one job, and uses current action versions.
 - **Fixed:** the reports job could be refused partway through many studies, because the per-connection limit counted
   its uploads. The limit now applies to wrong keys only, and the job retries if refused.
 

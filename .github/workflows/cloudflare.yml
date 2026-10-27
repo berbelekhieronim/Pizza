@@ -31,9 +31,9 @@ jobs:
         run: |
           if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$PIZZA_ADMIN_KEY" ]; then echo "ok=1" >> "$GITHUB_OUTPUT";
           else echo "::notice::Not deploying: add the CLOUDFLARE_API_TOKEN and PIZZA_ADMIN_KEY secrets (cloudflare/README.md)."; fi
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: steps.ready.outputs.ok
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         if: steps.ready.outputs.ok
         with:
           node-version: '22'

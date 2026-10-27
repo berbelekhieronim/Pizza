@@ -45,10 +45,11 @@
 
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
-  // Save to the server: batched every second while working, at once at the end of each page, and on leaving the page.
+  // Save to the server: batched every 4 seconds while working, at once at the end of each page, and on leaving the page
+  // (fewer requests and database writes; at most the last 4 seconds are lost if the browser crashes).
   function send(now) {
     clearTimeout(timer);
-    if (!now) { timer = setTimeout(function () { send(true); }, 1000); return; }
+    if (!now) { timer = setTimeout(function () { send(true); }, 4000); return; }
     if (!S.pid) return;
     var body = JSON.stringify({ pid: S.pid, stage: S.stage, fields: S.fields });
     pending = true;

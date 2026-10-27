@@ -25,10 +25,12 @@ Standard library only. Measure definitions are in ../CODEBOOK.md.
 import argparse
 import bisect
 import csv
+import hashlib
 import json
 import math
 import os
 import random
+import shutil
 import sqlite3
 import statistics
 import sys
@@ -683,6 +685,48 @@ def sweep_consistency(events):
 
 def sector(x, y):
     return int(((math.atan2(y, x) + 2 * math.pi) % (2 * math.pi)) / (2 * math.pi / SECTORS)) % SECTORS
+
+
+MEASURE_CACHE = os.environ.get('PIZZA_MEASURE_CACHE')     # a folder: spatial measures kept between runs (tools/cloud_sync.py)
+with open(os.path.abspath(__file__), 'rb') as _f:
+    CODE_HASH = hashlib.sha1(_f.read()).hexdigest()[:12]   # a change to this file invalidates the cache
+
+
+def write_methods(methods, path):
+    """The Methods page depends on the code only: with the measure cache, built once per code version and copied."""
+    if not MEASURE_CACHE:
+        return methods.write(path)
+    with open(methods.__file__, 'rb') as f:
+        key = hashlib.sha1((CODE_HASH + hashlib.sha1(f.read()).hexdigest()).encode()).hexdigest()[:16]
+    cached = os.path.join(MEASURE_CACHE, 'methods-%s.html' % key)
+    if not os.path.exists(cached):
+        tmp = '%s.%d.tmp' % (cached, os.getpid())
+        os.makedirs(MEASURE_CACHE, exist_ok=True)
+        methods.write(tmp)
+        os.replace(tmp, cached)
+    shutil.copyfile(cached, path)
+
+
+def cached_spatial(pieces, rnd, ident):
+    """spatial() of one pizza, read from the measure cache when this exact pizza (pieces, seed, id, build) was measured
+    before by this version of the code. The symmetry search is most of the analysis time, and the reports job analyses
+    the same pizzas in every study and every run."""
+    if not MEASURE_CACHE:
+        return spatial(pieces, rnd)
+    h = hashlib.sha1(json.dumps([CODE_HASH, ident, pieces], sort_keys=True).encode()).hexdigest()
+    path = os.path.join(MEASURE_CACHE, h[:2], h + '.json')
+    try:
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        pass
+    out = spatial(pieces, rnd)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = '%s.%d.tmp' % (path, os.getpid())
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(out, f)
+    os.replace(tmp, path)                                     # atomic: parallel runs never read half a file
+    return out
 
 
 def spatial(pieces, rnd):
@@ -3050,7 +3094,8 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             nev = Counter(e[1] for e in events)
             for k in ('pick', 'add', 'reject', 'tap', 'grab', 'move', 'remove', 'resize', 'abort', 'undo', 'clear', 'hover'):
                 rec['n_ev_' + k] = nev.get(k, 0)
-            rec.update(spatial(pieces, rnd))
+            prnd = random.Random('%s:%s:%s' % (seed, pid, prefix))   # per pizza: its chance levels do not depend on the other pizzas
+            rec.update(cached_spatial(pieces, prnd, (seed, pid, prefix)))
             rec.update(order_measures(events))
             rec.update(timing(events, summary))
             rec.update(movement_measures(events))
@@ -3058,7 +3103,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             rec.update(reveal_measures(events, final, summary))
             acts, act_per, removals = action_measures(events, final)
             rec.update(acts)
-            adj, adj_rows = adjustment_measures(events, final, rec, rnd)
+            adj, adj_rows = adjustment_measures(events, final, rec, random.Random('%s:%s:%s:adj' % (seed, pid, prefix)))
             rec.update(adj)
             for r in adj_rows:
                 adj_long.append(dict({'pid': pid, 'build': prefix.rstrip('_')}, **r))
@@ -3256,7 +3301,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
         rec.pop('_group', None)
     write_csv(os.path.join(out_dir, 'participants.csv'), people)
     import methods                                    # the Methods page: how every number above is counted
-    methods.write(os.path.join(out_dir, 'methods.html'))
+    write_methods(methods, os.path.join(out_dir, 'methods.html'))
     import r_export                                   # data dictionary and loader for R
     r_export.write(out_dir)
     with open(os.path.join(out_dir, 'gallery.html'), 'w', encoding='utf-8') as f:

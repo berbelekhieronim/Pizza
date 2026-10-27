@@ -99,6 +99,16 @@ database, e.g. *from* `all` *to* `tests` to label everything collected so far as
 afterwards. The target study must be in `server/study.json` (`tests` is: the team's own test runs, with the nutrition
 button on).
 
+## Where the computing happens
+
+| where | what | how much |
+|---|---|---|
+| **Cloudflare Worker** (free plan) | participant pages, saving (every 4 s while someone builds), the researcher page | about 100–300 requests and 300–800 database writes per participant |
+| **GitHub: reports job** (public repo: free) | downloading the sessions, the analysis, storing the reports | one run per batch of finished sessions; it first waits for 5 quiet minutes (a sleeping runner, no Cloudflare use), then about a minute; each pizza's slow measures (the symmetry search) are computed once and cached between runs |
+| **GitHub: check** (on every code push) | the full smoke test on two Python versions, R, face benchmark | 2–4 minutes; skipped for documentation-only pushes |
+| **GitHub: cloudflare** (on every code push) | a one-minute test of the Worker, then the deploy and a check of the live site | about a minute |
+| **Your browser** | the researcher page | refreshes itself only while a build is queued or running, and not when its tab is hidden |
+
 ## Hard caps: the study never makes Cloudflare bill you
 
 Stay on the **free plans**: do not upgrade to Workers Paid. On the free plans, Workers and D1 cannot bill: at their

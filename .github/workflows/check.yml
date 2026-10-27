@@ -1,5 +1,9 @@
 name: check
-on: [push, pull_request]
+on:
+  push:
+    paths-ignore: ['**.md', 'docs/**']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**']
 jobs:
   smoke:
     runs-on: ubuntu-latest
@@ -8,16 +12,17 @@ jobs:
       matrix:
         python: ['3.10', '3.12']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: cloudflare/package-lock.json
-      - name: Wrangler, to test the Cloudflare version in the local Workers runtime
+      - name: Wrangler, to test the Cloudflare version in the local Workers runtime (one job is enough)
+        if: matrix.python == '3.12'
         run: npm ci --no-audit --no-fund
         working-directory: cloudflare
       - name: R, to check load_pizza.R (one job is enough; the download sometimes stalls for minutes)
@@ -32,7 +37,7 @@ jobs:
       - name: Smoke test (analysis, study server, Cloudflare Worker, R, JavaScript, face detection)
         env:
           PIZZA_KEEP_OUTPUT: ${{ runner.temp }}/reports
-          PIZZA_REQUIRE_CLOUDFLARE: '1'
+          PIZZA_REQUIRE_CLOUDFLARE: ${{ matrix.python == '3.12' && '1' || '' }}
         run: python tests/smoke_test.py 2>&1 | tee smoke-test.log; exit ${PIPESTATUS[0]}
       - name: Face detection benchmark
         if: matrix.python == '3.12'

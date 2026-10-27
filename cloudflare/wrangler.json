@@ -52,5 +52,6 @@
       }
     }
   ],
-  "vars": {}
+  "vars": {},
+  "keep_vars": true
 }

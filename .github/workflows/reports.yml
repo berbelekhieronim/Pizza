@@ -33,14 +33,22 @@ jobs:
         run: |
           if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$PIZZA_ADMIN_KEY" ]; then echo "ok=1" >> "$GITHUB_OUTPUT";
           else echo "::notice::No reports to build: the study is not on Cloudflare yet (cloudflare/README.md)."; fi
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: steps.ready.outputs.ok
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: steps.ready.outputs.ok
         with:
           python-version: '3.12'
+      - name: Measures of pizzas analysed before (each pizza's slow measures are computed once per code version)
+        if: steps.ready.outputs.ok
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pizza-measures
+          key: pizza-measures-${{ hashFiles('analysis/analyse.py') }}-${{ github.run_id }}
+          restore-keys: pizza-measures-${{ hashFiles('analysis/analyse.py') }}-
       - name: Build and store the reports
         if: steps.ready.outputs.ok
         run: |
           export PIZZA_SITE_URL="${PIZZA_SITE_URL:-$(python3 cloudflare/deploy.py url)}"
+          export PIZZA_MEASURE_CACHE="$HOME/.cache/pizza-measures"
           python3 tools/cloud_sync.py ${{ github.event.inputs.force == 'true' && '--force' || '' }} ${{ github.event.inputs.wait == 'true' && '--wait 300' || '' }}

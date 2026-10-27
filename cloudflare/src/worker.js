@@ -17,17 +17,23 @@ const MAX_BODY = 2_000_000;
 // R2_LIMIT_BYTES, R2_WRITES_PER_MONTH and R2_READS_PER_MONTH can only lower them. If the counters cannot be read or
 // written (e.g. D1 is at its own daily limit), the R2 operation does not happen: the caps fail closed.
 const CAPS = { bytes: 8e9, writes: 800000, reads: 8000000, db: 450e6 };   // db: D1's size (free plan maximum 500 MB)
+export { ghToken };
 export function limits(env) {
   const n = (v, cap) => Math.min(cap, Number.isFinite(+v) && +v > 0 ? +v : cap);
   return { bytes: n(env.R2_LIMIT_BYTES, CAPS.bytes), writes: n(env.R2_WRITES_PER_MONTH, CAPS.writes), reads: n(env.R2_READS_PER_MONTH, CAPS.reads),
     db: n(env.D1_LIMIT_BYTES, CAPS.db) };
 }
 
+function ghToken(env) {
+  // the GitHub token, under whichever name it was saved (deploy secret, or added in the Cloudflare dashboard)
+  return env.GITHUB_TOKEN || env.PIZZA_GITHUB_TOKEN || env.PIZZA_GITHUB_TOKEN_PIZZA || '';
+}
+
 async function dispatchBuild(env, force) {
   // asks GitHub to run the reports job now (needs the GITHUB_TOKEN secret); true when GitHub accepted
   const r = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/reports.yml/dispatches`, {
     method: 'POST',
-    headers: { Authorization: 'Bearer ' + env.GITHUB_TOKEN, Accept: 'application/vnd.github+json', 'User-Agent': 'pizza-study-worker',
+    headers: { Authorization: 'Bearer ' + ghToken(env), Accept: 'application/vnd.github+json', 'User-Agent': 'pizza-study-worker',
       'Content-Type': 'application/json' },
     body: JSON.stringify({ ref: env.GITHUB_BRANCH || 'main', inputs: { force: force ? 'true' : 'false', wait: force ? 'false' : 'true' } }),
   });
@@ -197,7 +203,7 @@ class Request_ {
     // a session finished: queue one reports build on GitHub, unless one is already queued or waiting (it will include
     // this session: it waits for 5 quiet minutes after the last save before building). One D1 read and, at most, one
     // request to GitHub per finished session; nothing else runs on Cloudflare.
-    if (!this.env.GITHUB_TOKEN || !this.env.GITHUB_REPO) return;
+    if (!ghToken(this.env) || !this.env.GITHUB_REPO) return;
     let st = {};
     try { st = JSON.parse((await this.store.meta('reports_status')) || '{}'); } catch (e) { st = {}; }
     if (['queued', 'waiting'].includes(st.state) && Date.now() - Date.parse(st.updated) < 40 * 60 * 1000) return;
@@ -211,7 +217,7 @@ class Request_ {
     // "Rebuild reports": marks a full rebuild as wanted (the next run of the reports job does it) and, with the
     // GITHUB_TOKEN secret, asks GitHub to start that run at once
     if (force) await this.store.setMeta('reports_wanted', new Date().toISOString().slice(0, 19) + 'Z');
-    if (!this.env.GITHUB_TOKEN || !this.env.GITHUB_REPO) {
+    if (!ghToken(this.env) || !this.env.GITHUB_REPO) {
       return 'Rebuild requested, but the site cannot start GitHub without the PIZZA_GITHUB_TOKEN secret (cloudflare/README.md). '
         + 'It runs at the next build: start one from GitHub, Actions -> reports -> Run workflow.';
     }

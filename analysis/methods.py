@@ -71,7 +71,7 @@ SECTIONS = [
     ('Symmetry', 'Three worked examples follow this table.', [
         ('mirror_match', 'Share of pieces with a mirror partner at the best axis. A piece is matched when its reflection lands on a piece of the <i>same topping</i> within ½ (r<sub>i</sub> + r<sub>j</sub>) (r = bounding radius × s). One-to-one, closest pairs first; a piece on the axis can match itself.', 'sym_match'),
         ('mirror_axis_deg, mirror_cx, mirror_cy', 'Best axis: every 3° (0-177°) through the pizza centre and through the toppings\' centroid; the 3 best refined in 0.25° steps (±1.5°). Best = most matched, then smallest summed distance.', 'best_mirror'),
-        ('mirror_chance', 'Mean mirror_match of 12 random layouts of the same pieces (same toppings and sizes, uniform positions within r = 0.9), with the same axis search.', 'symmetry'),
+        ('mirror_chance', 'Mean mirror_match of 12 random layouts of the same pieces (same toppings and sizes, uniform positions within r = 0.9), with the same axis search. The layouts come from a random generator seeded by the pizza itself (seed, participant id, build), so a pizza gets the same chance level whichever other pizzas are analysed with it; random moves for the adjustment test use their own such generator.', 'symmetry'),
         ('mirror_score', '(match − chance) / (1 − chance) when match ≥ chance; (match − chance) / chance below. −1 = nothing matched, 0 = chance, 1 = every piece matched.', 'symmetry'),
         ('rot_match, rot_k, rot_cx, rot_cy, rot_chance, rot_score', 'The same for turning the pizza by 360°/k, k = 2…8, about each centre. Best k = most matched; equal counts go to the higher k.', 'best_rotation'),
     ]),
@@ -270,28 +270,41 @@ def column_patterns():
     return pats
 
 
+_ENTRIES = None
+
+
+def _entries():
+    """Every entry once, with its column patterns compiled (describe() is called for every column of every table)."""
+    global _ENTRIES
+    if _ENTRIES is None:
+        _ENTRIES = []
+        for title, _, rows in SECTIONS:
+            for cols, how, _ in rows:
+                pats = []
+                for c in cols.split(','):
+                    c = c.strip()
+                    if c.startswith('('):
+                        continue
+                    rx = re.escape(c)
+                    for k, v in SLOTS.items():
+                        rx = rx.replace(re.escape('{%s}' % k), '(?:%s)' % v)
+                    pats.append(re.compile('^%s$' % rx))
+                _ENTRIES.append((title, how, pats))
+    return _ENTRIES
+
+
 def describe(column, file=None):
     """(section, plain-text description) of a column from this page, or (None, None). Entries that name the file
     (in the section title or the text) are preferred, so a column shared by several files gets that file's meaning."""
-    entries = [(title, cols, how) for title, _, rows in SECTIONS for cols, how, _ in rows]
+    entries = _entries()
     if file:
-        entries.sort(key=lambda e: file not in e[0] + e[2])        # stable: the file's own entries first
-    for title, cols, how in entries:
-        if True:
-            pats = []
-            for c in cols.split(','):
-                c = c.strip()
-                if c.startswith('('):
-                    continue
-                rx = re.escape(c)
-                for k, v in SLOTS.items():
-                    rx = rx.replace(re.escape('{%s}' % k), '(?:%s)' % v)
-                pats.append(re.compile('^%s$' % rx))
-            if any(p.match(column) for p in pats):
-                text = re.sub(r'<sub>(.*?)</sub>', r'_\1', how)
-                text = re.sub(r'<sup>(.*?)</sup>', r'^\1', text)
-                text = re.sub(r'<[^>]+>', '', text).replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
-                return title, text
+        entries = sorted(entries, key=lambda e: file not in e[0] + e[1])   # stable: the file's own entries first
+    for title, how, pats in entries:
+        if any(p.match(column) for p in pats):
+            text = re.sub(r'<sub>(.*?)</sub>', r'_\1', how)
+            text = re.sub(r'<sup>(.*?)</sup>', r'^\1', text)
+            text = re.sub(r'<[^>]+>', '', text).replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+            return title, text
     return None, None
 
 

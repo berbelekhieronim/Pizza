@@ -84,6 +84,6 @@ export async function adminState(r, scope, f) {
       last: out.map((s) => s.last).filter(Boolean).sort().pop() || null, median_seconds: await st.medianSeconds(null) },
     global_link: own ? r.base() + '/admin?' + new URLSearchParams({ key: await st.studyKey(ALL_KEY) }) : null,
     reports, reports_build_on_open: false, options,
-    build: await buildStatus(st, !!(r.env.GITHUB_TOKEN && r.env.GITHUB_REPO)), stages: STAGE_NAMES, neuro: NEURO_NAMES, storage, msg: r.arg('msg'),
+    build: await buildStatus(st, !!((r.env.GITHUB_TOKEN || r.env.PIZZA_GITHUB_TOKEN || r.env.PIZZA_GITHUB_TOKEN_PIZZA) && r.env.GITHUB_REPO)), stages: STAGE_NAMES, neuro: NEURO_NAMES, storage, msg: r.arg('msg'),
   };
 }
