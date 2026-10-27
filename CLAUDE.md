@@ -19,4 +19,7 @@ make sure the smoke test passes, push, and check that the GitHub Actions run is 
   `analysis/analyse.py`; `NAMES`, `DIET`, `TIER`, `FOOT`, `SIZE`, `CATS`, colours and the simulated `REF` in
   `preview.js`; `TRAY` in `examples/simulate.py`; the topping table in `CODEBOOK.md`.
 - After changing `pizza-builder.js`, commit, then re-pin the jsDelivr URL in `qualtrics/*.js` to that commit's SHA.
+- **Two study servers stay in step:** `server/server.py` + `server/store.py` (Codespace) and `cloudflare/src/` (Cloudflare
+  Worker). A change to a route, the researcher page or the schema goes into both (`cloudflare/migrations/` = new
+  migration file, never edit an applied one; keep `store.SCHEMA` equal). Test the Worker with `npm ci` in `cloudflare/`.
 - Run `python3 tests/smoke_test.py` before pushing (standard library + node only).

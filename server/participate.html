@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
 <title>Make a pizza</title>
 <style>
   :root { --ink:#2a2421; --muted:#6e635b; --line:#e3dbd2; --bg:#f6f2ed; --accent:#a8361d; }
@@ -126,11 +127,29 @@
   }
   // ?i=<invite> (a personal link), or ?study=<id>&group=..&source=.. (an open study link), or nothing (the main study)
   var link = { i: params.get('i') || '', study: params.get('study') || '', source: params.get('source') || '' };
-  Promise.all([
-    fetch('study.json?' + new URLSearchParams({ i: link.i, study: link.study })).then(function (r) { return r.json(); }).catch(function () { return {}; }),
-    fetch('api/start?' + new URLSearchParams({ pid: link.i ? '' : (params.get('pid') || params.get('PROLIFIC_PID') || sessionStorage.getItem('pz-pid') || ''),
-      group: params.get('group') || '', cond: params.get('cond') || '', i: link.i, study: link.study, source: link.source })).then(function (r) { return r.json(); })
-  ]).then(function (res) {
+  var studyInfo = fetch('study.json?' + new URLSearchParams({ i: link.i, study: link.study })).then(function (r) { return r.json(); }).catch(function () { return {}; });
+  function start(ts) {
+    return fetch('api/start?' + new URLSearchParams({ pid: link.i ? '' : (params.get('pid') || params.get('PROLIFIC_PID') || sessionStorage.getItem('pz-pid') || ''),
+      group: params.get('group') || '', cond: params.get('cond') || '', i: link.i, study: link.study, source: link.source, ts: ts || '' })).then(function (r) { return r.json(); });
+  }
+  // On Cloudflare, a new session may first need Turnstile's quick check that a person (not a bot) opened the link;
+  // it usually passes by itself. The Python study server never asks for it.
+  function checked(res) {
+    if (!res.verify) return res;
+    stage.innerHTML = '<h1>One moment</h1><p>Checking that you are a person, not a bot (this usually takes a second).</p><div id="ts"></div>';
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      s.onload = function () { window.turnstile.render('#ts', { sitekey: res.verify, callback: function (token) { start(token).then(resolve, reject); } }); };
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+  Promise.all([studyInfo, start().then(checked)]).then(function (res) {
+    if (res[1].verify) {
+      stage.innerHTML = '<h1>This link does not work just now</h1><p>The check that you are a person did not pass. Please reload the page.</p>';
+      return;
+    }
     if (res[1].error) {                    // a mistyped or unknown link: never start an unlabelled session
       stage.innerHTML = '<h1>This link does not work</h1><p>' + esc(res[1].error) + '</p>';
       return;

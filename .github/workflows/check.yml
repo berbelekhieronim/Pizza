@@ -12,13 +12,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cloudflare/package-lock.json
+      - name: Wrangler, to test the Cloudflare version in the local Workers runtime
+        run: npm ci --no-audit --no-fund
+        working-directory: cloudflare
       - name: R, to check load_pizza.R
         run: which Rscript || (sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends r-base-core)
       # every check is listed on the run's summary page; the full log and the reports built from simulated data are
       # kept as artifacts of the run
-      - name: Smoke test (analysis, study server, R, JavaScript, face detection)
+      - name: Smoke test (analysis, study server, Cloudflare Worker, R, JavaScript, face detection)
         env:
           PIZZA_KEEP_OUTPUT: ${{ runner.temp }}/reports
+          PIZZA_REQUIRE_CLOUDFLARE: '1'
         run: python tests/smoke_test.py 2>&1 | tee smoke-test.log; exit ${PIPESTATUS[0]}
       - name: Face detection benchmark
         if: matrix.python == '3.12'

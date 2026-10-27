@@ -182,6 +182,15 @@ from `qualtrics/`.
 analysis on it. Check that `pz_events` arrives complete. A long build is ~5-15 KB of text, well within what
 embedded data holds, but confirm this with your own pilot data.
 
+## Hosting the study on Cloudflare (one address, nothing to keep running)
+
+The study can also live on Cloudflare: participants and researchers use one address
+(`https://pizza-study.<you>.workers.dev`, or your own domain), and GitHub deploys it and builds the reports. It
+runs all the time without a Codespace or a computer, keeps the data in the EU, and checks that new participants are
+people, not bots (Turnstile, rate limits). The participant page, the researcher page, personal and per-study links,
+and the downloads are the same as in the Codespace version below. Setup, costs and data protection are in
+[cloudflare/README.md](cloudflare/README.md).
+
 ## Running participants without Qualtrics (GitHub Codespace)
 
 For a pilot with a few participants you can skip Qualtrics: `server/server.py` serves the whole study (intro and consent,

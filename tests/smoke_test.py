@@ -73,6 +73,117 @@ def http(method, url, body=None):
         return e.code, e.read()
 
 
+def cloudflare_checks(tmp, fields):
+    """The Cloudflare version (cloudflare/): the Worker in the local Workers runtime (wrangler dev, with local D1 and
+    R2), the same participant and researcher routes as the Python server, and the reports job (tools/cloud_sync.py)."""
+    heading('cloudflare')
+    sys.path.insert(0, os.path.join(ROOT, 'server'))
+    import store
+    norm = lambda t: re.sub(r'\s+', ' ', re.sub(r'--[^\n]*', '', t)).strip()
+    mig = open(os.path.join(ROOT, 'cloudflare', 'migrations', '0001_init.sql'), encoding='utf-8').read()
+    check(norm(mig) == norm(store.SCHEMA), 'the D1 schema is the schema of server/store.py')
+    exe = os.path.join(ROOT, 'cloudflare', 'node_modules', '.bin', 'wrangler')
+    if not os.path.exists(exe):
+        print('  skip  the Worker itself: run "npm ci" in cloudflare/ to test it (CI does)')
+        check(not os.environ.get('PIZZA_REQUIRE_CLOUDFLARE'), 'wrangler is installed (cloudflare/node_modules)')
+        return
+    cf = os.path.join(ROOT, 'cloudflare')
+    state = os.path.join(tmp, 'wrangler-state')
+    env = dict(os.environ, WRANGLER_SEND_METRICS='false', CI='1')
+    subprocess.run([PY, os.path.join(cf, 'deploy.py'), 'build'], check=True, capture_output=True)
+    r = subprocess.run([exe, 'd1', 'migrations', 'apply', 'pizza-study', '--local', '--persist-to', state], cwd=cf, env=env, capture_output=True, text=True)
+    check(r.returncode == 0, 'applies the D1 migrations')
+    with socket.socket() as s:
+        s.bind(('127.0.0.1', 0))
+        port = s.getsockname()[1]
+    log = open(os.path.join(tmp, 'wrangler.log'), 'w')
+    srv = subprocess.Popen([exe, 'dev', '--local', '--ip', '127.0.0.1', '--port', str(port), '--persist-to', state, '--var', 'ADMIN_KEY:smoke-owner-key'], cwd=cf, env=env,
+                           stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    base, key = 'http://127.0.0.1:%d' % port, 'smoke-owner-key'
+    try:
+        for _ in range(150):
+            try:
+                if http('GET', base + '/study.json')[0] == 200:
+                    break
+            except OSError:
+                pass
+            time.sleep(0.2)
+        code, page = http('GET', base + '/')
+        check(code == 200 and b'pizza-builder.js' in page, 'Worker: participant page')
+        check(http('GET', base + '/pizza-builder.js')[0] == 200, 'Worker: serves the task script')
+        check(json.loads(http('GET', base + '/api/start?group=ASD&pid=CFSMOKE1')[1]).get('pid') == 'CFSMOKE1', 'Worker: starts a session')
+        check(http('POST', base + '/api/save', {'pid': 'CFSMOKE1', 'stage': 'done', 'fields': fields})[0] == 200, 'Worker: saves a session')
+        check(http('POST', base + '/api/save', {'pid': '../../etc', 'fields': {'pz_final': '[]'}})[0] == 404, 'Worker: rejects a bad participant id')
+        check(http('GET', base + '/admin')[0] == 403 and http('GET', base + '/admin?key=wrong')[0] == 403, 'Worker: researcher page needs the password')
+        body = urllib.parse.urlencode({'study': 'pilot-asd', 'group': 'ASD', 'source': 'charity', 'count': '2'}).encode()
+        urllib.request.urlopen(urllib.request.Request(base + '/admin/invites?key=' + key, data=body, method='POST'))
+        invites = list(csv.DictReader(io.StringIO(http('GET', base + '/admin/invites.csv?key=%s&study=pilot-asd' % key)[1].decode('utf-8-sig'))))
+        check(len(invites) == 2 and invites[0]['link'].endswith('?i=' + invites[0]['invite']), 'Worker: makes personal invite links')
+        started = [json.loads(http('GET', base + '/api/start?i=' + i['invite'])[1]) for i in invites]
+        check(all(st.get('pid') == i['invite'] for st, i in zip(started, invites)), 'Worker: an invite link is its participant\'s id')
+        check('error' in json.loads(http('GET', base + '/api/start?i=nosuchone')[1]), 'Worker: refuses unknown invite links')
+        http('POST', base + '/api/save', {'pid': started[0]['pid'], 'stage': 'followup', 'fields': {'pz_counts': 'pep:2', 'restarts': '1'}})
+        back = json.loads(http('GET', base + '/api/start?i=' + invites[0]['invite'])[1])
+        check(back.get('stage') == 'followup' and back.get('counts') == 'pep:2' and back.get('restarts') == '1', 'Worker: a returning participant resumes')
+        for st in started:
+            http('POST', base + '/api/save', {'pid': st['pid'], 'stage': 'done', 'fields': fields})
+        code, page = http('GET', base + '/admin?key=%s&study=pilot-asd' % key)
+        check(code == 200 and b'<b>2 sessions match</b>' in page and b'Studies and links' in page, 'Worker: researcher page filters by study')
+        check(b'<b>3 sessions match</b>' in http('GET', base + '/admin?key=%s&stage=done&sort=n_pieces&dir=asc' % key)[1], 'Worker: filters by stage and sorts')
+        rows = list(csv.DictReader(io.StringIO(http('GET', base + '/admin/sessions.csv?key=' + key)[1].decode('utf-8-sig'))))
+        check({r['study'] for r in rows} == {'main', 'pilot-asd'} and len(rows) == 3, 'Worker: session list (.csv)')
+        keys = set(re.findall(rb'admin\?key=([A-Za-z0-9_-]{12,})', http('GET', base + '/admin?key=' + key)[1])) - {key.encode()}
+        skey = next((k.decode() for k in keys if b'for study <b>pilot-asd' in http('GET', base + '/admin?key=' + k.decode())[1]), 'missing')
+        page = http('GET', base + '/admin?key=%s&study=main' % skey)[1]
+        check(b'<b>2 sessions match</b>' in page and b'CFSMOKE1' not in page and b'New researcher link' not in page, 'Worker: a study\'s researcher link sees that study only')
+        check(all(http(m, base + p + '?key=' + skey, b)[0] == 404 for m, p, b in
+                  [('GET', '/admin/export', None), ('GET', '/admin/signatures', None), ('POST', '/admin/study-key', {})]),
+              'Worker: a study\'s researcher link cannot export everything or change links')
+        # the reports job, against this Worker
+        r = subprocess.run([PY, os.path.join(ROOT, 'tools', 'cloud_sync.py'), '--site', base, '--key', key], capture_output=True, text=True, timeout=900)
+        check(r.returncode == 0 and 'pilot-asd: 2 pizzas analysed' in r.stdout, 'reports job builds every study\'s reports and stores them')
+        if r.returncode:
+            print(r.stdout[-1500:], r.stderr[-1500:])
+        check(b'Researcher page</a> \xc2\xb7 study pilot-asd' in http('GET', base + '/admin/reports/dashboard.html?key=' + skey)[1], 'Worker: serves a study\'s reports')
+        z = zipfile.ZipFile(io.BytesIO(http('GET', base + '/admin/r.zip?key=' + skey)[1]))
+        pc = list(csv.DictReader(io.StringIO(z.read('pizza-data/participants.csv').decode('utf-8'))))
+        check(len(pc) == 2 and {r['study'] for r in pc} == {'pilot-asd'} and 'pizza-data/load_pizza.R' in z.namelist(), 'Worker: a study\'s R download holds that study only')
+        dbp = os.path.join(tmp, 'cf-copy.sqlite')
+        open(dbp, 'wb').write(http('GET', base + '/admin/database.sqlite?key=' + skey)[1])
+        con = sqlite3.connect(dbp)
+        check(con.execute('SELECT DISTINCT study FROM sessions').fetchall() == [('pilot-asd',)], 'Worker: a study\'s database copy holds that study only')
+        con.close()
+        check(b'how every number is counted' in http('GET', base + '/admin/methods?key=' + key)[1], 'Worker: serves the Methods page')
+        r = subprocess.run([PY, os.path.join(ROOT, 'tools', 'cloud_sync.py'), '--site', base, '--key', key], capture_output=True, text=True, timeout=300)
+        check(r.returncode == 0 and r.stdout.startswith('Up to date'), 'reports job does nothing when no session changed')
+    finally:
+        os.killpg(srv.pid, 15)
+        srv.wait(timeout=20)
+        log.close()
+    # bot protection: with Turnstile configured, a new session needs the check; too many starts from one address
+    # are refused (Cloudflare's test keys: this secret never passes)
+    srv = subprocess.Popen([exe, 'dev', '--local', '--ip', '127.0.0.1', '--port', str(port), '--persist-to', state, '--var', 'ADMIN_KEY:smoke-owner-key',
+                            '--var', 'TURNSTILE_SITE_KEY:2x00000000000000000000AB', '--var', 'TURNSTILE_SECRET:2x0000000000000000000000000000000AA'],
+                           cwd=cf, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    try:
+        for _ in range(150):
+            try:
+                if http('GET', base + '/robots.txt')[0] == 200:
+                    break
+            except OSError:
+                pass
+            time.sleep(0.2)
+        check(json.loads(http('GET', base + '/api/start?pid=BOTCHECK1')[1]).get('verify') == '2x00000000000000000000AB'
+              and json.loads(http('GET', base + '/api/start?pid=BOTCHECK1&ts=forged')[1]).get('verify'), 'Worker: a new session needs the bot check (Turnstile)')
+        check(json.loads(http('GET', base + '/api/start?pid=CFSMOKE1')[1]).get('pid') == 'CFSMOKE1', 'Worker: a returning participant is not checked again')
+        codes = [http('GET', base + '/api/start')[0] for _ in range(35)]
+        check(429 in codes, 'Worker: too many new sessions from one address are refused')
+        check(b'Disallow: /' in http('GET', base + '/robots.txt')[1], 'Worker: asks search engines to stay away')
+    finally:
+        os.killpg(srv.pid, 15)
+        srv.wait(timeout=20)
+
+
 def main():
     t_start = time.time()
     keep = os.environ.get('PIZZA_KEEP_OUTPUT')          # CI: keep the reports built from simulated data, as a run artifact
@@ -235,6 +346,8 @@ def main():
         finally:
             srv.terminate()
             srv.wait(timeout=10)
+
+        cloudflare_checks(tmp, fields)
 
         if shutil.which('node'):
             heading('javascript')

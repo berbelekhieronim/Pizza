@@ -1,0 +1,12 @@
+{
+  "name": "pizza-study-cloudflare",
+  "private": true,
+  "description": "The pizza study on Cloudflare (Worker + D1 + R2). See README.md.",
+  "scripts": {
+    "dev": "python3 deploy.py build && wrangler dev",
+    "deploy": "python3 deploy.py deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.40.0"
+  }
+}

@@ -257,6 +257,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')   # researcher links carry their key
+        self.send_header('X-Robots-Tag', 'noindex, nofollow')  # nothing here is for search engines
         for k, v in (headers or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -348,6 +349,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.file(os.path.join(HERE, 'participate.html'), 'text/html; charset=utf-8')
         if route in ('/pizza-builder.js', '/preview.js'):
             return self.file(os.path.join(ROOT, route[1:]), 'application/javascript; charset=utf-8')
+        if route == '/robots.txt':
+            return self.send(200, 'User-agent: *\nDisallow: /\n', 'text/plain; charset=utf-8')
         if route == '/study.json':
             sid, _, _ = self.study.resolve(self.arg('i'), self.arg('study'))
             s = load_study(sid)

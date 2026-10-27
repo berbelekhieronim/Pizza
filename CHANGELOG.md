@@ -3,6 +3,35 @@
 What changed, newest first. The task stores its version with every pizza (`summary.v` in `pz_summary`), so data can be
 matched to the format below. Add an entry for every change that reaches participants or the analysis.
 
+## 0.12.0 (2026-10-27) – Cloudflare hosting
+
+**The study on Cloudflare, deployed from GitHub, at one address.** The task and its data are unchanged (pizzas still
+record `summary.v` 0.10.1).
+- **`cloudflare/`**: one Worker serves the participant page, saving, resuming and the researcher page.
+  - Data goes to D1 (the schema of `server/store.py`), reports and downloads to R2 (EU jurisdiction).
+  - `server/study.json` is bundled in.
+  - `deploy.py` creates the database and storage the first time, then deploys.
+- **GitHub workflows.**
+  - `cloudflare.yml` deploys after every push to `main` whose checks pass. It does nothing until the Cloudflare
+    secrets are added.
+  - `reports.yml` runs `tools/cloud_sync.py`, which downloads the sessions, runs `analyse.py` for all studies and per
+    study, and stores the reports, R, raw and database downloads on the site. It runs when sessions finish, on
+    "Rebuild now", after deploys, and every 6 hours, and skips when nothing changed.
+- **Bot and abuse protection** (Cloudflare):
+  - Turnstile check before a new session (personal links and returning participants skip it);
+  - rate limits per connection and per session;
+  - `robots.txt` and `noindex` (also on the Codespace server);
+  - no request logging.
+- **Tests.** The smoke test runs the Worker in the local Workers runtime (wrangler dev with local D1 and R2):
+  - every participant and researcher route;
+  - access per study;
+  - the reports job;
+  - the bot check;
+  - rate limits;
+  - that the D1 schema matches `store.py`.
+
+  CI installs wrangler for it.
+
 ## 0.11.0 (2026-10-27) – study server
 
 **A database, a session browser, and a researcher link per study.** The task and its data are unchanged (pizzas still

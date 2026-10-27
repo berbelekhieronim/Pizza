@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+"""Builds the reports and downloads of the pizza study on Cloudflare, and stores them back on the site.
+
+    PIZZA_SITE_URL=https://pizza-study.<you>.workers.dev PIZZA_ADMIN_KEY=... python3 tools/cloud_sync.py [--force]
+
+Run by .github/workflows/reports.yml (when sessions finish, on "Rebuild now", and every 6 hours), or by hand from any
+computer with Python. It asks the site what changed since the last run (count and newest save per study), and when
+something did:
+1. downloads every session (owner-only /admin/export) into a local SQLite database with the schema of server/store.py;
+2. for everything ("all"), the main study and each study: runs analysis/analyse.py, and makes the R download (tables,
+   variables.csv, load_pizza.R, raw sessions), the raw sessions zip and a copy of the database (that study only);
+3. uploads them to the site's R2 storage (owner-only PUT /admin/files/...), where the researcher page serves them.
+
+It prints counts only, never participant data, so its log is safe in a public repository's Actions log. The local
+copies are deleted at the end (pass --keep DIR to keep them). Standard library only.
+"""
+import argparse
+import hashlib
+import io
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import zipfile
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, 'server'))
+from store import Store  # noqa: E402
+from server import R_FILES, R_README  # noqa: E402
+
+UA = {'User-Agent': 'pizza-study-sync/1'}
+REPORT_FILES = ('.html', '.csv')
+SKIP = {'gallery.html'}                      # needs its pizzas/ folder; not on the researcher page
+
+
+class Site:
+    def __init__(self, url, key):
+        self.url, self.key = url.rstrip('/'), key
+
+    def _req(self, method, path, data=None, params=None, ctype=None):
+        q = urllib.parse.urlencode(dict(params or {}, key=self.key))
+        req = urllib.request.Request('%s%s?%s' % (self.url, path, q), data=data, method=method, headers=dict(UA, **({'Content-Type': ctype} if ctype else {})))
+        for attempt in range(4):
+            try:
+                with urllib.request.urlopen(req, timeout=120) as r:
+                    return r.read()
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    return None
+                if e.code in (401, 403):
+                    sys.exit('The site refused the key (HTTP %d): PIZZA_ADMIN_KEY must be the owner\'s researcher password.' % e.code)
+                if attempt == 3 or e.code < 500:
+                    raise
+            except urllib.error.URLError:
+                if attempt == 3:
+                    raise
+            time.sleep(2 ** (attempt + 1))
+
+    def get_json(self, path, **params):
+        body = self._req('GET', path, params=params)
+        return None if body is None else json.loads(body)
+
+    def put(self, name, data):
+        self._req('PUT', '/admin/files/' + name, data=data, ctype='application/octet-stream')
+
+
+def code_version():
+    """The analysis code's hash: reports are rebuilt for everyone when it changes."""
+    h = hashlib.sha1()
+    for f in ('analysis/analyse.py', 'analysis/methods.py', 'analysis/r_export.py', 'analysis/load_pizza.R', 'analysis/nutrition.json'):
+        with open(os.path.join(ROOT, f), 'rb') as fh:
+            h.update(fh.read())
+    return h.hexdigest()[:16]
+
+
+def download(site, path):
+    """All sessions, fields, invites and condition counters into a local study.db."""
+    st = Store(path)
+    db = st.db()
+    after, n = '', 0
+    while True:
+        page = site.get_json('/admin/export', after=after, limit=25)
+        if not page or not page['sessions']:
+            break
+        with st.tx() as c:
+            for s in page['sessions']:
+                cols = list(s)
+                c.execute('INSERT OR REPLACE INTO sessions (%s) VALUES (%s)' % (', '.join(cols), ', '.join('?' * len(cols))), [s[k] for k in cols])
+            c.executemany('INSERT OR REPLACE INTO fields VALUES (?, ?, ?, ?)', [(f['pid'], f['name'], f['value'], f['updated']) for f in page['fields']])
+        n += len(page['sessions'])
+        after = page['sessions'][-1]['pid']
+    tables = site.get_json('/admin/export/tables') or {}
+    with st.tx() as c:
+        c.executemany('INSERT OR REPLACE INTO invites VALUES (?, ?, ?, ?, ?, ?)',
+                      [(i['token'], i['study'], i['grp'], i['source'], i['note'], i['created']) for i in tables.get('invites', [])])
+        c.executemany('INSERT OR REPLACE INTO meta VALUES (?, ?)', [(m['k'], m['v']) for m in tables.get('meta', [])])
+    db.close()
+    st.local.db = None
+    return n
+
+
+def zip_bytes(files):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+        for name, data in files:
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+def build_scope(st, db_path, scope, work):
+    """Reports and downloads of one scope ('all', 'main' or a study id): {stored name: bytes}, pizzas analysed."""
+    f = {'study': None if scope == 'all' else '' if scope == 'main' else scope}
+    out = os.path.join(work, 'out-' + scope)
+    cmd = [sys.executable, os.path.join(ROOT, 'analysis', 'analyse.py'), db_path, '--out', out] + ([] if scope == 'all' else ['--study', scope])
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    files, n = {}, 0
+    records = list(st.records(f))
+    raw = [('raw/%s.json' % rec['pid'], json.dumps(rec)) for rec in records]
+    if r.returncode == 0 and os.path.exists(os.path.join(out, 'participants.csv')):
+        with open(os.path.join(out, 'participants.csv'), encoding='utf-8') as fh:
+            n = max(0, sum(1 for _ in fh) - 1)
+        for name in sorted(os.listdir(out)):
+            if name.endswith(REPORT_FILES) and name not in SKIP:
+                with open(os.path.join(out, name), 'rb') as fh:
+                    files['reports/%s/%s' % (scope, name)] = fh.read()
+        r_files = [('pizza-data/README.txt', R_README)]
+        for name in R_FILES:
+            if os.path.exists(os.path.join(out, name)):
+                with open(os.path.join(out, name), 'rb') as fh:
+                    r_files.append(('pizza-data/' + name, fh.read()))
+        files['exports/%s/pizza-data-R.zip' % scope] = zip_bytes(r_files + [('pizza-data/' + name, data) for name, data in raw])
+    elif 'No pizza fields found' not in (r.stderr + r.stdout):
+        print('  %s: the analysis failed (exit %d); its last lines:\n%s' % (scope, r.returncode, '\n'.join((r.stderr or r.stdout).strip().split('\n')[-3:])))
+    files['exports/%s/sessions.zip' % scope] = zip_bytes([('participants/%s.json' % rec['pid'], json.dumps(rec)) for rec in records])
+    copy = os.path.join(work, 'copy-%s.sqlite' % scope)
+    st.backup(copy, f['study'])
+    with open(copy, 'rb') as fh:
+        files['exports/%s/study.sqlite' % scope] = fh.read()
+    return files, n
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--site', default=os.environ.get('PIZZA_SITE_URL'), help='the site (default: $PIZZA_SITE_URL)')
+    ap.add_argument('--key', default=os.environ.get('PIZZA_ADMIN_KEY'), help='the owner\'s researcher password (default: $PIZZA_ADMIN_KEY)')
+    ap.add_argument('--force', action='store_true', help='rebuild everything, even if nothing changed')
+    ap.add_argument('--keep', default=None, help='keep the downloaded database and the reports in this folder')
+    a = ap.parse_args()
+    if not a.site or not a.key:
+        sys.exit('Set PIZZA_SITE_URL and PIZZA_ADMIN_KEY (or pass --site and --key).')
+    site = Site(a.site, a.key)
+    info = site.get_json('/admin/signatures')
+    if info is None:
+        sys.exit('%s does not look like the pizza study on Cloudflare (no /admin/signatures).' % a.site)
+    sigs = info['signatures']
+    state = site.get_json('/admin/files/state.json') or {}
+    version = code_version()
+    if state.get('code') != version:
+        a.force = True
+    scopes = ['all'] + sorted(s for s in sigs if s != 'all')
+    todo = [s for s in scopes if a.force or (state.get('scopes') or {}).get(s) != sigs[s]]
+    if sigs['all'].startswith('0|'):
+        todo = []
+    if not todo:
+        print('Up to date: %s.' % ', '.join('%s %s sessions' % (s, sigs[s].split('|')[0]) for s in scopes))
+        return
+    work = a.keep or tempfile.mkdtemp(prefix='pizza-sync-')
+    os.makedirs(work, exist_ok=True)
+    try:
+        db_path = os.path.join(work, 'study.db')
+        if os.path.exists(db_path):
+            os.remove(db_path)
+        print('Downloaded %d sessions.' % download(site, db_path))
+        st = Store(db_path)
+        new_state = {'code': version, 'scopes': dict(state.get('scopes') or {})}
+        stamp = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+        for scope in todo:
+            files, n = build_scope(st, db_path, scope, work)
+            files['reports/%s/.built' % scope] = json.dumps({'when': stamp, 'n': n, 'sig': sigs[scope]}).encode()
+            if scope == 'all' and 'reports/all/methods.html' in files:
+                files['methods.html'] = files['reports/all/methods.html']
+            for name, data in files.items():
+                site.put(name, data if isinstance(data, bytes) else data.encode('utf-8'))
+            new_state['scopes'][scope] = sigs[scope]
+            print('  %s: %d pizzas analysed, %d files stored.' % (scope, n, len(files)))
+        site.put('state.json', json.dumps(new_state).encode())
+    finally:
+        if not a.keep:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+if __name__ == '__main__':
+    main()

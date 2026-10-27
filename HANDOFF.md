@@ -4,7 +4,7 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-10-27, task version 0.10.1, server 0.11.0)
+## Snapshot (2026-10-27, task version 0.10.1, server 0.12.0)
 
 - **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
@@ -18,6 +18,11 @@ session**: the snapshot, anything decided, and the open items.
   - **Study server:** `server/server.py` in a GitHub Codespace (`.devcontainer` starts it). Data is in the SQLite
     database `server/data/study.db` (`server/store.py`). The owner's researcher page is `/admin?key=…` (key in
     `server/data/.admin_key`); each study has its own researcher link, limited to that study.
+  - **Cloudflare** (`cloudflare/`, set up by the user per `cloudflare/README.md`): one Worker at
+    `https://pizza-study.<subdomain>.workers.dev` with D1 (data) and R2 (reports, downloads). It is deployed by
+    `.github/workflows/cloudflare.yml` once the repository has the Cloudflare secrets, and its reports are built by
+    `reports.yml` → `tools/cloud_sync.py`. Not deployed yet as of this snapshot: waiting for the user's account,
+    token and secrets.
   - **Demo:** `index.html` in the repo. A copy is published as the user's private Claude artifact "Pizza Builder demo";
     republish it after changing `pizza-builder.js` or `preview.js`.
 
@@ -47,6 +52,9 @@ preview.js: the demo's live summary; re-implements face detection, symmetry and 
 | `analysis/nutrition.json`, `tools/build_nutrition.py` | nutrients per 100 g (USDA SR28) and grams per piece; the script rebuilds the JSON from SR28's ABBREV.txt and copies it into `pizza-builder.js` |
 | `analysis/r_export.py`, `analysis/load_pizza.R` | data dictionary and R loader |
 | `server/server.py`, `server/participate.html`, `server/study.json` | study server (routes, researcher page, exports, access scopes), participant page, study settings (incl. `"studies"`) |
+| `cloudflare/src/worker.js`, `store.js`, `admin.js`, `config.js` | the Cloudflare Worker: the same routes as `server/server.py` on D1/R2, plus Turnstile and rate limits |
+| `cloudflare/deploy.py`, `cloudflare/wrangler.json`, `cloudflare/migrations/` | deploy (creates D1/R2 the first time), Worker config, D1 schema (= `store.SCHEMA`) |
+| `tools/cloud_sync.py` | the reports job for Cloudflare: download sessions → analyse per study → upload to R2 via the Worker |
 | `server/store.py` | the SQLite store: schema, saving, filters/sorting, personal and researcher links, per-study copies, import of the old JSON files |
 | `preview.js`, `index.html` | demo page and its captured-data preview |
 | `qualtrics/*.js` | paste-in code per survey page (practice, build, build-typical, follow-up) |
@@ -97,6 +105,15 @@ push, check the GitHub Actions run, and republish the demo artifact.
 - **Access by key, per study.** The owner key sees all; a study key is forced to its study in every route (filters,
   reports, exports, invites) and cannot reach owner-only routes (researcher-link reset). Keys stay in the URL so the
   page works inside the Codespace preview; logs mask them and pages send no referrer.
+- **Cloudflare hosting (user's request: "fully workable from Cloudflare and GitHub, one www").** One Worker at one
+  address. D1 because it is SQLite: the same schema and downloads as the Codespace server. The analysis is too heavy
+  for a Worker (minutes of CPU), so GitHub Actions builds the reports per study and stores them in R2 through
+  owner-only Worker routes (`/admin/export`, `/admin/files/...`). Reports therefore follow study scopes, not every
+  filter. The Worker starts the job when sessions finish (`PIZZA_GITHUB_TOKEN`, at most every 10 minutes).
+- **Bot protection** (user's request): Turnstile on new sessions (not on personal links or resumes), rate limits
+  (`ratelimits` in wrangler.json), no indexing. The Python server has no Turnstile; it is for pilots in a Codespace.
+- **Two servers, one behaviour.** `server/server.py` (Codespace, local) and `cloudflare/src/` (Cloudflare) must stay
+  in step: same routes, page and schema. The smoke test runs the same kinds of checks against both.
 - **Standard library only** (Python 3.10+, base R, no JS dependencies). The repository must run in a fresh Codespace,
   and in CI without installs beyond R.
 
@@ -125,6 +142,11 @@ push, check the GitHub Actions run, and republish the demo artifact.
   lost. `restarts` flags these sessions; restoring the exact pizza would need the task to rebuild state from its log.
 - **Adjustment reasons.** The categories are tested against chance for symmetry only; the others (grouping, spacing,
   ...) are descriptive.
+- **Cloudflare free-tier limits** (cloudflare/README.md): roughly 50–150 participants a day. A larger study needs Workers
+  Paid ($5/month). The participant page saves about once a second; batching saves less often would cut requests and
+  writes.
+- **GitHub processes data** in the reports job (public repo, logs show counts only). If ethics does not allow it,
+  disable `reports.yml` and run `tools/cloud_sync.py` on an approved computer.
 - **Hosting** still matters with the database: `study.db` lives in the Codespace. Download *Database (.sqlite)*
   regularly as a backup.
 - **Undecided:**
@@ -134,17 +156,20 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 ## Suggested next steps
 
-1. Pilot dry run: make 3 invite links for `pilot-asd`, run them on two computers, check *Personal links (.csv)*, the
+1. Cloudflare: the user creates the account, the token and Turnstile, and adds the GitHub secrets
+   (cloudflare/README.md). Then run *Actions → cloudflare*, open `/admin`, and do a dry run there.
+2. Pilot dry run: make 3 invite links for `pilot-asd`, run them on two computers, check *Personal links (.csv)*, the
    per-study reports and *Download for R* → `load_pizza()`.
-2. Confirm the pilot's intro, consent and completion text in `server/study.json` → `studies.pilot-asd` with the ethics
+3. Confirm the pilot's intro, consent and completion text in `server/study.json` → `studies.pilot-asd` with the ethics
    wording.
-3. After the pilot: code faces by hand on a subset, read `explore.html` → *Against chance* and *Leads*, and
+4. After the pilot: code faces by hand on a subset, read `explore.html` → *Against chance* and *Leads*, and
    preregister the chosen leads for the larger study.
 
 ## Session log
 
 | date | session | what was done |
 |---|---|---|
+| 2026-10-27 | Claude Code (cloud) | 0.12.0: Cloudflare version (Worker + D1 + R2, deploy and reports workflows, bot protection), tested in the local Workers runtime |
 | 2026-10-27 | Claude Code (cloud) | 0.11.0: SQLite database for the study server, session browser (filter, sort, pages) with filtered exports, per-study researcher links, `analyse.py` reads `study.db` |
 | 2026-10-27 | Claude Code (cloud) | 0.10.1: participant flow reviewed in a browser and tightened (resume mid-study, fit to window, compact follow-up, mouse wording); researcher page tidied |
 | 2026-10-26 | Claude Code (cloud) | 0.10.0: nutrition panel (study setting / condition), nutrients per pizza, adjustment classification, faster explore |
