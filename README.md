@@ -206,6 +206,10 @@ Prolific completion link), the conditions, the groups that get a ready-made link
 participant" build (`typical_build`), and whether to ask the "About you" questions (`about_you`, on by default).
 
 Things to know:
+- **Coming back mid-study.** If a participant reloads, closes the tab or opens their personal link again, they are not
+  asked for consent again: they return to the part they were on, which starts again, with a short "welcome back"
+  note. The follow-up keeps what the build saved. Each return is counted (`restarts`), and the pizza analysed is the
+  last attempt. A participant who has finished sees the thank-you page.
 - **The link works only while the server is on.** A codespace stops after about 30 minutes without activity in its editor
   (raise this to 4 hours in your GitHub settings under Codespaces → Default idle timeout), and then participants get a
   GitHub error page. Keep the codespace's tab open while participants take part. Opening it again restarts the server

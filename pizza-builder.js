@@ -16,7 +16,7 @@
   'use strict';
   if (global.PizzaBuilder) return;
 
-  var VERSION = '0.10.0';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
+  var VERSION = '0.10.1';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
   var VIEW = 105;        // half-width of every pizza viewBox; the pizza's outer radius is 100
   var R_SNAP = 0.9;      // with snapIn, a topping centre dropped on the crust is pulled in to this radius
   var R_OFF = 1.0;       // dropped further out than this = off the pizza
@@ -443,6 +443,11 @@
     '.pzb-opt{margin-top:6px}',
     '.pzb-nav{display:flex;justify-content:flex-end;margin-top:18px}',
     '.pzb-nav .pzb-btn{flex:0 1 200px}',
+    '.pzb-mode-followup:not(.pzb-narrow) .pzb-card{max-width:860px}',
+    '.pzb-mode-followup:not(.pzb-narrow) .pzb-checks{flex-direction:row;flex-wrap:wrap}',
+    '.pzb-mode-followup:not(.pzb-narrow) .pzb-check{width:auto;flex:0 1 auto;padding:6px 12px 6px 10px}',
+    '.pzb-mode-followup:not(.pzb-narrow) .pzb-q{margin-top:12px}',
+    '.pzb-mode-followup:not(.pzb-narrow) .pzb-acols{display:grid;grid-template-columns:1fr 1fr;gap:0 28px;align-items:start}',
     '.pzb-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin:12px 0 4px}',
     '.pzb-narrow .pzb-tiles{grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:6px}',
     '.pzb-tile{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;border-radius:12px;border:2px solid var(--pzb-line);background:#fff;font-size:.82em;line-height:1.15;text-align:center}',
@@ -481,12 +486,12 @@
     confirmTitle: 'Is your pizza finished?', confirmBody: 'You will not be able to change it after this.',
     confirmYes: 'Yes, bake it', confirmNo: 'Keep editing',
     clearTitle: 'Remove all toppings?', clearBody: 'You can undo this.', clearYes: 'Remove all', cancel: 'Cancel',
-    tapHint: 'Hold and drag the topping onto the pizza', full: 'There is no room for more toppings',
+    tapHint: 'Keep the mouse button down and drag the topping onto the pizza', full: 'There is no room for more toppings',
     waitNote: 'You can finish in {s} s', minNote: 'Add at least {n} toppings to finish',
     baked: 'Your pizza is ready!',
     steps: ['Drag a tomato slice into the dashed circle', 'Add two more slices anywhere on the pizza',
-      'Move a slice that is already on the pizza: press it and drag it somewhere else',
-      'Change a slice\'s size: press it and hold still, then let go when it is the size you want', 'Remove a slice: drag it from the pizza off the edge'],
+      'Move a slice that is already on the pizza: drag it somewhere else',
+      'Change a slice\'s size: click it and keep the button down without moving; let go when it is the size you want', 'Remove a slice: drag it from the pizza off the edge'],
     growHint: 'This time, press a slice on the pizza and keep holding still: it will grow and shrink',
     tryAgain: 'Nearly - drop it inside the dashed circle',
     moveHint: 'This time, press a slice that is already on the pizza and drag it to a new place',
@@ -522,7 +527,7 @@
     },
     neverTasted: "I've never tasted it",
     strongQ: 'Do you have strong feelings about any of these ingredients?',
-    strongSub: 'Tap every one you do: good or bad. Tap again to undo.',
+    strongSub: 'Click every one you do, good or bad. Click again to undo.',
     strongNone: 'None of these',
     strongProgress: 'Ingredient {i} of {n}',
     feel: {
@@ -705,7 +710,10 @@
     this.w.classList.toggle('pzb-cols4', cols4);
     this.w.classList.toggle('pzb-xs', W < 330);
     var pad = narrow ? 12 : 24;
-    var size = narrow ? Math.min(W - pad, vh * 0.52, 560) : Math.min(W - (cols4 ? 390 : 318) - pad, vh * 0.8, 600);
+    // on a computer the pizza fills the window height left below its top edge (so the whole task is visible
+    // without scrolling), within 380-600 px
+    var top = this.boardEl ? this.boardEl.getBoundingClientRect().top + (global.scrollY || 0) : 120;
+    var size = narrow ? Math.min(W - pad, vh * 0.52, 560) : Math.min(W - (cols4 ? 390 : 318) - pad, Math.max(380, vh - top - 40), 600);
     size = Math.max(220, Math.floor(size));
     this.pizzaEl.style.width = this.pizzaEl.style.height = size + 'px';
     this.layout = narrow ? 'narrow' : 'wide';
@@ -1392,10 +1400,12 @@
   // Who the participant is: neurotype (self-described, with how it was identified), eating history, diet, two
   // self-ratings and demographics. Each question has "Prefer not to say"; the card needs an answer to each.
   Followup.prototype._about = function () {
-    var T = this.T, o = this.o, r = this.res, self = this, card = el('div', 'pzb-card'), upd, checks = [];
+    var T = this.T, o = this.o, r = this.res, self = this, outer = el('div', 'pzb-card pzb-about'), upd, checks = [];
     var a = r.about = { neuro: [], dx: {}, eating: [], age: null, gender: null, t: {} };
-    card.appendChild(el('h3', null, esc(T.aboutTitle)));
-    card.appendChild(el('p', 'pzb-sub', esc(T.aboutSub)));
+    outer.appendChild(el('h3', null, esc(T.aboutTitle)));
+    outer.appendChild(el('p', 'pzb-sub', esc(T.aboutSub)));
+    var grid = el('div', 'pzb-acols'), cols = [el('div', 'pzb-acol'), el('div', 'pzb-acol')], card = cols[0];   // two columns on a computer
+    grid.appendChild(cols[0]); grid.appendChild(cols[1]); outer.appendChild(grid);
     function stamp(k) { if (a.t[k] == null) a.t[k] = Math.round(now() - self.cardT); }
     function ask(k, sel, onChange, parent) {
       var def = T.about[k], q = el('div', 'pzb-q'), one = [];
@@ -1405,6 +1415,7 @@
       return q;
     }
     o.aboutQuestions.forEach(function (k) {
+      card = cols[['diet', 'scales', 'age'].indexOf(k) >= 0 && !(k === 'diet' && o.askDiet) ? 1 : 0];
       if (k === 'neuro') {
         var sub = {};
         ask('neuro', a.neuro, function () {
@@ -1437,8 +1448,8 @@
         checks.push(function () { return a[k] != null; });
       }
     });
-    upd = this._nav(card, function () { return checks.every(function (f) { return f(); }); }, this.i === this.screens.length - 1 ? T.finish : T.next);
-    this.w.appendChild(card);
+    upd = this._nav(outer, function () { return checks.every(function (f) { return f(); }); }, this.i === this.screens.length - 1 ? T.finish : T.next);
+    this.w.appendChild(outer);
   };
 
   Followup.prototype._next = function () {

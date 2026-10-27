@@ -178,6 +178,11 @@ def main():
             check(all(st.get('pid') == i['invite'] for st, i in zip(started, invites)), 'an invite link is its participant\'s id')
             check('error' in json.loads(http('GET', base + '/api/start?i=nosuchone')[1]) and 'error' in json.loads(http('GET', base + '/api/start?study=nosuchstudy')[1]),
                   'refuses unknown invite and study links')
+            # coming back mid-study: the session reports where it was, with what the follow-up needs
+            http('POST', base + '/api/save', {'pid': started[0]['pid'], 'stage': 'followup', 'fields': {'pz_counts': 'pep:2', 'restarts': '1'}})
+            back = json.loads(http('GET', base + '/api/start?i=' + invites[0]['invite'])[1])
+            check(back.get('stage') == 'followup' and back.get('counts') == 'pep:2' and back.get('restarts') == '1',
+                  'a returning participant resumes at their part, with the build\'s counts and restart count')
             for st in started:
                 http('POST', base + '/api/save', {'pid': st['pid'], 'stage': 'done', 'fields': fields})
             code, page = http('GET', base + '/admin?key=smoke-key&study=pilot-asd')

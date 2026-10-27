@@ -2844,6 +2844,10 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             rec['flag_tab_away'] = int((summary.get('hiddenMs') or 0) > 30000)
             rec['flag_fast'] = int(rec['t_finish'] is not None and rec['t_finish'] < 15000)
             rec['flag_empty'] = int(n == 0)
+            try:                                   # study server: times the participant came back and restarted a part
+                rec['restarts'] = int(field(row, 'restarts') or 0)
+            except ValueError:
+                rec['restarts'] = None
             ings = ingredient_rows(pid, prefix, summary, events, counts, follow, diet, pieces)
             for r in ings:
                 k = r['ing']

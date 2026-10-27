@@ -360,7 +360,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             rec = self.study.new_session(g('pid') or g('PROLIFIC_PID'), g('group'), g('cond'), g('i'), g('study'), g('source'))
             if 'error' in rec:
                 return self.send(200, json.dumps({'error': rec['error']}), 'application/json')
-            return self.send(200, json.dumps({'pid': rec['pid'], 'cond': rec.get('cond', ''), 'stage': rec.get('stage', 'intro')}), 'application/json')
+            return self.send(200, json.dumps({'pid': rec['pid'], 'cond': rec.get('cond', ''), 'stage': rec.get('stage', 'intro'),
+                                              'counts': rec.get('pz_counts', ''), 'restarts': rec.get('restarts', '0')}), 'application/json')
         if route.startswith('/admin'):
             if not self.is_admin():
                 return self.send(403, self.denied_page())
@@ -480,13 +481,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             invs = [t for t, v in inv.items() if v['study'] == sid]
             opened = sum(1 for t in invs if os.path.exists(self.study.path(t)))
             fin = sum(1 for r in mine if r['invite'] and r['done'])
-            links = ''.join('<div class="link"><span>%s</span><input readonly value="%s" aria-label="%s"><button type="button" class="copy">Copy</button></div>'
+            links = ''.join('<span class="ll">%s</span><input readonly value="%s" aria-label="%s"><button type="button" class="copy alt">Copy</button>'
                             % (escape(label), escape(url, quote=True), escape(label, quote=True)) for label, url in self.open_links(sid))
             qs = 'key=%s&study=%s' % (k, urllib.parse.quote(sid or 'main'))
-            trs.append('<tr><td><b>%s</b><br><span class="muted">%s</span></td><td>%d</td><td>%d</td><td>%d / %d / %d</td>'
-                       '<td style="white-space:normal;min-width:320px">%s</td><td><a href="/admin?%s">Show</a><br><a href="/admin/invites.csv?%s">Invite links (.csv)</a></td></tr>'
+            trs.append('<tr class="st"><td><b>%s</b><br><span class="muted">%s</span></td><td>%d</td><td>%d</td><td>%d / %d / %d</td>'
+                       '<td><a href="/admin?%s">Show only this study</a><br><a href="/admin/invites.csv?%s">Personal links (.csv)</a></td></tr>'
+                       '<tr class="links"><td colspan="5"><div class="lgrid">%s</div></td></tr>'
                        % (escape(sid or 'main'), escape(cfg.get('description') or cfg.get('title') or ''), len(mine), sum(r['done'] for r in mine),
-                          len(invs), opened, fin, links, qs, qs))
+                          len(invs), opened, fin, qs, qs, links))
             opts.append('<option value="%s"%s>%s</option>' % (escape(sid or 'main'), ' selected' if sf == sid else '', escape(sid or 'main')))
         form = ('<form method="post" action="/admin/invites?key=%s" class="row" style="align-items:end">'
                 '<label>Study<br><select name="study">%s</select></label>'
@@ -495,13 +497,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 '<label>Note<br><input name="note" size="14" placeholder="optional"></label>'
                 '<label>How many<br><input name="count" type="number" min="1" max="500" value="10" style="width:5em"></label>'
                 '<button type="submit">Make personal links</button></form>' % (k, ''.join(opts)))
-        return ('<div class="card"><h2>Studies and links</h2><table><tr><th>Study</th><th>Sessions</th><th>Finished</th>'
-                '<th>Personal links<br><span class="muted">made / opened / finished</span></th><th>Open links</th><th></th></tr>%s</table>'
-                '<h2 style="margin-top:14px">Make personal links</h2>%s<p class="muted">A personal link (<code>/?i=…</code>) belongs to one '
-                'participant: it records the study, group and recruitment source, and opening it again resumes their session. Download the '
-                'links as a spreadsheet to send them out, and to see who has opened or finished. Open links can be posted anywhere; '
-                'anyone using one is recorded under that study (and group). Add studies, each with its own intro, consent and completion '
-                'text if you like, under <code>"studies"</code> in <code>server/study.json</code>.</p></div>' % (''.join(trs), form))
+        return ('<div class="card"><h2>Studies and links</h2><table class="studies"><tr><th>Study</th><th>Sessions</th><th>Finished</th>'
+                '<th>Personal links<br><span class="muted">made / opened / finished</span></th><th></th></tr>%s</table>'
+                '<h2 style="margin-top:14px">Make personal links</h2>%s<p class="muted">One link per participant: it records study, group '
+                'and source, and resumes their session if opened again. The .csv lists the links and who has opened or finished. Open links '
+                '(above) can be posted anywhere. Studies are set up in <code>server/study.json</code> → <code>"studies"</code>.</p></div>' % (''.join(trs), form))
 
     def with_bar(self, html, sf=None):
         q = urllib.parse.urlencode(dict({'key': self.study.key}, **({} if sf is None else {'study': sf or 'main'})))
@@ -531,9 +531,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
         chips = ''.join('<a class="chip%s" href="/admin?key=%s%s">%s</a>' % (' on' if sf == sid else '', k, '' if sid is None else '&study=' + urllib.parse.quote(sid or 'main'),
                                                                             escape('All studies' if sid is None else sid or 'main'))
                         for sid in [None, ''] + sorted(set(studies()) | {r['study'] for r in allrows if r['study']}))
+        def minutes(r):
+            try:
+                a, b = (time.mktime(time.strptime(v[:19], '%Y-%m-%dT%H:%M:%S')) for v in (r['started'], r['updated']))
+                return '%.1f min' % ((b - a) / 60)
+            except (ValueError, TypeError):
+                return ''
+        stage_names = {'intro': 'reading the intro', 'practice': 'practice', 'build': 'building', 'typical': 'typical pizza', 'followup': 'questions', 'done': 'finished'}
         trs = ''.join('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (
-            escape(r['pid']), escape(r['study'] or 'main'), escape(r['group']), escape(r['source']), escape(r['about']), escape(r['cond']), escape(r['stage']),
-            '' if r['pieces'] is None else r['pieces'], escape(r['started'].replace('T', ' ')[:16]), escape(r['updated'].replace('T', ' ')[:16])) for r in rows)
+            escape(r['pid']), escape(r['study'] or 'main'), escape(r['group']), escape(r['source']), escape(r['about']), escape(r['cond']),
+            escape(stage_names.get(r['stage'], r['stage'])), '' if r['pieces'] is None else r['pieces'], escape(r['started'].replace('T', ' ')[:16]), minutes(r))
+            for r in sorted(rows, key=lambda r: r['started'], reverse=True))
         note = ('<pre class="note">%s</pre>' % escape(message)) if message else ''
         scope = 'all studies' if sf is None else 'study <b>%s</b>' % escape(sf or 'main')
         return """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -551,6 +559,9 @@ input,select{font:inherit;padding:6px 8px;border-radius:8px;border:1px solid var
 button,.btn{font:inherit;padding:8px 14px;border-radius:9px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);cursor:pointer;text-decoration:none;display:inline-block}
 .link button{padding:5px 10px}.btn.alt,button.alt{background:transparent;color:var(--fg);border-color:var(--line)}a{color:var(--accent)}
 .chip{display:inline-block;padding:4px 12px;border-radius:999px;border:1px solid var(--line);text-decoration:none;color:var(--fg);margin:0 6px 6px 0}.chip.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.studies tr.st td{border-bottom:0;padding-bottom:2px}.studies tr.links td{padding-top:2px}
+.lgrid{display:grid;grid-template-columns:max-content minmax(0,1fr) max-content;gap:4px 8px;align-items:center;max-width:820px}
+.lgrid .ll{color:var(--muted);font-size:.85rem}.lgrid input{width:100%%;box-sizing:border-box;font-size:.85rem;padding:5px 8px}.lgrid button{padding:4px 12px}
 .note{white-space:pre-wrap;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:8px 0 0}
 </style></head><body><div class="wrap"><h1>Pizza study</h1><p class="muted">Showing %s: %d sessions, %d finished. <a href="/admin?key=%s%s">Refresh</a></p>
 <div>%s</div>%s
@@ -560,7 +571,7 @@ button,.btn{font:inherit;padding:8px 14px;border-radius:9px;border:1px solid var
 <a class="btn" href="/admin/r.zip?key=%s%s">Download for R (.zip)</a>
 <a class="btn alt" href="/admin/data.zip?key=%s%s">Download raw sessions (.zip)</a></div>%s</div>
 %s
-<div class="card"><h2>Sessions</h2><table><tr><th>Participant</th><th>Study</th><th>Group</th><th>Source</th><th>Says they are</th><th>Condition</th><th>Stage</th><th>Pieces</th><th>Started (UTC)</th><th>Last saved</th></tr>%s</table></div>
+<div class="card"><h2>Sessions</h2><table><tr><th>Participant</th><th>Study</th><th>Group</th><th>Source</th><th>Says they are</th><th>Condition</th><th>Where</th><th>Pieces</th><th>Started (UTC)</th><th>Time taken</th></tr>%s</table></div>
 </div><script>
 document.querySelectorAll('.copy').forEach(function (b) {
   b.onclick = function () {

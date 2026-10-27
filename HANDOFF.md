@@ -4,7 +4,7 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-10-26, task version 0.10.0)
+## Snapshot (2026-10-27, task version 0.10.1)
 
 - **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally (78) and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
@@ -112,6 +112,8 @@ push, check the GitHub Actions run, and republish the demo artifact.
   - SR28 values are US foods; for example, US bread is folate-fortified.
   - The panel is shown only during the build, not in the practice or the typical-participant build, unless
     `condition_settings` or `nutrition_panel` apply to those.
+- **Resuming restarts the part.** A part is not restored mid-way, so a returning participant's half-built pizza is
+  lost. `restarts` flags these sessions; restoring the exact pizza would need the task to rebuild state from its log.
 - **Adjustment reasons.** The categories are tested against chance for symmetry only; the others (grouping, spacing,
   ...) are descriptive.
 - **Undecided:**
@@ -132,5 +134,6 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 | date | session | what was done |
 |---|---|---|
+| 2026-10-27 | Claude Code (cloud) | 0.10.1: participant flow reviewed in a browser and tightened (resume mid-study, fit to window, compact follow-up, mouse wording); researcher page tidied |
 | 2026-10-26 | Claude Code (cloud) | 0.10.0: nutrition panel (study setting / condition), nutrients per pizza, adjustment classification, faster explore |
 | 2026-10-26 | Claude Code (cloud) | Built 0.1–0.9 (see CHANGELOG): task, analysis, study server, Methods page, symmetry rework, desktop-only, R export, pilot studies with invite links, changes-of-mind replay, CI summary and this handoff |

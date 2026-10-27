@@ -204,6 +204,7 @@ SECTIONS = [
     ]),
     ('Data-quality flags', None, [
         ('flag_tab_away, flag_fast, flag_empty', 'Tab hidden > 30 s; submitted in &lt; 15 s; no pieces.', 'analyse'),
+        ('restarts', 'Study server: times the participant came back mid-study (reload, closed tab, personal link reopened) and the part they were on started again; their pizza is from the last attempt.', 'analyse'),
     ]),
     ('Profiles and clusters (profiles.html, profiles.csv)', None, [
         ('z_{feature}', 'For each of the profile measures: log(1 + x) where marked, × −1 where lower means more of the trait, missing → sample median, then z = (x − mean) / SD across participants, capped at ±3.', 'build_profiles'),

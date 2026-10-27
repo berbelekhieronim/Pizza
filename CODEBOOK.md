@@ -246,6 +246,12 @@ Scales run 1-7:
 `reason` (symmetry, grouping, spreading, spacing, unstacking, inward, outward, nudge, other; size match, resize).
 Per pizza: `n_adjustments`, `n_adj_*`, `adj_symmetry_expected`, `adj_symmetry_excess`, `adj_reasons` (Methods page).
 
+### Study server session fields
+
+`study`, `group`, `source`, `invite`, `cond` (from the link), `consent` (time the consent box was ticked and the
+participant went on), `restarts` (times they came back mid-study, see README), `stage` (last part reached:
+intro / practice / build / typical / followup / done), `started`, `updated`.
+
 ### Nutrition columns
 
 Per pizza: `nut_kcal`, `nut_<nutrient>_<unit>` (whole pizza with its base: protein, carbs, sugars, fat, satfat, fibre,

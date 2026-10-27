@@ -3,6 +3,24 @@
 What changed, newest first. The task stores its version with every pizza (`summary.v` in `pz_summary`), so data can be
 matched to the format below. Add an entry for every change that reaches participants or the analysis.
 
+## 0.10.1 (2026-10-27)
+
+**The participant flow, reviewed and tightened.** Each step was measured in a browser at 1366×768 and 1280×720.
+- **Coming back mid-study** (reload, closed tab, personal link reopened): no second consent. The participant returns
+  to the part they were on, the follow-up keeps the build's counts, a "welcome back" note shows, and `restarts` is
+  recorded (new column).
+- **Every step fits the window.**
+  - The pizza takes the height left below its top edge.
+  - The page margins are smaller.
+  - Practice, build, strong-feelings list and ingredient cards need no scrolling at 1366×768 (they needed 50–750 px
+    before).
+- **Compact follow-up on computers.** Answer options are rows of chips on a wider card, and About you has two columns,
+  cutting its scrolling from 1,650 px to 190 px.
+- **Mouse wording.** "Click" instead of "tap" and "press"; clearer practice steps for moving and resizing.
+- **Researcher page.**
+  - Open links sit in tidy rows with a Copy button beside each.
+  - Sessions are newest first, with where each person is and the time taken.
+
 ## 0.10.0 (2026-10-26)
 
 **Nutrition panel, nutrients of every pizza, why pieces were moved**

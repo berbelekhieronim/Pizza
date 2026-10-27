@@ -7,8 +7,8 @@
 <style>
   :root { --ink:#2a2421; --muted:#6e635b; --line:#e3dbd2; --bg:#f6f2ed; --accent:#a8361d; }
   body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-  .wrap { max-width:980px; margin:0 auto; padding:16px max(16px, env(safe-area-inset-right)) 40px max(16px, env(safe-area-inset-left)); }
-  .sheet { background:#fff; border:1px solid var(--line); border-radius:14px; padding:18px; }
+  .wrap { max-width:980px; margin:0 auto; padding:12px 16px; }
+  .sheet { background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px 18px; }
   h1 { font-size:1.35rem; margin:0 0 10px; }
   .intro p { max-width:62ch; }
   label.consent { display:flex; gap:10px; align-items:flex-start; margin:16px 0; max-width:62ch; cursor:pointer; }
@@ -18,14 +18,18 @@
   button.go { font:inherit; font-weight:600; padding:12px 24px; border-radius:10px; border:0; background:var(--accent); color:#fff; cursor:pointer; }
   button.go:disabled { opacity:.45; cursor:default; }
   .code { font:600 1.6rem/1.2 ui-monospace, Menlo, Consolas, monospace; letter-spacing:.06em; background:#f4efe9; border-radius:10px; padding:10px 14px; display:inline-block; user-select:all; }
-  .status { color:var(--muted); font-size:.85rem; min-height:1.2em; margin-top:8px; }
+  .status { color:var(--muted); font-size:.85rem; margin:8px 0 0; }
+  .status:empty { display:none; }   /* no empty line under the task: the page fits the window */
   .progress { color:var(--muted); font-size:.85rem; margin:0 0 10px; }
+  .notice { background:#f4efe9; border-radius:10px; padding:8px 12px; margin:0 0 10px; font-size:.95rem; }
+  .notice[hidden] { display:none; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="sheet">
     <p class="progress" id="progress"></p>
+    <p class="notice" id="notice" hidden></p>
     <div id="stage"></div>
     <div class="next" id="next" hidden><button class="go" type="button">Next &rarr;</button></div>
     <p class="status" id="status" aria-live="polite"></p>
@@ -37,7 +41,7 @@
   var params = new URLSearchParams(location.search);
   var S = { pid: null, cond: '', fields: {}, stage: 'intro', study: {} };
   var steps = ['intro', 'practice', 'build', 'followup', 'done'];
-  var stage = document.getElementById('stage'), next = document.getElementById('next'), status = document.getElementById('status');
+  var stage = document.getElementById('stage'), next = document.getElementById('next'), status = document.getElementById('status'), notice = document.getElementById('notice');
   var widget = null, timer = null, pending = false;
 
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -75,6 +79,7 @@
     send(true);
     if (name === 'intro') return intro();
     if (name === 'done') return done();
+    if (S.resumed) S.resumed = false; else notice.hidden = true;   // the "welcome back" note shows on the part they came back to only
     var box = document.createElement('div');
     stage.appendChild(box);
     var opts = { mode: name === 'typical' ? 'build' : name, onSave: onSave, condition: S.cond, onFinish: function () { send(true); go(o[i + 1]); } };
@@ -134,7 +139,19 @@
     S.pid = res[1].pid; S.cond = res[1].cond || '';
     try { sessionStorage.setItem('pz-pid', S.pid); } catch (e) {}
     document.title = S.study.title || document.title;
-    go(res[1].stage === 'done' ? 'done' : 'intro');
+    // coming back (a reload, a closed tab, a personal link opened again): no second consent; the part they were on
+    // starts again, the follow-up keeps what the build saved, and restarts are counted for the analysis
+    var was = res[1].stage;
+    if (was === 'done') return go('done');
+    if (order().indexOf(was) > 0) {
+      if (res[1].counts) S.fields.pz_counts = res[1].counts;
+      S.fields.restarts = String((+res[1].restarts || 0) + 1);
+      notice.textContent = 'Welcome back. You can carry on from the part you were on.';
+      notice.hidden = false;
+      S.resumed = true;
+      return go(was);
+    }
+    go('intro');
   }).catch(function () {
     stage.innerHTML = '<p>The study could not start. Please check your connection and reload the page.</p>';
   });
