@@ -5,6 +5,7 @@
     python3 cloudflare/deploy.py deploy    # everything below, idempotent (run by .github/workflows/cloudflare.yml)
     python3 cloudflare/deploy.py build     # cloudflare/public only: the participant page and the task script
     python3 cloudflare/deploy.py url       # print the site's address
+    python3 cloudflare/deploy.py live      # check the live site (study links, researcher page)
     python3 cloudflare/deploy.py move all tests   # move sessions to another study (Actions -> move sessions)
 
 deploy needs only CLOUDFLARE_API_TOKEN and PIZZA_ADMIN_KEY (the owner's researcher password). It finds the account
@@ -191,6 +192,48 @@ def move(src, dest):
     print('Moved %d sessions and %d personal links from %s to %s%s.' % (n[0], n[1], src, dest, '' if left == [0, 0] else ' (%d sessions did not move)' % left[0]))
 
 
+def live():
+    """Checks the live site from outside (run after every deploy): pages, each study's link, and the researcher page
+    with PIZZA_ADMIN_KEY. Prints one line per check, never the key; returns True when all pass."""
+    url, ok = site_url(), True
+    with open(os.path.join(ROOT, 'server', 'study.json'), encoding='utf-8') as f:
+        ids = sorted(json.load(f).get('studies') or {})
+
+    def get(path, key=None):
+        q = path + (('&' if '?' in path else '?') + urllib.parse.urlencode({'key': key}) if key else '')
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url + q, headers={'User-Agent': 'pizza-study-check/1'}), timeout=30) as r:
+                return r.status, r.read().decode('utf-8', 'replace')
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode('utf-8', 'replace')
+        except urllib.error.URLError as e:
+            return 0, str(e.reason)
+
+    def line(good, what, detail=''):
+        nonlocal ok
+        ok = ok and good
+        print('  %s  %-44s %s' % ('ok  ' if good else 'FAIL', what, detail))
+
+    print('Live site %s' % url)
+    code, body = get('/')
+    line(code == 200 and 'pizza-builder.js' in body, 'participant page', 'HTTP %d' % code)
+    for sid in [''] + ids:
+        code, body = get('/api/start?' + urllib.parse.urlencode({'study': sid}) if sid else '/api/start')
+        try:
+            res = json.loads(body)
+        except ValueError:
+            res = {'error': 'HTTP %d' % code}
+        line('error' not in res, 'study link %s' % ('/?study=' + sid if sid else '/ (main)'),
+             res.get('error') or ('bot check first' if res.get('verify') else 'starts'))
+    key = os.environ.get('PIZZA_ADMIN_KEY', '')
+    code, body = get('/admin', key)
+    line(code == 200 and 'Owner: all studies' in body, 'researcher page with PIZZA_ADMIN_KEY', 'HTTP %d' % code)
+    unsafe = sorted(set(c for c in key if not (c.isalnum() or c in '-_.~')))
+    line(not unsafe, 'password is safe to type in a link',
+         'contains %s: use the link with those characters encoded, or choose a password of letters, digits, - and _' % ' '.join(repr(c) for c in unsafe) if unsafe else '')
+    return ok
+
+
 def deploy():
     for k in ('CLOUDFLARE_API_TOKEN', 'PIZZA_ADMIN_KEY'):
         if not os.environ.get(k):
@@ -244,6 +287,8 @@ if __name__ == '__main__':
         deploy()
     elif cmd == 'move' and len(sys.argv) == 4:
         move(sys.argv[2], sys.argv[3])
+    elif cmd == 'live':
+        sys.exit(0 if live() else 1)
     elif cmd == 'check':
         sys.exit(0 if check() else 1)
     elif cmd == 'url':
