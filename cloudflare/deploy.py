@@ -233,6 +233,12 @@ def live():
     except ValueError:
         scope = None
     line(code == 200 and 'Choose a study' in body and scope == 'owner', 'researcher page with PIZZA_ADMIN_KEY', 'HTTP %d, %s' % (code, scope or 'no access'))
+    try:
+        instant = json.loads(sbody).get('build', {}).get('instant')
+    except (ValueError, AttributeError):
+        instant = None
+    print('  %s  %-44s %s' % ('ok  ' if instant else 'note', 'automatic reports (GitHub token)',
+                             'on: a build starts 5 minutes after the last session data' if instant else 'off: add the PIZZA_GITHUB_TOKEN secret'))
     # characters that change a link's meaning when typed into it ('#' cuts it off, '&' starts a new field, ...)
     unsafe = sorted(set(c for c in key if c in '#&+% ?'))
     if unsafe:

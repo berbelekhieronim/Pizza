@@ -18,7 +18,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       PIZZA_ADMIN_KEY: ${{ secrets.PIZZA_ADMIN_KEY }}
-      PIZZA_GITHUB_TOKEN: ${{ secrets.PIZZA_GITHUB_TOKEN }}
+      PIZZA_GITHUB_TOKEN: ${{ secrets.PIZZA_GITHUB_TOKEN || secrets.PIZZA_GITHUB_TOKEN_PIZZA }}   # either name works
       PIZZA_SITE_URL: ${{ vars.PIZZA_SITE_URL }}
       PIZZA_EU: ${{ vars.PIZZA_EU }}
       R2_LIMIT_BYTES: ${{ vars.R2_LIMIT_BYTES }}

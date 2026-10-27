@@ -83,7 +83,7 @@ builds. Cloudflare only stores a flag and sends one request per finished session
 researcher page shows the build's progress (spinner, step, log, link to the run). Without the token, start builds from
 GitHub (Actions → reports → Run workflow).
 
-**The token (`PIZZA_GITHUB_TOKEN`).** With it, the site starts the reports job a few minutes after
+**The token (`PIZZA_GITHUB_TOKEN`, or `PIZZA_GITHUB_TOKEN_PIZZA`).** With it, the site starts the reports job a few minutes after
 sessions finish and when someone presses *Rebuild now*. Without it, reports are rebuilt every 6 hours, after each
 deploy, and from *Actions → reports → Run workflow*. Make the token at github.com → *Settings → Developer settings →
 Fine-grained tokens*: this repository only, permission **Actions: Read and write**.
