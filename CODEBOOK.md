@@ -252,6 +252,19 @@ Per pizza: `n_adjustments`, `n_adj_*`, `adj_symmetry_expected`, `adj_symmetry_ex
 participant went on), `restarts` (times they came back mid-study, see README), `stage` (last part reached:
 intro / practice / build / typical / followup / done), `started`, `updated`.
 
+### The study server's database (`server/data/study.db`, SQLite)
+
+| table | one row per | columns |
+|---|---|---|
+| `sessions` | session | `pid` (key), `study` ('' = main), `grp` (group), `source`, `invite`, `cond`, `stage`, `started`, `updated`, `finished` (UTC ISO times), `seconds` (started → last save), `restarts`, `consent`, `n_pieces` (own pizza), `neuro` (self-described neurotype codes) |
+| `fields` | session × saved field | `pid`, `name` (e.g. `pz_final`, `pzf_data`), `value` (the text the task saved), `updated` |
+| `invites` | personal link | `token` (= the participant's `pid`), `study`, `grp`, `source`, `note`, `created` |
+| `study_keys` | study | `study`, `key` (its researcher link's password), `created` |
+| `meta` | setting | `k`, `v` (e.g. `cond_next:<study>`, the next condition to assign) |
+
+`sessions` holds copies of a few fields for sorting and filtering; `fields` is the full record. A copy downloaded for
+one study has no `study_keys`. `analyse.py study.db` reads it like the JSON files (`--study` picks one study).
+
 ### Nutrition columns
 
 Per pizza: `nut_kcal`, `nut_<nutrient>_<unit>` (whole pizza with its base: protein, carbs, sugars, fat, satfat, fibre,

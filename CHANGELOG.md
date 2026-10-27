@@ -3,6 +3,22 @@
 What changed, newest first. The task stores its version with every pizza (`summary.v` in `pz_summary`), so data can be
 matched to the format below. Add an entry for every change that reaches participants or the analysis.
 
+## 0.11.0 (2026-10-27) – study server
+
+**A database, a session browser, and a researcher link per study.** The task and its data are unchanged (pizzas still
+record `summary.v` 0.10.1); only the study server changed.
+- **SQLite database** `server/data/study.db` (standard library `sqlite3`, WAL mode): sessions, their saved fields,
+  personal links, researcher links, condition counters. Schema in CODEBOOK.md. Sessions, invites and counters saved as
+  files by earlier servers are imported on the first start (the files are kept).
+- **Session browser.** The researcher page filters by study, group, source, condition, where people are, what they say
+  they are, start dates and id; sorts by any column; pages through 100 at a time. Reports and every export follow the
+  filter: *Download for R*, *Session list (.csv)* (new), *Raw sessions (.zip)*, *Database (.sqlite)* (new; a
+  consistent copy, or one study's).
+- **Per-study researcher links.** Each study has its own key, which opens the researcher page limited to that study
+  (sessions, reports, exports, personal links). The owner's key sees everything and can replace a study's link.
+  Keys are masked in the server log, and pages send `Referrer-Policy: no-referrer`.
+- **`analyse.py` reads the database** (`analyse.py study.db --study pilot-asd`).
+
 ## 0.10.1 (2026-10-27)
 
 **The participant flow, reviewed and tightened.** Each step was measured in a browser at 1366×768 and 1280×720.

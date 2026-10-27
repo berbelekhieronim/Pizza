@@ -29,6 +29,7 @@ import json
 import math
 import os
 import random
+import sqlite3
 import statistics
 import sys
 from collections import Counter
@@ -130,6 +131,17 @@ def loads(v, default=None):
 def read_inputs(paths, id_col):
     rows = []
     for path in paths:
+        if path.lower().endswith(('.db', '.sqlite')):         # the study server's database (server/data/study.db)
+            con = sqlite3.connect('file:%s?mode=ro' % os.path.abspath(path), uri=True)
+            con.row_factory = sqlite3.Row
+            for s in con.execute('SELECT * FROM sessions ORDER BY started, pid'):
+                d = {k: '' if s[k] is None else str(s[k]) for k in s.keys() if k != 'grp'}
+                d['group'] = s['grp'] or ''
+                d.update(con.execute('SELECT name, value FROM fields WHERE pid = ?', (s['pid'],)).fetchall())
+                d['_pid'] = s['pid']
+                rows.append(d)
+            con.close()
+            continue
         if path.lower().endswith('.json'):
             with open(path, encoding='utf-8') as f:
                 d = json.load(f)
@@ -3036,7 +3048,7 @@ def main():
     if sys.version_info < (3, 10):
         sys.exit('The analysis needs Python 3.10 or newer (this is %d.%d).' % sys.version_info[:2])
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('inputs', nargs='+', help='Qualtrics CSV export(s) and/or demo JSON files')
+    ap.add_argument('inputs', nargs='+', help='Qualtrics CSV export(s), demo or server JSON files, and/or the study server\'s database (study.db)')
     ap.add_argument('--out', default='pizza_results')
     ap.add_argument('--id', default='PROLIFIC_PID', help='column identifying participants (default PROLIFIC_PID, then ResponseId)')
     ap.add_argument('--builds', default='pz_,pzt_', help='field prefixes of the builds; the first is the participant\'s own pizza')
@@ -3049,8 +3061,11 @@ def main():
     ap.add_argument('--clusters', type=int, default=None, help='number of clusters (default: chosen by silhouette)')
     ap.add_argument('--reference', nargs='+', default=None, help='pizzas that define "normal" (e.g. a pilot export or demo JSON files); '
                     'default: each pizza is compared with all the others in the sample')
+    ap.add_argument('--study', default=None, help='analyse one study only (its id, or "main" for sessions without a study)')
     a = ap.parse_args()
     rows = read_inputs(a.inputs, a.id)
+    if a.study is not None:
+        rows = [r for r in rows if (r.get('study') or 'main') == a.study]
     ref_rows = read_inputs(a.reference, a.id) if a.reference else None
     split = lambda v: [c.strip() for c in (v or '').split(',') if c.strip()]
     people = analyse(rows, [b if b.endswith('_') else b + '_' for b in a.builds.split(',') if b], a.out, a.seed, split(a.group), ref_rows, a.clusters,

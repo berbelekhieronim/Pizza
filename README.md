@@ -50,7 +50,7 @@ the toppings are drawn in SVG by the script itself.
    (or on GitHub: **Code → Codespaces → Create codespace on main**). It takes a minute the first time.
 2. The study server starts by itself, and the terminal shows two links: the **participant link** to send, and your
    **researcher page** (with its password in the link; keep that one to yourself).
-3. On the researcher page, **Links to send** has a ready link for each group (e.g. `?group=ASD`, `?group=NT`) with a Copy
+3. On the researcher page, **Studies and links** has a ready link for each group (e.g. `?group=ASD`, `?group=NT`) with a Copy
    button. The link stays the same every time you open this codespace, and works whenever the server is on.
 
 Details, settings and limits are under [Running participants without Qualtrics](#running-participants-without-qualtrics-github-codespace).
@@ -192,14 +192,15 @@ practice, build, ratings, completion code) and saves each participant as they go
    `python3 server/server.py --links`. The server's own output is in `server/data/server.log`.
 2. The server tries to make port 8000 public so participants can open the link. If the log says it is still private:
    open the **Ports** tab, right-click port 8000 → **Port Visibility → Public**.
-3. Send participants a link from **Links to send** on the researcher page. A link can carry `?group=ASD` (or `NT`, etc.)
+3. Send participants a link from **Studies and links** on the researcher page. A link can carry `?group=ASD` (or `NT`, etc.)
    to record the group you recruited them through (participants also describe themselves on the "About you" card, and
    the reports use both), and `&pid=...` to use your own IDs; Prolific's `PROLIFIC_PID` is picked up too. Conditions
    listed in `server/study.json` are assigned in turn.
-4. Watch sessions arrive on the researcher page (it shows what each person said they are). The **Dashboard**, **Explore patterns**, **Profiles and clusters** and **Symmetry and contact**
-   buttons open the reports (and **Methods** shows how each number is counted), rebuilt automatically from everyone so far whenever new sessions have arrived (**Rebuild now**
-   forces it). **Download all data** gives a zip of every session. Keep the researcher link to yourself: the password is
-   part of it, which is what lets the page work even inside the codespace's preview panel.
+4. Watch sessions arrive on the researcher page (see *The researcher page and the database* below). The **Dashboard**,
+   **Explore patterns**, **Profiles and clusters** and **Symmetry and contact** buttons open the reports for the
+   sessions shown (and **Methods** shows how each number is counted), rebuilt automatically whenever new sessions have
+   arrived (**Rebuild now** forces it). Keep the researcher link to yourself: the password is part of it, which is what
+   lets the page work even inside the codespace's preview panel.
 
 Edit `server/study.json` for the title, intro text, consent sentence, completion message or a redirect URL (e.g. a
 Prolific completion link), the conditions, the groups that get a ready-made link, whether to add the "typical
@@ -216,10 +217,39 @@ Things to know:
   with the same links and all data so far.
 - The participant link belongs to this codespace. A *new* codespace gets a new address (and starts with no data), so
   keep using the same one for a study.
-- Data lives in `server/data/` inside the codespace, never in the repository (it is git-ignored). Download it from the
-  researcher page when you are done: unused codespaces are deleted after a period set by GitHub.
+- Data lives in `server/data/study.db` inside the codespace, never in the repository (it is git-ignored). Download it
+  from the researcher page (*Database (.sqlite)*) regularly and when you are done: unused codespaces are deleted after
+  a period set by GitHub.
 - The researcher password is made on first start and kept in `server/data/.admin_key`; set `PIZZA_ADMIN_KEY` to choose your own.
 - Your organisation may not allow public ports; then use Qualtrics, or ask for that setting to be changed.
+
+### The researcher page and the database
+
+Every session is saved, as the participant goes, in one SQLite database, `server/data/study.db` (one row per session
+plus its saved fields; schema in CODEBOOK.md). SQLite is a single file that needs no database server, handles many
+participants saving at once, and is read directly by R, Python, Excel (via ODBC) or DB Browser for SQLite. Sessions
+saved as files by servers before 0.11.0 (`server/data/participants/*.json`, `invites.json`) are imported on the first
+start; the old files stay where they were.
+
+The researcher page is a session browser:
+- **Filter** by study, group, recruitment source, condition, where people are (intro … finished), what they say they
+  are, start date and participant id; click a column heading to **sort**; 100 sessions per page.
+- **Everything below the filter follows it**: the counts, the reports, and the exports – *Download for R* (all tables,
+  `variables.csv`, `load_pizza.R` and the raw sessions), *Session list (.csv)* (one row per session, as shown),
+  *Raw sessions (.zip)* and *Database (.sqlite)* (a copy of the database; with a study chosen, that study only).
+
+**Who sees what.** The link printed in the terminal is the **owner's**: all studies, every export, and the researcher
+links. Each study has its own **researcher link** (*Studies and links*), which opens the same page limited to that
+study: its sessions, reports, exports and personal links, nothing else. Give it to the people running that study. If a
+link leaks, **New researcher link** replaces it (the old one stops working at once). Owners can also run the analysis on
+the database itself:
+
+```
+python3 analysis/analyse.py server/data/study.db --study pilot-asd --out results   # "main" = sessions without a study
+```
+
+In R, `DBI::dbReadTable(DBI::dbConnect(RSQLite::SQLite(), "study.db"), "sessions")` reads the session list; for the
+measures use *Download for R* and `load_pizza()`.
 
 ### Running a pilot with a specific group (study-specific, filterable data)
 
@@ -231,14 +261,14 @@ else and labelled with where each person came from:
    anything not given comes from the main settings. Ids are lower-case letters, digits and dashes.
 2. **Make personal links** on the researcher page (*Studies and links* → *Make personal links*): choose the study,
    a group (e.g. ASD) and the recruitment source (e.g. "autism charity newsletter"), and how many. Download them with
-   *Invite links (.csv)* and send one link per person. A personal link (`/?i=…`) is that person's id: it records
+   *Personal links (.csv)* and send one link per person. A personal link (`/?i=…`) is that person's id: it records
    study, group and source, opening it again resumes their session (on any computer), and the spreadsheet shows who
    has not opened, started or finished. Unknown or mistyped links are refused, so no unlabelled data comes in.
 3. **Or post an open link** (`/?study=pilot-asd&group=ASD`, listed per study) where personal links are impractical,
    e.g. a forum. Add `&source=forum` to record where it was posted.
-4. **Filter by study**: the chips at the top of the researcher page show one study's sessions; its reports, the
-   *Download for R* zip and the raw sessions then hold that study only. *All studies* puts everything together, and
-   the analysis then compares studies (`study`) and recruitment sources (`source`) like any other grouping.
+4. **Filter by study** (or hand the study's researchers its own researcher link): its reports and every download then
+   hold that study only. *All studies* puts everything together, and the analysis then compares studies (`study`) and
+   recruitment sources (`source`) like any other grouping.
 
 What a pilot gives for the larger study (in `explore.html`):
 - **Against chance** – with one group only, each systematic measure (mirror and rotational symmetry, same-topping

@@ -4,9 +4,9 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-10-27, task version 0.10.1)
+## Snapshot (2026-10-27, task version 0.10.1, server 0.11.0)
 
-- **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally (78) and in CI.
+- **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
   build a virtual pizza on a computer; everything they do is recorded and analysed to find patterns that can become
   hypotheses for a larger, confirmatory study.
@@ -15,8 +15,9 @@ session**: the snapshot, anything decided, and the open items.
 - **Where it runs:**
   - **Qualtrics:** `qualtrics/*.js` load `pizza-builder.js` from jsDelivr, pinned to commit `e092f21` (0.10.1). Re-pin after every
     change to the task.
-  - **Study server:** `server/server.py` in a GitHub Codespace (`.devcontainer` starts it). The researcher page is
-    `/admin?key=…`, and the key is kept in `server/data/.admin_key`.
+  - **Study server:** `server/server.py` in a GitHub Codespace (`.devcontainer` starts it). Data is in the SQLite
+    database `server/data/study.db` (`server/store.py`). The owner's researcher page is `/admin?key=…` (key in
+    `server/data/.admin_key`); each study has its own researcher link, limited to that study.
   - **Demo:** `index.html` in the repo. A copy is published as the user's private Claude artifact "Pizza Builder demo";
     republish it after changing `pizza-builder.js` or `preview.js`.
 
@@ -26,7 +27,7 @@ session**: the snapshot, anything decided, and the open items.
 participant ──> pizza-builder.js (practice, build, follow-up + About you; desktop only)
                  │  fields pz_*, pzp_*, pzf_* (JSON strings: final pieces, event log, summary, follow-up)
                  ├─> Qualtrics embedded data ──> CSV export ─┐
-                 └─> server/server.py ──> server/data/participants/<pid>.json (+ study, group, source, invite)
+                 └─> server/server.py ──> server/store.py ──> server/data/study.db (sessions + fields; study, group, source, invite)
                                                              │
 analysis/analyse.py  <───────────────────────────────────────┘
    ├─ measures per pizza / topping / piece / removal / event  ──> *.csv (NA, 1/0) + variables.csv + load_pizza.R (R)
@@ -45,7 +46,8 @@ preview.js: the demo's live summary; re-implements face detection, symmetry and 
 | `analysis/methods.py` | the Methods page: `SECTIONS` (one entry per column) and the worked examples |
 | `analysis/nutrition.json`, `tools/build_nutrition.py` | nutrients per 100 g (USDA SR28) and grams per piece; the script rebuilds the JSON from SR28's ABBREV.txt and copies it into `pizza-builder.js` |
 | `analysis/r_export.py`, `analysis/load_pizza.R` | data dictionary and R loader |
-| `server/server.py`, `server/participate.html`, `server/study.json` | study server, participant page, study settings (incl. `"studies"`) |
+| `server/server.py`, `server/participate.html`, `server/study.json` | study server (routes, researcher page, exports, access scopes), participant page, study settings (incl. `"studies"`) |
+| `server/store.py` | the SQLite store: schema, saving, filters/sorting, personal and researcher links, per-study copies, import of the old JSON files |
 | `preview.js`, `index.html` | demo page and its captured-data preview |
 | `qualtrics/*.js` | paste-in code per survey page (practice, build, build-typical, follow-up) |
 | `examples/` | simulator and the reports built from simulated data |
@@ -60,6 +62,7 @@ python3 examples/simulate.py /tmp/sim 5 60 AB                     # fake partici
 python3 analysis/analyse.py /tmp/sim/*.json --out /tmp/out        # all tables, reports, methods page, R files
 python3 analysis/methods.py /tmp/methods.html                     # just the Methods page
 python3 server/server.py --port 8000 --data /tmp/data --key test  # local study server: /admin?key=test
+python3 analysis/analyse.py /tmp/data/study.db --study pilot-asd --out /tmp/out   # analyse the server's database
 python3 tests/face_benchmark.py --n 300                           # face detection accuracy
 ```
 
@@ -88,6 +91,12 @@ push, check the GitHub Actions run, and republish the demo artifact.
   (12 random moves of the same length).
 - **R-ready output.** Tables use `NA` and 1/0, and `variables.csv` gives every column's type and levels. Descriptions
   come from the Methods page, so there is one source of truth.
+- **SQLite is the server's source of truth** (user's decision, for larger data). One file, no database server, safe
+  with concurrent saves (WAL, `BEGIN IMMEDIATE`), readable from R. `sessions` keeps a few summary columns for sorting
+  and filtering; `fields` keeps everything the task saved, unchanged. Old JSON files are imported once, never written.
+- **Access by key, per study.** The owner key sees all; a study key is forced to its study in every route (filters,
+  reports, exports, invites) and cannot reach owner-only routes (researcher-link reset). Keys stay in the URL so the
+  page works inside the Codespace preview; logs mask them and pages send no referrer.
 - **Standard library only** (Python 3.10+, base R, no JS dependencies). The repository must run in a fresh Codespace,
   and in CI without installs beyond R.
 
@@ -116,6 +125,8 @@ push, check the GitHub Actions run, and republish the demo artifact.
   lost. `restarts` flags these sessions; restoring the exact pizza would need the task to rebuild state from its log.
 - **Adjustment reasons.** The categories are tested against chance for symmetry only; the others (grouping, spacing,
   ...) are descriptive.
+- **Hosting** still matters with the database: `study.db` lives in the Codespace. Download *Database (.sqlite)*
+  regularly as a backup.
 - **Undecided:**
   - which comparison sample the pilot gets (a second study on the server, or a Prolific general sample);
   - which reference distribution to use for normality (`--reference`);
@@ -123,7 +134,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 ## Suggested next steps
 
-1. Pilot dry run: make 3 invite links for `pilot-asd`, run them on two computers, check *Invite links (.csv)*, the
+1. Pilot dry run: make 3 invite links for `pilot-asd`, run them on two computers, check *Personal links (.csv)*, the
    per-study reports and *Download for R* → `load_pizza()`.
 2. Confirm the pilot's intro, consent and completion text in `server/study.json` → `studies.pilot-asd` with the ethics
    wording.
@@ -134,6 +145,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 | date | session | what was done |
 |---|---|---|
+| 2026-10-27 | Claude Code (cloud) | 0.11.0: SQLite database for the study server, session browser (filter, sort, pages) with filtered exports, per-study researcher links, `analyse.py` reads `study.db` |
 | 2026-10-27 | Claude Code (cloud) | 0.10.1: participant flow reviewed in a browser and tightened (resume mid-study, fit to window, compact follow-up, mouse wording); researcher page tidied |
 | 2026-10-26 | Claude Code (cloud) | 0.10.0: nutrition panel (study setting / condition), nutrients per pizza, adjustment classification, faster explore |
 | 2026-10-26 | Claude Code (cloud) | Built 0.1–0.9 (see CHANGELOG): task, analysis, study server, Methods page, symmetry rework, desktop-only, R export, pilot studies with invite links, changes-of-mind replay, CI summary and this handoff |

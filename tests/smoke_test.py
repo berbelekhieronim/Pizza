@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -131,6 +132,11 @@ def main():
             s.bind(('127.0.0.1', 0))
             port = s.getsockname()[1]
         data = os.path.join(tmp, 'data')
+        # a session saved as a file by an earlier server version, to be imported into the database on start
+        os.makedirs(os.path.join(data, 'participants'))
+        legacy = dict(json.load(open(sorted(glob.glob(os.path.join(tmp, 'sample', '*.json')))[1], encoding='utf-8')),
+                      pid='OLD001', stage='done', group='NT', started='2026-01-02T10:00:00Z', updated='2026-01-02T10:05:00Z')
+        json.dump(legacy, open(os.path.join(data, 'participants', 'OLD001.json'), 'w', encoding='utf-8'))
         srv = subprocess.Popen([PY, 'server/server.py', '--port', str(port), '--data', data, '--key', 'smoke-key'], cwd=ROOT,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         base = 'http://127.0.0.1:%d' % port
@@ -186,14 +192,46 @@ def main():
             for st in started:
                 http('POST', base + '/api/save', {'pid': st['pid'], 'stage': 'done', 'fields': fields})
             code, page = http('GET', base + '/admin?key=smoke-key&study=pilot-asd')
-            check(code == 200 and b'Showing study <b>pilot-asd</b>: 3 sessions' in page, 'researcher page filters by study')
+            check(code == 200 and b'<b>3 sessions match</b>' in page, 'researcher page filters by study')
+            code, page = http('GET', base + '/admin?key=smoke-key&sort=n_pieces&desc=0&stage=done')
+            check(code == 200 and b'<b>5 sessions match</b>' in page and page.index(b'OLD001') > 0, 'filters by stage and sorts')
+            check(b'<b>0 sessions match</b>' in http('GET', base + '/admin?key=smoke-key&q=nobody')[1], 'searches by participant id')
+            code, csv_all = http('GET', base + '/admin/sessions.csv?key=smoke-key')
+            rows = list(csv.DictReader(io.StringIO(csv_all.decode('utf-8-sig'))))
+            check(code == 200 and {r['pid'] for r in rows} == {'SMOKE001', 'OLD001'} | {i['invite'] for i in invites}
+                  and {r['study'] for r in rows} == {'main', 'pilot-asd'}, 'session list (.csv) holds every session')
+            # each study's researcher link sees, analyses and exports that study only
+            keys = set(re.findall(rb'admin\?key=([A-Za-z0-9_-]{12,})', http('GET', base + '/admin?key=smoke-key')[1]))
+            skey = next((k.decode() for k in keys if b'for study <b>pilot-asd' in http('GET', base + '/admin?key=' + k.decode())[1]), 'missing')
+            code, page = http('GET', base + '/admin?key=%s&study=main' % skey)
+            check(code == 200 and b'<b>3 sessions match</b>' in page and b'SMOKE001' not in page and b'New researcher link' not in page,
+                  'a study\'s researcher link sees that study only')
+            code, z = http('GET', base + '/admin/r.zip?key=' + skey)
+            pc = list(csv.DictReader(io.StringIO(zipfile.ZipFile(io.BytesIO(z)).read('pizza-data/participants.csv').decode('utf-8'))))
+            check(len(pc) == 3 and {r['study'] for r in pc} == {'pilot-asd'}, 'a study\'s researcher link downloads that study only')
+            code, dbb = http('GET', base + '/admin/database.sqlite?key=' + skey)
+            dbp = os.path.join(tmp, 'study-copy.db')
+            open(dbp, 'wb').write(dbb)
+            con = sqlite3.connect(dbp)
+            check(code == 200 and con.execute('SELECT DISTINCT study FROM sessions').fetchall() == [('pilot-asd',)]
+                  and con.execute('SELECT COUNT(*) FROM study_keys').fetchone()[0] == 0, 'a study\'s database copy holds that study only, without keys')
+            con.close()
+            check(http('POST', base + '/admin/study-key?key=' + skey, {})[0] in (403, 404), 'only the owner can change researcher links')
             code, z = http('GET', base + '/admin/r.zip?key=smoke-key&study=pilot-asd')
             zf = zipfile.ZipFile(io.BytesIO(z))
             pc = list(csv.DictReader(io.StringIO(zf.read('pizza-data/participants.csv').decode('utf-8'))))
             check(len(pc) == 3 and {r['study'] for r in pc} == {'pilot-asd'} and {r['source'] for r in pc} == {'charity'},
                   'per-study data download holds only that study, with group and source')
-            saved = json.load(open(os.path.join(data, 'participants', 'SMOKE001.json'), encoding='utf-8'))
-            check(saved.get('group') == 'ASD' and 'pz_final' in saved, 'session file has the group and the pizza')
+            con = sqlite3.connect(os.path.join(data, 'study.db'))
+            grp = con.execute("SELECT grp FROM sessions WHERE pid = 'SMOKE001'").fetchone()
+            nf = con.execute("SELECT COUNT(*) FROM fields WHERE pid = 'SMOKE001' AND name = 'pz_final'").fetchone()[0]
+            old = con.execute("SELECT stage, grp FROM sessions WHERE pid = 'OLD001'").fetchone()
+            con.close()
+            check(grp == ('ASD',) and nf == 1, 'the database has the session, its group and the pizza')
+            check(old == ('done', 'NT'), 'sessions saved as files by earlier versions are imported')
+            ok = run('analysis/analyse.py', os.path.join(data, 'study.db'), '--study', 'pilot-asd', '--out', os.path.join(tmp, 'from-db'))
+            pc = list(csv.DictReader(open(os.path.join(tmp, 'from-db', 'participants.csv'), encoding='utf-8'))) if ok else []
+            check(len(pc) == 3 and {r['study'] for r in pc} == {'pilot-asd'}, 'analyse.py reads the database, one study at a time (--study)')
         finally:
             srv.terminate()
             srv.wait(timeout=10)
