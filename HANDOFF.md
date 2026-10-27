@@ -186,6 +186,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 | date | session | what was done |
 |---|---|---|
+| 2026-10-27 | Claude Code (cloud) | Type search in four families vs Gaussian-copula no-types nulls (Bonferroni), synthetic latent styles, behaviour x preference correlations |
 | 2026-10-27 | Claude Code (cloud) | Synthetic test data (analysis/synthetic.py) for the tests study: chooser bar (0-500, default 100), ground-truth group differences, flagged everywhere, real-only counts, both servers |
 | 2026-10-27 | Claude Code (cloud) | Analysis audit (docs/analysis-audit.md): FDR per family of questions, CIs for 5+, no chance tests, spacing-aware symmetry chance, neurotype vs Not ND, normality bands need 20+, clusters only with structure + compare two clusters, pruned screen, nd_any + idea 9 |
 | 2026-10-27 | Claude Code (cloud) | Explore refactor (status line, ideas first, evidence-ranked leads from research groupings, folded demographics, no self-defining comparisons); researcher page flags reports built with older analysis code |

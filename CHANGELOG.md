@@ -5,6 +5,20 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Profiles: searching for types, honestly** (and synthetic people with real types)
+- Clusters were judged by a fixed silhouette of 0.25. Tested on synthetic data: clustering on 2 components gave 0.37-0.40
+  on data with no types, and a plain normal "no types" comparison let skewed measures pass as clustered at 500 people.
+- Now four families of measures are searched (all; build behaviour; preferences; arrangement). Each is clustered and
+  compared with 79 datasets that have no types but the same values of each measure and the same correlations (a
+  Gaussian copula null); a family finds types only when none of them splits as well (p = .0125 = .05 / 4). The search
+  stops early when a family cannot pass. Types found are described, with how neurodivergent and not neurodivergent
+  people spread across them (permutation test). Larger samples are tested on a random 200.
+- New on the Profiles page: **Build behaviour and preferences**, the best-supported correlations between how people
+  build and what they choose (Spearman, BH over the pairs; total time left out, as it mostly counts the pieces).
+- Synthetic people now have a latent eating style (selective / abundant / typical) that depends on their neurotype.
+  With 100 of them, types are found in preferences and arrangement, and the arrangement types differ between
+  neurodivergent and not (p ≈ .02); all the measures together show no types (the styles are mixed with other variation).
+
 **Synthetic test data for the test study** (`analysis/synthetic.py`)
 - A bar at the top of the researcher page (test study, and "all studies"): **Include [0 / 25 / 50 / 100 / 200 / 500]
   simulated pizzas → Generate and build**. Default 100 (study.json `"synthetic": 100`, only on `tests`). On Cloudflare

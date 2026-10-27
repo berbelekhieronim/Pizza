@@ -2541,7 +2541,8 @@ PROFILE_CSS = """
 """
 
 
-BEHAVIOUR_KEYS = [f[1] for f in PROFILE_FEATURES if f[0] in ('Order', 'Time', 'Process')]
+# total time is left out: it mostly counts the pieces (more toppings take longer), so it would only re-find the amount
+BEHAVIOUR_KEYS = [f[1] for f in PROFILE_FEATURES if f[0] in ('Order', 'Time', 'Process') and f[1] != 't_submit']
 PREFERENCE_KEYS = [f[1] for f in PROFILE_FEATURES if f[0] in ('Composition', 'Normality', 'Feelings')]
 
 
