@@ -13,7 +13,9 @@ matched to the format below. Add an entry for every change that reaches particip
   rebuild (on Cloudflare: one queued build, so several choices in a row are one build), and the analysis applies it:
   excluded sessions go to `excluded.csv` with the reason "excluded by the researcher"; kept-in unfinished pizzas have
   `inclusion` = researcher in `participants.csv`. The Data check lists both.
-- The Analysis column sits next to the participant id (no sideways scrolling to reach it).
+- The Analysis column sits next to the participant id. It is one coloured dropdown that is also the indicator:
+  green "Included" or amber "Excluded", marked "(auto)" when the automatic rule decided and "(your choice)" when
+  overridden.
 - The "Where" filter has "pizza in the analysis" and "pizza left out of the analysis". The session list download has
   `analysis` (included / left_out / no_pizza) and `inclusion` (auto / include / exclude); Links & data explains how the
   choices reach each download (R tables: analysed pizzas only, the rest in `excluded.csv`; raw sessions and database:
