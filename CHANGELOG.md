@@ -5,6 +5,13 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Explore: planned hypotheses.** The eight leads from `docs/sample-sizes.md` (fewer and more familiar toppings, foods
+kept apart, order and symmetry, sensory reasons and safe foods, quicker choices and changes of mind, AuDHD's own
+pattern, the effect of seeing the nutrition, own vs typical pizza) now open the Explore page. Each is tested with a
+predicted direction as one small family (false discovery rate over these tests only), with a verdict (supported /
+too few yet / not supported), a check that the direction matches, and how close the groups are to the size a large
+effect needs. Also in `explore.csv` (grouping = planned) and on the Methods page.
+
 **Reports are built on request, to save compute**
 - On Cloudflare the reports are built when a researcher presses **Build reports** (the button turns solid when there
   is new data). No build per finished session, no build after each deploy, no 5-minute waiting runner. Automatic builds

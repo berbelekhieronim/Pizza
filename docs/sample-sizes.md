@@ -82,6 +82,11 @@ The study's groups are self-described: autistic, ADHD, AuDHD (both), other neuro
 difference and a measure the task records well. **Pick 3–5 of them as preregistered primary outcomes**, and treat
 everything else in Explore as exploratory.
 
+These leads are on the **Explore** page, under **Planned hypotheses** (H1–H8). Each shows its verdict, the measures with
+their predicted direction, effect, p and q, whether the direction matches the prediction, and a bar for how close the
+smaller group is to the 24 people a large effect needs. They are corrected as one small family of tests, so a real
+difference can show there before it would survive the full screen.
+
 | lead | why expect it | measures | first test |
 |---|---|---|---|
 | **1. Fewer, more familiar toppings** (autistic, AuDHD; picky eaters) | food selectivity and preference for the familiar are among the most replicated eating findings in autism | `n_distinct`, `shannon`, `prop_unusual_distinct`, `ingredient_rarity`, `atypicality_pct` | autistic (incl. AuDHD) vs not ND |

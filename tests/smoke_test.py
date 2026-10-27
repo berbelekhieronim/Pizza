@@ -377,6 +377,10 @@ def main():
             check(os.path.getsize(os.path.join(out, f)) > 0 if os.path.exists(os.path.join(out, f)) else False, 'writes ' + f)
         rows = list(csv.DictReader(open(os.path.join(out, 'participants.csv'), encoding='utf-8')))
         check(len(rows) == 24, 'one row per participant')
+        ex = open(os.path.join(out, 'explore.html'), encoding='utf-8').read()
+        planned = [r for r in csv.DictReader(open(os.path.join(out, 'explore.csv'), encoding='utf-8')) if r['grouping'] == 'planned']
+        check(ex.count('class="hyp ') == 8 and 'Planned hypotheses' in ex and planned and all(r['q'] != '' for r in planned),
+              'Explore: the 8 planned hypotheses, tested as their own family (rows in explore.csv)')
         # a build saved part-way but never finished (the participant stopped before "I'm done") is left out and listed
         src = sorted(glob.glob(os.path.join(tmp, 'sample', '*.json')))
         part = os.path.join(tmp, 'partial'); os.makedirs(part)

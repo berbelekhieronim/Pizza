@@ -2776,11 +2776,16 @@ def explore_measures(recs, tray):
     return keep, vals
 
 
-def grouping_levels(recs, key, min_n=3):
+def group_labels(recs, key):
+    """Each pizza's group in a grouping, as text (yes / no for the yes/no groupings), None when unknown."""
     raw = [r.get(key) for r in recs]
     if key in ('nd_autistic', 'nd_adhd', 'eat_any', 'eat_picky', 'nutrition_panel', 'nutri_revealed'):
         raw = [None if v is None else ('yes' if v else 'no') for v in raw]
-    raw = [None if v in (None, '') else str(v) for v in raw]
+    return [None if v in (None, '') else str(v) for v in raw]
+
+
+def grouping_levels(recs, key, min_n=3):
+    raw = group_labels(recs, key)
     cnt = Counter(v for v in raw if v is not None)
     levels = [lv for lv, c in sorted(cnt.items(), key=lambda kv: (-kv[1], kv[0])) if c >= min_n]
     return (levels, [v if v in levels else None for v in raw], {lv: c for lv, c in cnt.items() if lv not in levels}) if len(levels) >= 2 else (None, None, None)
@@ -2883,6 +2888,13 @@ def fmt_p(p):
 
 
 EXPLORE_CSS = """
+.hyp { border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 12px 0; background: var(--panel, transparent); }
+.hyp.yes { border-left-color: #2f7d4f; } .hyp.no { border-left-color: #b3261e; } .hyp.wait { border-left-color: #9a6a00; }
+.hyp h3 { margin: 2px 0 4px; } .hyp .verdict { font-weight: 600; margin: 4px 0 8px; }
+.hyp .ok { color: #2f7d4f; font-weight: 600; } .hyp .bad { color: #b3261e; font-weight: 600; } .hyp tr.na td { color: var(--muted, #6e635b); }
+.ready { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; font-size: .85rem; color: var(--muted, #6e635b); }
+.ready .track { width: 160px; height: 8px; border-radius: 4px; background: rgba(128,128,128,.25); overflow: hidden; }
+.ready .track i { display: block; height: 100%; background: #9a6a00; }
 .verdict { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--muted); border-radius: 8px; padding: 6px 10px; max-width: 90ch; }
 .verdict.pass { border-left-color: var(--ok); } tr.pass td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
 .lead { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--near); border-radius: 12px; padding: 10px 14px; }
@@ -2941,6 +2953,134 @@ def chance_test(x, c, rnd, draws=4000):
         bits = rnd.getrandbits(len(d))
         hits += abs(sum(v if (bits >> i) & 1 else -v for i, v in enumerate(d))) >= obs
     return dom, (hits + 1) / (draws + 1)
+
+
+# Planned hypotheses (docs/sample-sizes.md): the leads with a reason to expect a difference, tested as one small family
+# so that the false discovery correction runs over a handful of tests instead of the whole screen. Each: (id, title,
+# why, [(grouping, level)], [(measure, predicted sign: +1 higher in the group, -1 lower, 0 either way)]).
+HYPOTHESES = [
+    ('H1', 'Fewer, more familiar toppings', 'Food selectivity and a preference for the familiar are among the most replicated eating findings in autism.',
+     [('nd_autistic', 'yes'), ('eat_picky', 'yes')],
+     [('n_distinct', -1), ('shannon', -1), ('prop_unusual_distinct', -1), ('ingredient_rarity', -1)]),
+    ('H2', 'Foods kept apart', 'Many autistic people dislike foods touching.',
+     [('nd_autistic', 'yes')], [('prop_touching', -1), ('prop_stacked', -1), ('clark_evans', 1)]),
+    ('H3', 'Order and symmetry', 'A preference for sameness and pattern.',
+     [('nd_autistic', 'yes')], [('mirror_score', 1), ('rot_score', 1), ('size_match_index', 1), ('sweep_consistency', 1)]),
+    ('H4', 'Sensory reasons and safe foods', 'Sensory sensitivity drives food choice.',
+     [('nd_autistic', 'yes'), ('self_sensory_food', None)], [('n_strong', 1), ('n_sensory_reasons', 1), ('n_safe_foods', 1)]),
+    ('H5', 'Quicker choices, more changes of mind', 'Impulsivity and novelty seeking in ADHD.',
+     [('nd_adhd', 'yes')], [('decision_median', -1), ('n_adjustments', 1), ('revision_rate', 1), ('prop_unusual_distinct', 1)]),
+    ('H6', 'AuDHD: its own pattern', 'Autism (sameness) and ADHD (novelty) pull in opposite directions; AuDHD may sit between or differ from both.',
+     [('neurotype', 'AuDHD')], [('n_distinct', 0), ('prop_unusual_distinct', 0), ('revision_rate', 0), ('prop_touching', 0)]),
+    ('H7', 'Seeing the nutrition changes the pizza', 'Interoception and attention to health information differ between people; the change is measured within each person.',
+     [('revealers', None), ('nd_autistic', 'yes')], [('post_nutri_d_kcal', -1)]),
+    ('H8', 'My pizza vs a typical person\'s', 'Self-other differences: how far one\'s own choice is from what one expects of others.',
+     [('nd_autistic', 'yes')], [('typical_jaccard', 0), ('typical_count_dev', 0)]),
+]
+PLANNED_N = 24          # people per group for 80% power on a large effect (δ = 0.474), docs/sample-sizes.md
+
+
+def planned_tests(recs, defs, groupings, covariates, rnd):
+    """The HYPOTHESES tested on these pizzas: [(hypothesis, [test dicts])], with q over all planned tests together."""
+    names = {k: lab for _, k, lab in defs}
+    gnames = dict(list(groupings) + list(covariates))
+    num = lambda k: [r.get(k) if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool) else None for r in recs]
+    out, family = [], []
+    for hid, title, why, comps, measures in HYPOTHESES:
+        tests = []
+        for gkey, level in comps:
+            for k, sign in measures:
+                base = {'hyp': hid, 'key': k, 'label': names.get(k, k), 'sign': sign, 'grouping': gkey}
+                if gkey == 'revealers':              # within each person: the change after seeing the nutrition, against no change
+                    x = [v for v, r in zip(num(k), recs) if v is not None and r.get('nutri_revealed')]
+                    if len(x) < 5:
+                        tests.append(dict(base, level='saw the nutrition', vs='no change', n1=len(x), n0=None, missing='needs 5+ people who saw the nutrition'))
+                        continue
+                    dom, pv = chance_test(x, 0.0, rnd)
+                    tests.append(dict(base, level='saw the nutrition', vs='no change', n1=len(x), n0=None, m1=statistics.median(x), m0=0.0, delta=dom, p=pv,
+                                      binary=False, kind='change'))
+                    continue
+                if level is None:                    # a continuous self-report: Spearman correlation
+                    rho, pv, m = spearman(num(k), num(gkey))
+                    if rho is None:
+                        tests.append(dict(base, level=gnames.get(gkey, gkey), vs='', n1=m or 0, n0=None, missing='needs 6+ people with both answers'))
+                        continue
+                    tests.append(dict(base, level=gnames.get(gkey, gkey), vs='', n1=m, n0=None, m1=None, m0=None, delta=rho, p=pv, binary=False, kind='rho'))
+                    continue
+                levels, labels, _ = grouping_levels(recs, gkey)
+                cnt = Counter(v for v in group_labels(recs, gkey) if v is not None)
+                if not levels or level not in levels:
+                    have = cnt.get(level, 0)
+                    tests.append(dict(base, level=level, vs='the rest', n1=have, n0=sum(cnt.values()) - have, missing='needs 3+ in each group'))
+                    continue
+                order = [level] + [lv for lv in levels if lv != level]
+                got = [t for t in explore_grouping([('Planned', k, names.get(k, k))], {k: num(k)}, labels, order, rnd) if t['level'] == level]
+                if not got:
+                    tests.append(dict(base, level=level, vs='the rest', n1=cnt.get(level, 0), n0=sum(cnt.values()) - cnt.get(level, 0), missing='no variation yet'))
+                    continue
+                t = got[0]
+                tests.append(dict(base, level=level, vs=t['vs'], n1=t['n1'], n0=t['n0'], m1=t['m1'], m0=t['m0'], delta=t['delta'], p=t['p'], binary=t['binary'],
+                                  kind='groups', x=t['x'], y=t['y']))
+        out.append(((hid, title, why), tests))
+        family += [t for t in tests if 'p' in t]
+    for t, q in zip(family, bh([t['p'] for t in family])):
+        t['q'] = q
+        t['right_way'] = None if not t['sign'] or not t['delta'] else (t['delta'] > 0) == (t['sign'] > 0)
+    return out
+
+
+def planned_html(planned, groupings, covariates):
+    """The Planned hypotheses section of explore.html."""
+    gnames = dict(list(groupings) + list(covariates) + [('revealers', 'Within each person')])
+    cards, n_tests = [], sum(1 for _, ts in planned for t in ts if 'p' in t)
+    for (hid, title, why), tests in planned:
+        rows, done = [], [t for t in tests if 'p' in t]
+        for t in tests:
+            pred = {1: 'higher', -1: 'lower', 0: 'either way', None: 'either way'}[t['sign']]
+            if t['grouping'] == 'revealers':
+                pred = {1: 'rises', -1: 'falls', 0: 'changes'}[t['sign']]
+            who = ('%s: %s' % (gnames.get(t['grouping'], t['grouping']), t['level'])) if t.get('kind') != 'rho' else 'correlation with %s' % t['level']
+            if 'p' not in t:
+                rows.append('<tr class="na"><td class="l">%s</td><td class="l">%s</td><td>%s</td><td>%s</td><td colspan="6" class="l muted">%s</td></tr>'
+                            % (esc(t['label']), esc(who), esc(pred), '%d / %d' % (t['n1'], t['n0']) if t.get('n0') is not None else t['n1'], esc(t['missing'])))
+                continue
+            way = '' if t['right_way'] is None else ('<span class="ok">✓ as predicted</span>' if t['right_way'] else '<span class="bad">✗ opposite</span>')
+            need = n_for_rho(t['delta']) if t.get('kind') == 'rho' else n_per_group(t['delta']) if t.get('kind') == 'groups' else None
+            mm = ('%s / %s' % (fmt_m(t['m1'], t['binary'], t['key']), fmt_m(t['m0'], t['binary'], t['key']))) if t.get('m1') is not None else ''
+            rows.append('<tr%s><td class="l">%s</td><td class="l">%s</td><td>%s</td><td>%s</td><td>%s</td><td><b>%+.2f</b><br><span class="muted">%s</span></td>'
+                        '<td>%s</td><td>%.3f%s</td><td>%s</td><td>%s</td></tr>'
+                        % (' class="pass"' if t['q'] < 0.1 and t['right_way'] is not False else '', esc(t['label']), esc(who), esc(pred),
+                           '%d / %d' % (t['n1'], t['n0']) if t.get('n0') is not None else t['n1'], mm, t['delta'],
+                           'ρ' if t.get('kind') == 'rho' else 'dominance' if t.get('kind') == 'change' else delta_size(t['delta']),
+                           fmt_p(t['p']), t['q'], ' ✓' if t['q'] < 0.1 else '', way, need or ''))
+        groups = [t for t in done if t.get('kind') == 'groups']
+        smallest = min([min(t['n1'], t['n0']) for t in groups] or [0])
+        support = [t for t in done if t['q'] < 0.1 and t['right_way'] is not False]
+        directional = [t for t in done if t['right_way'] is not None]
+        if not done:
+            verdict, cls = 'Not testable yet: too few people in the groups it compares.', 'wait'
+        elif support:
+            verdict, cls = 'Supported: %d of %d measures differ after the correction, in the predicted direction.' % (len(support), len(done)), 'yes'
+        elif groups and smallest < 8:
+            verdict, cls = ('Too few to pass the correction yet (smallest group %d; it takes 8+). Direction so far: %d of %d measures as predicted.'
+                            % (smallest, sum(1 for t in directional if t['right_way']), len(directional))), 'wait'
+        else:
+            verdict, cls = ('Not supported so far. Direction: %d of %d measures as predicted.' % (sum(1 for t in directional if t['right_way']), len(directional))
+                            if directional else 'Not supported so far.'), 'no'
+        bar = ''
+        if groups:
+            pct = min(100, round(100 * smallest / PLANNED_N))
+            bar = ('<div class="ready"><div class="track"><i style="width:%d%%"></i></div><span>%d of %d people in the smaller group: the number for a large effect '
+                   '(80%% power)</span></div>' % (pct, smallest, PLANNED_N))
+        cards.append('<div class="hyp %s"><h3>%s. %s</h3><p class="muted">%s</p><p class="verdict">%s</p>%s<div class="tbl"><table class="leads"><tr><th class="l">Measure</th>'
+                     '<th class="l">Compared</th><th>Predicted</th><th>n</th><th>median or %%</th><th>effect</th><th>p</th><th>q</th><th>Direction</th>'
+                     '<th>n/group needed (effect as seen)</th></tr>%s</table></div></div>'
+                     % (cls, esc(hid), esc(title), esc(why), esc(verdict), bar, ''.join(rows)))
+    return ('<h2 id="planned">Planned hypotheses</h2><p class="muted">The study\'s main leads (docs/sample-sizes.md), each with a predicted direction. They '
+            'are tested as one family of %d tests, so the false discovery rate (q) is corrected over these only, not over the whole screen below: this is '
+            'where a real difference can show first. Effects: Cliff\'s δ between groups, Spearman ρ for self-reports, dominance for a change within each '
+            'person. A result counts only when q &lt; 0.10 <i>and</i> the direction is as predicted. To confirm, preregister 3-5 of these and test them in '
+            'a new sample.</p>%s' % (n_tests, ''.join(cards)))
 
 
 def explore_report(recs, tray, groupings, covariates, seed=1):
@@ -3106,7 +3246,17 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
                   'in a small sample are usually overestimated; plan with the second). They are picked as the largest of many comparisons, so even '
                   'their q values are optimistic. δ size words follow Romano et al. (2006): negligible &lt; .15, small &lt; .33, medium &lt; .47, large.</p><div class="tbl"><table class="leads"><tr><th class="l">Pattern</th><th>n</th>'
                   '<th>δ</th><th>p</th><th>q</th><th>n/group (δ as seen)</th><th>n/group (δ halved)</th></tr>%s</table></div>' % ''.join(lead_rows)) if lead_rows else ''
+    planned = planned_tests(recs, defs, groupings, covariates, rnd)
+    for (hid, title, _), ts in planned:
+        for t in ts:
+            if 'p' in t:
+                all_tests.append({'grouping': 'planned', 'area': '%s %s' % (hid, title), 'key': t['key'], 'label': t['label'],
+                                  'level': '%s: %s' % (t['grouping'], t['level']), 'vs': t['vs'], 'n1': t['n1'], 'n0': t['n0'], 'm1': t.get('m1'),
+                                  'm0': t.get('m0'), 'delta': t['delta'], 'p': t['p'], 'q': t['q'],
+                                  'n_per_group_80': n_for_rho(t['delta']) if t.get('kind') == 'rho' else n_per_group(t['delta']) if t.get('kind') == 'groups' else None,
+                                  'n_per_group_80_half': None})
     nav = ''.join('<span><a href="#g-%s">%s</a></span>' % (esc(k_), esc(l_)) for k_, l_, _, _ in used)
+    nav = '<span><a href="#planned"><b>Planned hypotheses</b></a></span>' + nav
     html = (head + '<p class="lead"><b>For exploring, not confirming.</b> This page screens %d measures (%d main, the rest per topping) across every '
             'way of grouping people that the data allow, so some differences will look large by chance. Effect sizes are Cliff\'s δ (−1 to 1: how often a value '
             'from the group is higher than one from the comparison, minus how often it is lower; for yes/no measures, the difference in percentages). '
@@ -3114,7 +3264,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
             'intervals are bootstrap 95%% intervals. Treat what stands out as a lead to test in a new sample or a preregistered analysis.</p>'
             '<p class="muted">%d pizzas.</p><div class="chips">%s</div>'
             % (len(defs), len([d for d in defs if not d[0].startswith(TOPPING_AREAS)]), n, nav or '<span>No grouping has two groups of 3+ people yet.</span>')
-            + leads_html + chance_html
+            + planned_html(planned, groupings, covariates) + leads_html + chance_html
             + ''.join(body)
             + ('<h2>Links with self-reports</h2><p class="muted">Spearman correlations (ρ) of each measure with each continuous self-report.</p>' + ''.join(cov_html) if cov_html else '')
             + '<h2>How the measures go together</h2><p class="muted">Spearman correlations between the main measures across all participants '
