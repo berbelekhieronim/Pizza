@@ -186,6 +186,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 | date | session | what was done |
 |---|---|---|
+| 2026-10-27 | Claude Code (cloud) | Reports on request (Build reports; PIZZA_REPORTS_AUTO=1 for automatic), builds only changed studies, inclusion counts as new data on Cloudflare; docs/sample-sizes.md |
 | 2026-10-27 | Claude Code (cloud) | Sessions tab: per-session Analysis choice (auto / include / exclude) on both servers, honoured by the analysis and the data check |
 | 2026-10-27 | Claude Code (cloud) | Analysis: unfinished builds left out (excluded.csv), data check on the Overview and the researcher page (pizzas vs sessions), task_version column |
 | 2026-10-27 | Claude Code (cloud) | 0.13.1 (task): hold-to-resize easier (20 px drift allowed, 0.3 s delay, ring and "let go" tip, clearer instructions, tip on click) after participants got stuck on it |

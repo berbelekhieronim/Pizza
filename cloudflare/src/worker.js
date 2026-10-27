@@ -3,7 +3,7 @@
 // - sessions live in D1 (env.DB, the schema of server/store.py);
 // - the reports, the R download, the raw sessions and the database copy are built by a GitHub Actions job
 //   (.github/workflows/reports.yml -> tools/cloud_sync.py) and kept in R2 (env.FILES), one set per study and one for
-//   all studies; this Worker serves them and asks GitHub for a rebuild when sessions finish (or on "Rebuild now").
+//   all studies; this Worker serves them and asks GitHub to build them on "Build reports" (or, with REPORTS_AUTO, when sessions finish).
 // Static files (index.html = server/participate.html, pizza-builder.js) are in ./public (env.ASSETS).
 import { Store, STAGES, ACTIVITY, ANALYSIS, randomToken, storageUsed, fileSizes, countOp, opsThisMonth } from './store.js';
 import { adminState, deniedPage, notBuilt, ALL_KEY } from './admin.js';
@@ -29,13 +29,15 @@ function ghToken(env) {
   return env.GITHUB_TOKEN || env.PIZZA_GITHUB_TOKEN || env.PIZZA_GITHUB_TOKEN_PIZZA || '';
 }
 
-async function dispatchBuild(env, force) {
-  // asks GitHub to run the reports job now (needs the GITHUB_TOKEN secret); true when GitHub accepted
+async function dispatchBuild(env, wait) {
+  // asks GitHub to run the reports job (needs the GITHUB_TOKEN secret); true when GitHub accepted. It builds only the
+  // studies whose sessions changed (a full rebuild: Actions -> reports -> Run workflow with force). wait: first wait
+  // for 5 quiet minutes after the last save (automatic builds).
   const r = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/reports.yml/dispatches`, {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + ghToken(env), Accept: 'application/vnd.github+json', 'User-Agent': 'pizza-study-worker',
       'Content-Type': 'application/json' },
-    body: JSON.stringify({ ref: env.GITHUB_BRANCH || 'main', inputs: { force: force ? 'true' : 'false', wait: force ? 'false' : 'true' } }),
+    body: JSON.stringify({ ref: env.GITHUB_BRANCH || 'main', inputs: { force: 'false', wait: wait ? 'true' : 'false' } }),
   });
   return r.ok;
 }
@@ -200,6 +202,9 @@ class Request_ {
   }
 
   async queueBuild(why = 'A session finished') {
+    // only with automatic reports switched on (REPORTS_AUTO = 1, cloudflare/README.md); by default the reports are
+    // built when a researcher presses "Build reports", so nothing runs between visits
+    if (this.env.REPORTS_AUTO !== '1') return;
     // a session finished: queue one reports build on GitHub, unless one is already queued or waiting (it will include
     // this session: it waits for 5 quiet minutes after the last save before building). One D1 read and, at most, one
     // request to GitHub per finished session; nothing else runs on Cloudflare.
@@ -210,19 +215,19 @@ class Request_ {
     const t = new Date().toISOString().slice(0, 19) + 'Z';
     st = { ...st, state: 'queued', updated: t, step: 'Queued: ' + why.toLowerCase(), log: (st.log || []).concat([t.slice(11, 19) + '  ' + why + ': build queued.']).slice(-40) };
     await this.store.setMeta('reports_status', JSON.stringify(st));
-    await dispatchBuild(this.env, false);
+    await dispatchBuild(this.env, true);
   }
 
   async requestReports(force) {
-    // "Rebuild reports": marks a full rebuild as wanted (the next run of the reports job does it) and, with the
-    // GITHUB_TOKEN secret, asks GitHub to start that run at once
+    // "Build reports": marks a build as wanted (shown on the page until it is done) and, with the GitHub token, asks
+    // GitHub to start it at once. The job analyses the studies whose sessions changed since the last build.
     if (force) await this.store.setMeta('reports_wanted', new Date().toISOString().slice(0, 19) + 'Z');
     if (!ghToken(this.env) || !this.env.GITHUB_REPO) {
-      return 'Rebuild requested, but the site cannot start GitHub without the PIZZA_GITHUB_TOKEN secret (cloudflare/README.md). '
+      return 'Build requested, but the site cannot start GitHub without the PIZZA_GITHUB_TOKEN secret (cloudflare/README.md). '
         + 'It runs at the next build: start one from GitHub, Actions -> reports -> Run workflow.';
     }
     await this.store.setMeta('reports_requested', String(Date.now()));
-    return (await dispatchBuild(this.env, force)) ? 'Rebuild started on GitHub; its progress shows here.'
+    return (await dispatchBuild(this.env, false)) ? 'Build started on GitHub; its progress shows here.'
       : 'GitHub refused to start the rebuild: check the GitHub token (PIZZA_GITHUB_TOKEN, cloudflare/README.md).';
   }
 
@@ -313,7 +318,7 @@ class Request_ {
       }
       return this.download(out, 'text/csv; charset=utf-8', `invite-links-${filterSlug(f) || 'all'}-${stamp()}.csv`);
     }
-    const missing = 'Not built yet. Reports are built 5 minutes after session data comes in (or press "Rebuild reports"); the bar above shows the progress.';
+    const missing = 'Not built yet: press "Build reports" above; the bar shows the progress.';
     if (route === '/admin/r.zip') return this.fileFromR2(`exports/${sc}/pizza-data-R.zip`, `pizza-data-R-${sc}-${stamp()}.zip`, 'application/zip', f, scope, missing);
     if (route === '/admin/data.zip') return this.fileFromR2(`exports/${sc}/sessions.zip`, `pizza-sessions-${sc}-${stamp()}.zip`, 'application/zip', f, scope, missing);
     if (route === '/admin/database.sqlite') return this.fileFromR2(`exports/${sc}/study.sqlite.gz`, `pizza-study-${sc}-${stamp()}.sqlite`, 'application/vnd.sqlite3', f, scope, missing, true);
@@ -334,14 +339,11 @@ class Request_ {
   async post(route, scope, f) {
     let msg = '';
     if (route === '/admin/api/inclusion') {
-      // the Sessions tab: analyse this session or not. Marks a full rebuild as wanted and queues one build, which waits
-      // until nobody has saved for 5 minutes: several choices in a row are one build.
+      // the Sessions tab: analyse this session or not. The choice counts as new data (signatures), so the reports show
+      // as out of date until the next build; with automatic reports, one build is queued (several choices = one build).
       const form = Object.fromEntries(new URLSearchParams((await this.req.text()).slice(0, 2000)));
       const ok = await this.store.setInclusion(form.pid || '', form.value || '', scope[0] === 'study' ? scope[1] : null);
-      if (ok) {
-        await this.store.setMeta('reports_wanted', new Date().toISOString().slice(0, 19) + 'Z');
-        await this.queueBuild('Inclusion changed');
-      }
+      if (ok) await this.queueBuild('Inclusion changed');
       return json({ ok }, ok ? 200 : 404);
     }
     const form = route === '/admin/reports' ? {} : Object.fromEntries(new URLSearchParams((await this.req.text()).slice(0, 10000)));

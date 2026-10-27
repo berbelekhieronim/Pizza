@@ -159,7 +159,9 @@ export class Store {
   async signatures() {
     // count|newest update, for everything ('all'), the main study ('main') and each study: the reports are rebuilt
     // when one changes
-    const { results } = await this.db.prepare('SELECT study, COUNT(*) AS n, MAX(updated) AS u FROM sessions GROUP BY study').all();
+    // (a researcher's inclusion choice on the Sessions tab counts as an update, as in store.py)
+    const { results } = await this.db.prepare('SELECT s.study AS study, COUNT(*) AS n, MAX(MAX(s.updated), COALESCE(MAX(f.updated), \'\')) AS u FROM sessions s '
+      + "LEFT JOIN fields f ON f.pid = s.pid AND f.name = 'inclusion' GROUP BY s.study").all();
     const out = {};
     let n = 0, u = '';
     for (const r of results) {

@@ -5,6 +5,20 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Reports are built on request, to save compute**
+- On Cloudflare the reports are built when a researcher presses **Build reports** (the button turns solid when there
+  is new data). No build per finished session, no build after each deploy, no 5-minute waiting runner. Automatic builds
+  stay available: repository variable `PIZZA_REPORTS_AUTO` = `1` (cloudflare/README.md).
+- A build analyses only the studies whose sessions changed (before, the button rebuilt everything), skips studies with
+  no pizza yet, and finishes in seconds when nothing changed. A change to the analysis code still rebuilds everything
+  once; a full rebuild is *Actions → reports → Run workflow* with *force*.
+- An include/exclude choice on the Sessions tab now counts as new data on Cloudflare too, so the page shows the reports
+  as out of date until the next build (the Codespace server already did this).
+
+**Sample sizes per analysis:** `docs/sample-sizes.md` lists every analysis from the fewest to the most participants it
+needs, with the reason and the formula, what each participant contributes (333 measures per pizza, 517 variables), and
+the most promising analyses for the study's groups.
+
 **Sessions tab: choose which sessions are analysed**
 - A new **Analysis** column shows each session's status: Included, Left out (not finished), or No pizza.
 - A dropdown overrides it: **Auto** (the rule: analysed once they pressed "I'm done"), **Include** (e.g. keep a pizza

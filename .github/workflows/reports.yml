@@ -1,6 +1,6 @@
-# Builds the reports and downloads of the study on Cloudflare (tools/cloud_sync.py). Started by the site 5 minutes
-# after the last session data came in (its minute check; needs the PIZZA_GITHUB_TOKEN secret), by "Rebuild reports",
-# after each deploy, and by hand (Actions -> reports -> Run workflow). No schedule. Does nothing when no session changed. The log holds counts only; no data is kept as an artifact.
+# Builds the reports and downloads of the study on Cloudflare (tools/cloud_sync.py). Started by "Build reports" on the
+# researcher page (needs the PIZZA_GITHUB_TOKEN secret) or by hand (Actions -> reports -> Run workflow). With the
+# repository variable PIZZA_REPORTS_AUTO = 1 also 5 minutes after the last session data came in and after each deploy. No schedule. Does nothing when no session changed. The log holds counts only; no data is kept as an artifact.
 name: reports
 on:
   workflow_dispatch:

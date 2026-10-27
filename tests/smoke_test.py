@@ -218,8 +218,17 @@ def cloudflare_checks(tmp, fields):
         urllib.request.urlopen(urllib.request.Request(base + '/admin/reports?key=' + key, data=b'', method='POST'))
         wanted = api(base, 'state', key)['build']['wanted']
         r = subprocess.run([PY, os.path.join(ROOT, 'tools', 'cloud_sync.py'), '--site', base, '--key', key], capture_output=True, text=True, timeout=600)
-        check(wanted and r.returncode == 0 and 'Started' in r.stdout and not api(base, 'state', key)['build']['wanted'],
-              '"Rebuild reports" is picked up by the next run of the reports job, which then clears it')
+        check(wanted and r.returncode == 0 and r.stdout.startswith('Up to date') and not api(base, 'state', key)['build']['wanted'],
+              '"Build reports" with nothing new finishes at once (no analysis) and clears the request')
+        pid = api(base, 'sessions', key, study='pilot-asd')['rows'][0]['pid']
+        post_form(base + '/admin/api/inclusion?key=' + key, {'pid': pid, 'value': 'exclude'})
+        st = api(base, 'state', key, study='pilot-asd')
+        r = subprocess.run([PY, os.path.join(ROOT, 'tools', 'cloud_sync.py'), '--site', base, '--key', key], capture_output=True, text=True, timeout=600)
+        started = next((x for x in r.stdout.splitlines() if x.startswith('Started')), '')
+        check(not st['reports']['fresh'] and st['build']['pending'] and 'pilot-asd' in started and 'tests' not in started
+              and api(base, 'state', key, study='pilot-asd')['reports']['fresh'],
+              'an inclusion choice marks the reports out of date; the next build redoes only the studies it touches')
+        post_form(base + '/admin/api/inclusion?key=' + key, {'pid': pid, 'value': 'auto'})
     finally:
         os.killpg(srv.pid, 15)
         srv.wait(timeout=20)

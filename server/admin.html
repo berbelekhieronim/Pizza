@@ -316,15 +316,16 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
       html = '<span class="spin" aria-hidden="true"></span><span class="msg"><b>Build queued</b> · ' + esc(st.step || '')
         + (b.due ? ' · builds about ' + esc(when(b.due).slice(11)) + ' UTC if nobody else saves before then' : '') + '</span>';
     } else if (waiting) {
-      html = b.instant ? '<span class="spin" aria-hidden="true"></span><span class="msg"><b>Rebuild requested</b> ' + ago(b.wanted) + ' ago · GitHub is starting it</span>'
-        : '<span class="msg"><b>Rebuild requested</b>, but the site cannot start GitHub without the GitHub token: start it from GitHub (Actions → reports → Run workflow).</span>';
+      html = b.instant ? '<span class="spin" aria-hidden="true"></span><span class="msg"><b>Build requested</b> ' + ago(b.wanted) + ' ago · GitHub is starting it</span>'
+        : '<span class="msg"><b>Build requested</b>, but the site cannot start GitHub without the GitHub token: start it from GitHub (Actions → reports → Run workflow).</span>';
     } else if (st && st.state === 'failed') {
       cls += ' failed';
       html = '<span class="msg"><b>The last build failed</b> ' + ago(st.updated) + ' ago: ' + esc((st.log || []).slice(-1)[0] || '') + '</span>';
     } else if (b && b.pending) {
       html = '<span class="msg"><b>New data since the last build</b>'
         + (r ? ' (reports from ' + esc(when(r.when)) + ' UTC)' : '') + ' · '
-        + (b.instant ? 'a build is queued when the next session finishes, or press Rebuild reports' : 'automatic builds need the GitHub token; start one from GitHub (Actions → reports → Run workflow)')
+        + (b.auto ? 'a build is queued when the next session finishes, or press Build reports'
+          : b.instant ? 'press <b>Build reports</b> to analyse it (a minute or two)' : 'builds need the GitHub token; start one from GitHub (Actions → reports → Run workflow)')
         + '</span>';
     } else if (r) {
       var c = r.check || {}, extra = [];
@@ -335,10 +336,11 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
         + (c.ok === false ? ' · <b class="warn">Data check: ' + r.n + ' pizzas analysed but ' + c.built_sessions + ' sessions got past the build; see Overview → Data check</b>'
           : (c.ok ? ' · ✓ matches the sessions' : '')) + '</span>';
     } else {
-      html = '<span class="msg">' + (S.reports_build_on_open ? 'Reports are built when you open them.' : 'No reports yet: they are built 5 minutes after the first session data comes in.') + '</span>';
+      html = '<span class="msg">' + (S.reports_build_on_open ? 'Reports are built when you open them.' : (b && b.auto ? 'No reports yet: they are built 5 minutes after the first session data comes in.' : 'No reports yet: press Build reports.')) + '</span>';
     }
-    html += '<form method="post" action="/admin/reports?' + esc(q({ tab: location.hash.slice(1) || 'overview' })) + '" style="margin:0"><button class="alt small" type="submit"'
-      + (running || waiting || queued ? ' disabled' : '') + '>Rebuild reports</button></form>';
+    var stale = (b && b.pending) || (r && !r.fresh) || (!r && !S.reports_build_on_open);
+    html += '<form method="post" action="/admin/reports?' + esc(q({ tab: location.hash.slice(1) || 'overview' })) + '" style="margin:0"><button class="' + (stale ? '' : 'alt ') + 'small" type="submit"'
+      + (running || waiting || queued ? ' disabled' : '') + ' title="Analyses the sessions that changed since the last build">Build reports</button></form>';
     if (st && st.run_url) html += '<a class="small" href="' + esc(st.run_url) + '" target="_blank" rel="noopener">Open the run on GitHub</a>';
     if (st && st.log && st.log.length) {
       html += '<details class="buildlog"' + (running || (st.state === 'failed') ? ' open' : '') + '><summary>Build log' + (st.started ? ' (' + esc(when(st.started)) + ' UTC)' : '') + '</summary><pre>'
@@ -354,8 +356,8 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     lastBuilt = built;
     clearTimeout(poll);
     // refresh only while a build is queued or running (every 5 s / 20 s), and not while this tab is hidden
-    // (and once a minute while new data waits, so the tile turns green by itself when its build is done)
-    if (S.build && (running || queued || (waiting && b.instant) || (b.instant && r && !r.fresh))) poll = setTimeout(refresh, running ? 5000 : queued ? 20000 : 60000);
+    // (and, with automatic builds, once a minute while new data waits, so the tile turns green when its build is done)
+    if (S.build && (running || queued || (waiting && b.instant) || (b.auto && r && !r.fresh))) poll = setTimeout(refresh, running ? 5000 : queued ? 20000 : 60000);
   }
   function refresh() {
     if (document.hidden) { poll = setTimeout(refresh, 20000); return; }
@@ -374,8 +376,8 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     if (!b) return ['kpi', 'on open', 'reports are built when opened'];
     if (st && (st.state === 'running' || st.state === 'queued' || st.state === 'waiting')) return ['kpi warn', 'Analysing…', 'new data is being analysed'];
     if (r && r.fresh) return ['kpi ok', '✓ All analysed', 'every session so far is in the reports'];
-    if (r) return ['kpi warn', 'New data', 'not yet in the reports (from ' + shortTime(r.when) + ')'];
-    return ['kpi warn', 'Not analysed', 'no reports yet'];
+    if (r) return ['kpi warn', 'New data', (b.auto ? 'not yet in the reports' : 'press Build reports') + ' (reports from ' + shortTime(r.when) + ')'];
+    return ['kpi warn', 'Not analysed', b.auto ? 'no reports yet' : 'press Build reports'];
   }
   function kpiRefresh() {
     var d = S.study === 'all' ? S.all : current();

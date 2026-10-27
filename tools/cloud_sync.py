@@ -140,9 +140,12 @@ def build_scope(st, db_path, scope, work):
     cmd = [sys.executable, os.path.join(ROOT, 'analysis', 'analyse.py'), db_path, '--out', out] + ([] if scope == 'all' else ['--study', scope])
     # the measure cache: each pizza's slow measures are computed once and reused by every study and later runs
     env = dict(os.environ, PIZZA_MEASURE_CACHE=os.environ.get('PIZZA_MEASURE_CACHE') or os.path.join(work, 'measure-cache'))
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600, env=env)
-    files, n, check = {}, 0, {}
     records = list(st.records(f))
+    if not any(rec.get('pz_final') for rec in records):     # no pizza in this set yet: nothing to analyse (saves a run)
+        r = subprocess.CompletedProcess(cmd, 1, '', 'No pizza fields found')
+    else:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600, env=env)
+    files, n, check = {}, 0, {}
     raw = [('raw/%s.json' % rec['pid'], json.dumps(rec)) for rec in records]
     if r.returncode == 0 and os.path.exists(os.path.join(out, 'participants.csv')):
         with open(os.path.join(out, 'participants.csv'), encoding='utf-8') as fh:
@@ -207,8 +210,8 @@ def main():
     sigs = info['signatures']
     state = site.get_json('/admin/files/state.json') or {}
     version = code_version()
-    wanted = info.get('wanted')                # "Rebuild reports" was pressed on the researcher page
-    if state.get('code') != version or wanted:
+    wanted = info.get('wanted')                # "Build reports" was pressed on the researcher page: build what changed
+    if state.get('code') != version:           # the analysis changed: everything is rebuilt once
         a.force = True
     scopes = ['all'] + sorted(s for s in sigs if s != 'all')
     todo = [s for s in scopes if a.force or (state.get('scopes') or {}).get(s) != sigs[s]]

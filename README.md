@@ -207,8 +207,8 @@ practice, build, ratings, completion code) and saves each participant as they go
    listed in `server/study.json` are assigned in turn.
 4. Watch sessions arrive on the researcher page (see *The researcher page and the database* below). The **Dashboard**,
    **Explore patterns**, **Profiles and clusters** and **Symmetry and contact** buttons open the reports for the
-   sessions shown (and **Methods** shows how each number is counted), rebuilt automatically whenever new sessions have
-   arrived (**Rebuild now** forces it). Keep the researcher link to yourself: the password is part of it, which is what
+   sessions shown (and **Methods** shows how each number is counted). On the codespace server they are rebuilt when you
+   open them after new sessions arrived (**Build reports** forces it); on Cloudflare, press **Build reports**. Keep the researcher link to yourself: the password is part of it, which is what
    lets the page work even inside the codespace's preview panel.
 
 Edit `server/study.json` for the title, intro text, consent sentence, completion message or a redirect URL (e.g. a

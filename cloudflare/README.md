@@ -11,7 +11,7 @@ researcher ──┴─> pizza-study.<you>.workers.dev ──> /            the 
                                                  └> /admin...   session browser, links,   ──> D1
                                                                 reports and downloads     ──> R2 storage
 GitHub ── push to main ──> checks ──> .github/workflows/cloudflare.yml: deploy (Worker, database, storage, settings)
-       └─ reports.yml (a few minutes after sessions finish, "Rebuild now", every 6 h):
+       └─ reports.yml (when a researcher presses "Build reports"; optionally after sessions finish):
           tools/cloud_sync.py: download the sessions → analysis/analyse.py per study → store reports and downloads in R2
 ```
 
@@ -77,15 +77,20 @@ Not needed: Turnstile set-up by hand (the deploy makes the widget and its hostna
 token; add a `CLOUDFLARE_ACCOUNT_ID` secret only if the token reaches several accounts), and Zero Trust (the study
 does not use it; its free plan bills nothing).
 
-**Automatic reports (`PIZZA_GITHUB_TOKEN`).** When a participant finishes, the site queues one reports build on GitHub;
-the build waits until nobody has saved for 5 minutes, so sessions finishing close together share one build, then
-builds. Cloudflare only stores a flag and sends one request per finished session: no schedules, no polling. The
-researcher page shows the build's progress (spinner, step, log, link to the run). Without the token, start builds from
-GitHub (Actions → reports → Run workflow).
+**Reports on request (the default).** The reports are built when a researcher presses **Build reports** on the
+researcher page. Until then the page shows "New data · press Build reports" (a session that changed, or an
+include/exclude choice on the Sessions tab, counts as new data). The build analyses only the studies whose sessions
+changed, skips studies with no pizza yet, and finishes at once when nothing changed; a change to the analysis code
+rebuilds everything once. Nothing runs between visits: no schedules, no polling, no build per finished session. The page
+shows the build's progress (spinner, step, log, link to the run).
 
-**The token (`PIZZA_GITHUB_TOKEN`, or `PIZZA_GITHUB_TOKEN_PIZZA`).** With it, the site starts the reports job a few minutes after
-sessions finish and when someone presses *Rebuild now*. Without it, reports are rebuilt every 6 hours, after each
-deploy, and from *Actions → reports → Run workflow*. Make the token at github.com → *Settings → Developer settings →
+**Automatic reports (optional).** Set the repository variable `PIZZA_REPORTS_AUTO` to `1` and deploy again: then a
+finished session queues one build, which waits until nobody has saved for 5 minutes (sessions finishing close together
+share one build), and each deploy rebuilds the reports. Remove the variable (and deploy) to go back to on request.
+
+**The token (`PIZZA_GITHUB_TOKEN`, or `PIZZA_GITHUB_TOKEN_PIZZA`).** It lets the site start the reports job when someone
+presses *Build reports*. Without it, start builds from *Actions → reports → Run workflow* (tick *force* to rebuild
+everything). Make the token at github.com → *Settings → Developer settings →
 Fine-grained tokens*: this repository only, permission **Actions: Read and write**.
 
 **Your own domain (optional).** Add it to Cloudflare, add a custom domain to the `pizza-study` Worker, set the
@@ -104,7 +109,7 @@ button on).
 | where | what | how much |
 |---|---|---|
 | **Cloudflare Worker** (free plan) | participant pages, saving (every 4 s while someone builds), the researcher page | about 100–300 requests and 300–800 database writes per participant |
-| **GitHub: reports job** (public repo: free) | downloading the sessions, the analysis, storing the reports | one run per batch of finished sessions; it first waits for 5 quiet minutes (a sleeping runner, no Cloudflare use), then about a minute; each pizza's slow measures (the symmetry search) are computed once and cached between runs |
+| **GitHub: reports job** (public repo: free) | downloading the sessions, the analysis, storing the reports | one run per press of *Build reports*: seconds when nothing changed, a minute or two otherwise (only changed studies are analysed); each pizza's slow measures (the symmetry search) are computed once and cached between runs |
 | **GitHub: check** (on every code push) | the full smoke test on two Python versions, R, face benchmark | 2–4 minutes; skipped for documentation-only pushes |
 | **GitHub: cloudflare** (on every code push) | a one-minute test of the Worker, then the deploy and a check of the live site | about a minute |
 | **Your browser** | the researcher page | refreshes itself only while a build is queued or running, and not when its tab is hidden |

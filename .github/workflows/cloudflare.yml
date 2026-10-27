@@ -21,6 +21,7 @@ jobs:
       PIZZA_GITHUB_TOKEN: ${{ secrets.PIZZA_GITHUB_TOKEN || secrets.PIZZA_GITHUB_TOKEN_PIZZA }}   # either name works
       PIZZA_SITE_URL: ${{ vars.PIZZA_SITE_URL }}
       PIZZA_EU: ${{ vars.PIZZA_EU }}
+      PIZZA_REPORTS_AUTO: ${{ vars.PIZZA_REPORTS_AUTO }}   # 1 = reports build by themselves after sessions finish; default: on "Build reports"
       R2_LIMIT_BYTES: ${{ vars.R2_LIMIT_BYTES }}
       R2_WRITES_PER_MONTH: ${{ vars.R2_WRITES_PER_MONTH }}
       R2_READS_PER_MONTH: ${{ vars.R2_READS_PER_MONTH }}
@@ -61,8 +62,8 @@ jobs:
           sleep 10
           { echo '### Live site'; echo '```'; python3 cloudflare/deploy.py live; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
           python3 cloudflare/deploy.py live > /dev/null
-      - name: Rebuild the reports (the analysis code may have changed)
-        if: steps.ready.outputs.ok
+      - name: Rebuild the reports (only with automatic reports; otherwise "Build reports" on the researcher page does it)
+        if: steps.ready.outputs.ok && vars.PIZZA_REPORTS_AUTO == '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run reports.yml --ref main -R "$GITHUB_REPOSITORY" || echo "::notice::Could not start the reports job."
