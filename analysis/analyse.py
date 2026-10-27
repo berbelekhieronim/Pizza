@@ -2927,15 +2927,29 @@ CHANCE_LEVELS = [('mirror_score', 0.0, 'Mirror symmetry beyond chance'), ('rot_s
 Z_A, Z_B = 1.959964, 0.841621          # two-sided alpha .05, power .80
 
 
-def n_per_group(delta):
-    """People per group a two-group study needs for 80% power at alpha .05 (two-sided Mann-Whitney), if the true
+def z_alpha(alpha):
+    """Two-sided critical z for this alpha (1.96 at .05)."""
+    return Z_A if alpha == 0.05 else statistics.NormalDist().inv_cdf(1 - alpha / 2)
+
+
+def n_per_group(delta, alpha=0.05):
+    """People per group a two-group study needs for 80% power at this alpha (two-sided Mann-Whitney), if the true
     Cliff's delta is this (Noether 1987, equal groups): n = 2 (z_a + z_b)^2 / (3 delta^2)."""
-    return math.ceil(2 * (Z_A + Z_B) ** 2 / (3 * delta * delta)) if delta else None
+    return math.ceil(2 * (z_alpha(alpha) + Z_B) ** 2 / (3 * delta * delta)) if delta else None
 
 
-def n_for_rho(rho):
-    """People a correlational study needs for 80% power at alpha .05 (two-sided): n = ((z_a + z_b) / atanh(rho))^2 + 3."""
-    return math.ceil(((Z_A + Z_B) / math.atanh(min(abs(rho), 0.999))) ** 2 + 3) if rho else None
+def n_for_rho(rho, alpha=0.05):
+    """People a correlational study needs for 80% power at this alpha (two-sided): n = ((z_a + z_b) / atanh(rho))^2 + 3."""
+    return math.ceil(((z_alpha(alpha) + Z_B) / math.atanh(min(abs(rho), 0.999))) ** 2 + 3) if rho else None
+
+
+def n_for_change(dom, alpha=0.05):
+    """People needed to detect a within-person change with a sign test at 80% power, if the true dominance (share of
+    people who rise minus share who fall) is this: with p = (1 + dom) / 2, n = (0.5 z_a + z_b sqrt(p (1 - p)))^2 / (p - 0.5)^2."""
+    if not dom:
+        return None
+    p = (1 + min(abs(dom), 0.999)) / 2
+    return math.ceil((0.5 * z_alpha(alpha) + Z_B * math.sqrt(p * (1 - p))) ** 2 / (p - 0.5) ** 2)
 
 
 def chance_test(x, c, rnd, draws=4000):
@@ -2955,38 +2969,42 @@ def chance_test(x, c, rnd, draws=4000):
     return dom, (hits + 1) / (draws + 1)
 
 
-# Planned hypotheses (docs/sample-sizes.md): the leads with a reason to expect a difference, tested as one small family
-# so that the false discovery correction runs over a handful of tests instead of the whole screen. Each: (id, title,
-# why, [(grouping, level)], [(measure, predicted sign: +1 higher in the group, -1 lower, 0 either way)]).
-HYPOTHESES = [
-    ('H1', 'Fewer, more familiar toppings', 'Food selectivity and a preference for the familiar are among the most replicated eating findings in autism.',
+# Ideas to test (docs/sample-sizes.md): leads with a reason to expect a difference. Not hypotheses: nothing is
+# preregistered and some have no expected direction. They are tested as one small family, so the false discovery
+# correction runs over a few dozen tests instead of the whole screen. Each: (id, title, why, [(grouping, level)],
+# [(measure, expected sign: +1 higher in the group, -1 lower, 0 either way)]).
+IDEAS = [
+    ('Idea 1', 'Fewer, more familiar toppings', 'Food selectivity and a preference for the familiar are among the most replicated eating findings in autism.',
      [('nd_autistic', 'yes'), ('eat_picky', 'yes')],
      [('n_distinct', -1), ('shannon', -1), ('prop_unusual_distinct', -1), ('ingredient_rarity', -1)]),
-    ('H2', 'Foods kept apart', 'Many autistic people dislike foods touching.',
+    ('Idea 2', 'Foods kept apart', 'Many autistic people dislike foods touching.',
      [('nd_autistic', 'yes')], [('prop_touching', -1), ('prop_stacked', -1), ('clark_evans', 1)]),
-    ('H3', 'Order and symmetry', 'A preference for sameness and pattern.',
+    ('Idea 3', 'Order and symmetry', 'A preference for sameness and pattern.',
      [('nd_autistic', 'yes')], [('mirror_score', 1), ('rot_score', 1), ('size_match_index', 1), ('sweep_consistency', 1)]),
-    ('H4', 'Sensory reasons and safe foods', 'Sensory sensitivity drives food choice.',
+    ('Idea 4', 'Sensory reasons and safe foods', 'Sensory sensitivity drives food choice.',
      [('nd_autistic', 'yes'), ('self_sensory_food', None)], [('n_strong', 1), ('n_sensory_reasons', 1), ('n_safe_foods', 1)]),
-    ('H5', 'Quicker choices, more changes of mind', 'Impulsivity and novelty seeking in ADHD.',
+    ('Idea 5', 'Quicker choices, more changes of mind', 'Impulsivity and novelty seeking in ADHD.',
      [('nd_adhd', 'yes')], [('decision_median', -1), ('n_adjustments', 1), ('revision_rate', 1), ('prop_unusual_distinct', 1)]),
-    ('H6', 'AuDHD: its own pattern', 'Autism (sameness) and ADHD (novelty) pull in opposite directions; AuDHD may sit between or differ from both.',
+    ('Idea 6', 'AuDHD: its own pattern', 'Autism (sameness) and ADHD (novelty) pull in opposite directions; AuDHD may sit between or differ from both.',
      [('neurotype', 'AuDHD')], [('n_distinct', 0), ('prop_unusual_distinct', 0), ('revision_rate', 0), ('prop_touching', 0)]),
-    ('H7', 'Seeing the nutrition changes the pizza', 'Interoception and attention to health information differ between people; the change is measured within each person.',
+    ('Idea 7', 'Seeing the nutrition changes the pizza', 'Interoception and attention to health information differ between people; the change is measured within each person.',
      [('revealers', None), ('nd_autistic', 'yes')], [('post_nutri_d_kcal', -1)]),
-    ('H8', 'My pizza vs a typical person\'s', 'Self-other differences: how far one\'s own choice is from what one expects of others.',
+    ('Idea 8', 'My pizza vs a typical person\'s', 'Self-other differences: how far one\'s own choice is from what one expects of others.',
      [('nd_autistic', 'yes')], [('typical_jaccard', 0), ('typical_count_dev', 0)]),
 ]
-PLANNED_N = 24          # people per group for 80% power on a large effect (δ = 0.474), docs/sample-sizes.md
+LARGE_DELTA = 0.474     # a large Cliff's δ (Romano et al. 2006): the effect the sample sizes below are planned for
+SAMPLE_TIP = ('People per group for 80%% power, two-sided: n = 2 (z(α/2) + z(0.80))² / (3 δ²) (Noether 1987), with α = .05 / t for t tests '
+              '(Bonferroni over the idea\'s tests). Correlations: n = ((z(α/2) + z(0.80)) / atanh ρ)² + 3. Change within a person (sign test, '
+              'dominance d, p = (1 + d) / 2): n = (0.5 z(α/2) + z(0.80) √(p(1 − p)))² / (p − 0.5)². Details: Methods → Sample sizes.')
 
 
 def planned_tests(recs, defs, groupings, covariates, rnd):
-    """The HYPOTHESES tested on these pizzas: [(hypothesis, [test dicts])], with q over all planned tests together."""
+    """The ideas (IDEAS) tested on these pizzas: [(idea, [test dicts])], with q over all their tests together."""
     names = {k: lab for _, k, lab in defs}
     gnames = dict(list(groupings) + list(covariates))
     num = lambda k: [r.get(k) if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool) else None for r in recs]
     out, family = [], []
-    for hid, title, why, comps, measures in HYPOTHESES:
+    for hid, title, why, comps, measures in IDEAS:
         tests = []
         for gkey, level in comps:
             for k, sign in measures:
@@ -3030,57 +3048,70 @@ def planned_tests(recs, defs, groupings, covariates, rnd):
 
 
 def planned_html(planned, groupings, covariates):
-    """The Planned hypotheses section of explore.html."""
+    """The Ideas to test section of explore.html."""
     gnames = dict(list(groupings) + list(covariates) + [('revealers', 'Within each person')])
-    cards, n_tests = [], sum(1 for _, ts in planned for t in ts if 'p' in t)
+    n_all = sum(len(ts) for _, ts in planned)                       # every planned test, run or not yet
+    cards, n_run = [], sum(1 for _, ts in planned for t in ts if 'p' in t)
     for (hid, title, why), tests in planned:
         rows, done = [], [t for t in tests if 'p' in t]
         for t in tests:
-            pred = {1: 'higher', -1: 'lower', 0: 'either way', None: 'either way'}[t['sign']]
+            exp = {1: 'higher', -1: 'lower', 0: 'either way', None: 'either way'}[t['sign']]
             if t['grouping'] == 'revealers':
-                pred = {1: 'rises', -1: 'falls', 0: 'changes'}[t['sign']]
+                exp = {1: 'rises', -1: 'falls', 0: 'changes'}[t['sign']]
             who = ('%s: %s' % (gnames.get(t['grouping'], t['grouping']), t['level'])) if t.get('kind') != 'rho' else 'correlation with %s' % t['level']
             if 'p' not in t:
                 rows.append('<tr class="na"><td class="l">%s</td><td class="l">%s</td><td>%s</td><td>%s</td><td colspan="6" class="l muted">%s</td></tr>'
-                            % (esc(t['label']), esc(who), esc(pred), '%d / %d' % (t['n1'], t['n0']) if t.get('n0') is not None else t['n1'], esc(t['missing'])))
+                            % (esc(t['label']), esc(who), esc(exp), '%d / %d' % (t['n1'], t['n0']) if t.get('n0') is not None else t['n1'], esc(t['missing'])))
                 continue
-            way = '' if t['right_way'] is None else ('<span class="ok">✓ as predicted</span>' if t['right_way'] else '<span class="bad">✗ opposite</span>')
-            need = n_for_rho(t['delta']) if t.get('kind') == 'rho' else n_per_group(t['delta']) if t.get('kind') == 'groups' else None
+            way = '' if t['right_way'] is None else ('<span class="ok">✓ as expected</span>' if t['right_way'] else '<span class="bad">✗ opposite</span>')
+            alpha = 0.05 / len(tests)        # if this idea alone were preregistered: corrected over its own tests
+            need = (n_for_rho(t['delta'], alpha) if t.get('kind') == 'rho' else n_per_group(t['delta'], alpha) if t.get('kind') == 'groups'
+                    else n_for_change(t['delta'], alpha))
             mm = ('%s / %s' % (fmt_m(t['m1'], t['binary'], t['key']), fmt_m(t['m0'], t['binary'], t['key']))) if t.get('m1') is not None else ''
             rows.append('<tr%s><td class="l">%s</td><td class="l">%s</td><td>%s</td><td>%s</td><td>%s</td><td><b>%+.2f</b><br><span class="muted">%s</span></td>'
                         '<td>%s</td><td>%.3f%s</td><td>%s</td><td>%s</td></tr>'
-                        % (' class="pass"' if t['q'] < 0.1 and t['right_way'] is not False else '', esc(t['label']), esc(who), esc(pred),
+                        % (' class="pass"' if t['q'] < 0.1 and t['right_way'] is not False else '', esc(t['label']), esc(who), esc(exp),
                            '%d / %d' % (t['n1'], t['n0']) if t.get('n0') is not None else t['n1'], mm, t['delta'],
                            'ρ' if t.get('kind') == 'rho' else 'dominance' if t.get('kind') == 'change' else delta_size(t['delta']),
                            fmt_p(t['p']), t['q'], ' ✓' if t['q'] < 0.1 else '', way, need or ''))
         groups = [t for t in done if t.get('kind') == 'groups']
         smallest = min([min(t['n1'], t['n0']) for t in groups] or [0])
-        support = [t for t in done if t['q'] < 0.1 and t['right_way'] is not False]
+        lead = [t for t in done if t['q'] < 0.1 and t['right_way'] is not False]
         directional = [t for t in done if t['right_way'] is not None]
+        as_expected = sum(1 for t in directional if t['right_way'])
         if not done:
-            verdict, cls = 'Not testable yet: too few people in the groups it compares.', 'wait'
-        elif support:
-            verdict, cls = 'Supported: %d of %d measures differ after the correction, in the predicted direction.' % (len(support), len(done)), 'yes'
+            verdict, cls = 'Cannot be tested yet: too few people in the groups it compares.', 'wait'
+        elif lead:
+            verdict, cls = ('Strong lead: %d of %d tests differ after the correction%s. Worth preregistering.'
+                            % (len(lead), len(done), ', the expected way' if any(t['right_way'] for t in lead) else '')), 'yes'
         elif groups and smallest < 8:
-            verdict, cls = ('Too few to pass the correction yet (smallest group %d; it takes 8+). Direction so far: %d of %d measures as predicted.'
-                            % (smallest, sum(1 for t in directional if t['right_way']), len(directional))), 'wait'
+            verdict, cls = ('Too few to pass the correction yet (smallest group %d; it takes at least 8). So far %d of %d tests with an expected direction point that way.'
+                            % (smallest, as_expected, len(directional))) if directional else ('Too few to pass the correction yet (smallest group %d; it takes at least 8).' % smallest), 'wait'
         else:
-            verdict, cls = ('Not supported so far. Direction: %d of %d measures as predicted.' % (sum(1 for t in directional if t['right_way']), len(directional))
-                            if directional else 'Not supported so far.'), 'no'
+            verdict, cls = ('No sign yet. %d of %d tests with an expected direction point that way.' % (as_expected, len(directional))
+                            if directional else 'No sign yet.'), 'no'
+        # how many tests the idea runs, and what that costs in people
+        n_meas, n_comp = len({t['key'] for t in tests}), len({(t['grouping'], t['level']) for t in tests})
+        need_alone, need_all, need_plain = n_per_group(LARGE_DELTA, 0.05 / len(tests)), n_per_group(LARGE_DELTA, 0.05 / n_all), n_per_group(LARGE_DELTA)
+        cost = ('<p class="cost" title="%s">%d measure%s × %d comparison%s = <b>%d tests</b>. For a large effect (δ = %.2f) with 80%% power: <b>%d per group</b> if this idea '
+                'alone is preregistered (α = .05 / %d), %d per group as part of all %d tests here (α = .05 / %d), %d per group for one test without correction.</p>'
+                % (SAMPLE_TIP, n_meas, '' if n_meas == 1 else 's', n_comp, '' if n_comp == 1 else 's', len(tests), LARGE_DELTA, need_alone, len(tests), need_all, n_all, n_all, need_plain))
         bar = ''
         if groups:
-            pct = min(100, round(100 * smallest / PLANNED_N))
-            bar = ('<div class="ready"><div class="track"><i style="width:%d%%"></i></div><span>%d of %d people in the smaller group: the number for a large effect '
-                   '(80%% power)</span></div>' % (pct, smallest, PLANNED_N))
-        cards.append('<div class="hyp %s"><h3>%s. %s</h3><p class="muted">%s</p><p class="verdict">%s</p>%s<div class="tbl"><table class="leads"><tr><th class="l">Measure</th>'
-                     '<th class="l">Compared</th><th>Predicted</th><th>n</th><th>median or %%</th><th>effect</th><th>p</th><th>q</th><th>Direction</th>'
-                     '<th>n/group needed (effect as seen)</th></tr>%s</table></div></div>'
-                     % (cls, esc(hid), esc(title), esc(why), esc(verdict), bar, ''.join(rows)))
-    return ('<h2 id="planned">Planned hypotheses</h2><p class="muted">The study\'s main leads (docs/sample-sizes.md), each with a predicted direction. They '
-            'are tested as one family of %d tests, so the false discovery rate (q) is corrected over these only, not over the whole screen below: this is '
-            'where a real difference can show first. Effects: Cliff\'s δ between groups, Spearman ρ for self-reports, dominance for a change within each '
-            'person. A result counts only when q &lt; 0.10 <i>and</i> the direction is as predicted. To confirm, preregister 3-5 of these and test them in '
-            'a new sample.</p>%s' % (n_tests, ''.join(cards)))
+            pct = min(100, round(100 * smallest / need_alone))
+            bar = ('<div class="ready"><div class="track"><i style="width:%d%%"></i></div><span>%d of %d people in the smaller group (the number above for this idea '
+                   'alone)</span></div>' % (pct, smallest, need_alone))
+        cards.append('<div class="hyp %s"><h3>%s. %s</h3><p class="muted">%s</p><p class="verdict">%s</p>%s%s<div class="tbl"><table class="leads"><tr><th class="l">Measure</th>'
+                     '<th class="l">Compared</th><th>Expected</th><th>n</th><th>median or %%</th><th>effect</th><th>p</th><th>q</th><th>Direction</th>'
+                     '<th title="%s">n/group needed (effect as seen, corrected for this idea) ⓘ</th></tr>%s</table></div></div>'
+                     % (cls, esc(hid), esc(title), esc(why), esc(verdict), cost, bar, SAMPLE_TIP, ''.join(rows)))
+    return ('<h2 id="planned">Ideas to test</h2><p class="muted">Leads worth checking, from what is known about eating in autism and ADHD '
+            '(docs/sample-sizes.md). They are <b>not hypotheses</b>: nothing here is preregistered, and some have no expected direction. They are tested '
+            'as one family of %d tests (%d can run on these data), so q is corrected over these only, not over the whole screen below: this is where a '
+            'real difference can show first. A test is a strong lead when q &lt; 0.10 and, where a direction is expected, it goes that way. Every test '
+            'adds to the correction, so each idea shows how many tests it runs and how many people that takes. To confirm, pick 3-5 ideas, state their '
+            'direction in a preregistration, and test them in a new sample. How every sample size here is worked out, with the formulas and worked examples: '
+            '<a href="methods.html#sample-sizes" onclick="if (window.parent !== window) { parent.location.hash = \'methods\'; return false; }">Methods → Sample sizes</a> (hover a number for the formula).</p>%s' % (n_all, n_run, ''.join(cards)))
 
 
 def explore_report(recs, tray, groupings, covariates, seed=1):
@@ -3245,7 +3276,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
                   '(two-sided), if the true δ is as large as seen here, and if it is half that size (effects found by screening many measures '
                   'in a small sample are usually overestimated; plan with the second). They are picked as the largest of many comparisons, so even '
                   'their q values are optimistic. δ size words follow Romano et al. (2006): negligible &lt; .15, small &lt; .33, medium &lt; .47, large.</p><div class="tbl"><table class="leads"><tr><th class="l">Pattern</th><th>n</th>'
-                  '<th>δ</th><th>p</th><th>q</th><th>n/group (δ as seen)</th><th>n/group (δ halved)</th></tr>%s</table></div>' % ''.join(lead_rows)) if lead_rows else ''
+                  '<th>δ</th><th>p</th><th>q</th><th title="%s">n/group (δ as seen) ⓘ</th><th title="%s">n/group (δ halved) ⓘ</th></tr>%s</table></div>' % (SAMPLE_TIP, SAMPLE_TIP, ''.join(lead_rows))) if lead_rows else ''
     planned = planned_tests(recs, defs, groupings, covariates, rnd)
     for (hid, title, _), ts in planned:
         for t in ts:
@@ -3256,7 +3287,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
                                   'n_per_group_80': n_for_rho(t['delta']) if t.get('kind') == 'rho' else n_per_group(t['delta']) if t.get('kind') == 'groups' else None,
                                   'n_per_group_80_half': None})
     nav = ''.join('<span><a href="#g-%s">%s</a></span>' % (esc(k_), esc(l_)) for k_, l_, _, _ in used)
-    nav = '<span><a href="#planned"><b>Planned hypotheses</b></a></span>' + nav
+    nav = '<span><a href="#planned"><b>Ideas to test</b></a></span>' + nav
     html = (head + '<p class="lead"><b>For exploring, not confirming.</b> This page screens %d measures (%d main, the rest per topping) across every '
             'way of grouping people that the data allow, so some differences will look large by chance. Effect sizes are Cliff\'s δ (−1 to 1: how often a value '
             'from the group is higher than one from the comparison, minus how often it is lower; for yes/no measures, the difference in percentages). '

@@ -243,7 +243,7 @@ SECTIONS = [
         ('p', 'Mann-Whitney: rank sum R of the group (mid-ranks), two-sided. Smaller group &lt; 8: permutation, (hits + 1) / 4001 with 4000 random relabellings. Else normal approximation with tie correction and 0.5 continuity correction. Spearman: t = ρ √((n − 2) / (1 − ρ²)), df = n − 2.', 'mw_p'),
         ('q', 'Benjamini-Hochberg within the grouping: q<sub>(i)</sub> = min<sub>j ≥ i</sub> p<sub>(j)</sub> m / j.', 'bh'),
         ('(95% CI)', 'Percentile bootstrap of δ, 600 resamples within each group.', 'boot_ci'),
-        ('(planned hypotheses: grouping = planned)', 'The HYPOTHESES in analyse.py (H1-H8, docs/sample-sizes.md), each a measure with a predicted direction in a named comparison: a group against the rest (Cliff\'s δ, Mann-Whitney p as above), a continuous self-report (Spearman ρ), or the change after seeing the nutrition within each person (dominance against 0, sign-flip p). q = Benjamini-Hochberg over the planned tests only. A test supports its hypothesis when q &lt; 0.10 and the sign of the effect is the predicted one.', 'planned_tests'),
+        ('(ideas to test: grouping = planned)', 'The IDEAS in analyse.py (ideas 1-8, docs/sample-sizes.md): measures in named comparisons, most with an expected direction: a group against the rest (Cliff\'s δ, Mann-Whitney p as above), a continuous self-report (Spearman ρ), or the change after seeing the nutrition within each person (dominance against 0, sign-flip p). q = Benjamini-Hochberg over these tests only. A strong lead: q &lt; 0.10 and, where a direction is expected, the effect goes that way. People needed per idea: n per group as above at α = .05 / t, t = the idea\'s number of tests (measures × comparisons), for δ = 0.474 (large) and for the δ seen.', 'planned_tests'),
         ('n_per_group_80, n_per_group_80_half', 'People per group a new two-group study needs for 80% power at α = .05 (two-sided Mann-Whitney) if the true δ equals the observed / half the observed δ (Noether): n = 2 (z<sub>.975</sub> + z<sub>.80</sub>)² / (3 δ²). For covariate rows (ρ): total n = ((z<sub>.975</sub> + z<sub>.80</sub>) / atanh ρ)² + 3.', 'n_per_group'),
         ('(size of δ)', 'Words beside δ in explore.html (Romano et al. 2006): |δ| &lt; .147 negligible, &lt; .33 small, &lt; .474 medium, otherwise large. Rows with q &lt; 0.10 are marked ✓; each grouping states how many of its comparisons pass.', 'delta_size'),
         ('(against chance)', 'Rows with grouping = chance: one group against a chance level (e.g. mirror_score 0, sweep_consistency 0.5, clark_evans 1). delta = dominance = (#above − #below) / n; m1 = median, m0 = chance; p = sign-flip permutation of the differences from chance, (hits + 1) / 4001; q = BH over all chance rows.', 'chance_test'),
@@ -470,6 +470,85 @@ def small_examples():
     return ''.join('<tr><td><code>%s</code></td><td>%s</td><td>%s</td></tr>' % r for r in rows)
 
 
+def sample_size_section():
+    """How the sample sizes in Explore and docs/sample-sizes.md are worked out: formulas, assumptions and worked
+    examples computed by analyse.py and checked against the hand calculation."""
+    za, zb = A.Z_A, A.Z_B
+    ex = []
+    # two groups
+    n_large = A.n_per_group(A.LARGE_DELTA)
+    hand = math.ceil(2 * (za + zb) ** 2 / (3 * A.LARGE_DELTA ** 2))
+    assert n_large == hand == 24
+    ex.append(('two groups, large effect', 'δ = 0.474, α = .05, power .80',
+               '2 × (1.960 + 0.842)² / (3 × 0.474²) = 2 × 7.849 / 0.674 = 23.3 → <b>%d</b> per group' % n_large))
+    # corrected for t tests
+    z8 = A.z_alpha(0.05 / 8)
+    n8 = A.n_per_group(A.LARGE_DELTA, 0.05 / 8)
+    assert n8 == math.ceil(2 * (z8 + zb) ** 2 / (3 * A.LARGE_DELTA ** 2)) == 38
+    ex.append(('… with 8 tests', 'an idea of 4 measures × 2 comparisons; α = .05 / 8 = .00625',
+               'z(α/2) = z(0.99688) = %.3f; 2 × (%.3f + 0.842)² / (3 × 0.474²) → <b>%d</b> per group' % (z8, z8, n8)))
+    # correlation
+    nr = A.n_for_rho(0.5)
+    assert nr == math.ceil(((za + zb) / math.atanh(0.5)) ** 2 + 3) == 30
+    ex.append(('correlation', 'ρ = 0.5 with a self-report, α = .05', '((1.960 + 0.842) / atanh 0.5)² + 3 = (2.802 / 0.549)² + 3 = 29.0 → <b>%d</b> people' % nr))
+    # within a person
+    nc = A.n_for_change(0.5)
+    p = 0.75
+    assert nc == math.ceil((0.5 * za + zb * math.sqrt(p * (1 - p))) ** 2 / (p - 0.5) ** 2) == 29
+    ex.append(('change within a person', 'dominance 0.5 (75% change the expected way), α = .05',
+               'p = 0.75: (0.5 × 1.960 + 0.842 × √(0.75 × 0.25))² / 0.25² = (0.980 + 0.365)² / 0.0625 = 28.9 → <b>%d</b> people' % nc))
+    # smallest p
+    mw4 = 2 / math.comb(8, 4)
+    ex.append(('smallest p, two groups', '4 vs 4, no ties, every value of one group above the other',
+               'exact Mann-Whitney: 2 / C(8, 4) = 2 / 70 = <b>%.3f</b> (3 vs 3: 2 / 20 = 0.10, so p &lt; .05 is impossible)' % mw4))
+    thr = 0.05 / 179
+    assert 2 / math.comb(16, 8) < thr < 2 / math.comb(14, 7)
+    ex.append(('passing the correction', '179 measures screened per grouping (q &lt; .05)',
+               'the best p must be ≤ 0.05 / 179 = %.5f; 7 vs 7 can reach 2 / C(14, 7) = %.5f (no), 8 vs 8 can reach 2 / C(16, 8) = %.5f (yes) → <b>8 per group</b>'
+               % (thr, 2 / math.comb(14, 7), 2 / math.comb(16, 8))))
+    # unequal groups
+    c = 0.25
+    ex.append(('unequal groups', '1 autistic participant for every 3 others (share c = 0.25)',
+               'total N = 4 z² / (3 δ²) × 1 / (4 c (1 − c)) = 2 × %d × %.2f = <b>%d</b> in all (%d + %d), instead of %d (24 + 24)'
+               % (n_large, 1 / (4 * c * (1 - c)), math.ceil(2 * n_large / (4 * c * (1 - c))), math.ceil(2 * n_large / (4 * c * (1 - c)) * c),
+                  math.ceil(2 * n_large / (4 * c * (1 - c)) * (1 - c)), 2 * n_large)))
+    detect = ''.join('<tr><td>%d</td><td>%.2f</td><td>%s</td></tr>' % (n, math.sqrt(2 * (za + zb) ** 2 / (3 * n)), A.delta_size(math.sqrt(2 * (za + zb) ** 2 / (3 * n))))
+                     for n in (10, 15, 20, 24, 30, 50, 100))
+    formulas = [
+        ('Two groups (Mann-Whitney, Cliff\'s δ)', 'n per group = 2 (z<sub>α/2</sub> + z<sub>β</sub>)² / (3 δ²)',
+         'Noether (1987) for the Mann-Whitney test with equal groups, written with Cliff\'s δ: P(group value &gt; comparison value) = (1 + δ) / 2, and Noether\'s '
+         'total N = (z<sub>α/2</sub> + z<sub>β</sub>)² / (12 c (1 − c) (P − ½)²) with c = ½ gives 2 (z<sub>α/2</sub> + z<sub>β</sub>)² / (3 δ²) per group. '
+         'z<sub>α/2</sub> = 1.960 (α = .05, two-sided), z<sub>β</sub> = 0.842 (power .80).', 'n_per_group'),
+        ('Correlation with a self-report (Spearman ρ)', 'n = ((z<sub>α/2</sub> + z<sub>β</sub>) / atanh ρ)² + 3',
+         'Fisher\'s z: atanh of a correlation is about normal with SD 1 / √(n − 3). Used for Spearman ρ as an approximation.', 'n_for_rho'),
+        ('Change within a person (sign test)', 'with p = (1 + d) / 2: n = (½ z<sub>α/2</sub> + z<sub>β</sub> √(p (1 − p)))² / (p − ½)²',
+         'd = dominance: share of people who change the expected way minus the share who change the other way. The normal approximation to the binomial (sign) '
+         'test of p against ½.', 'n_for_change'),
+        ('Several tests', 'α per test = .05 / t; z<sub>α/2</sub> = Φ<sup>−1</sup>(1 − α / 2)',
+         'Planning uses Bonferroni over the t tests of an idea (or of all the ideas), which is conservative: the analysis itself uses the Benjamini-Hochberg false '
+         'discovery rate, which needs a little fewer people. t = measures × comparisons.', 'z_alpha'),
+        ('Unequal groups', 'total N = (equal-group total) / (4 c (1 − c)), c = the smaller group\'s share',
+         'From Noether\'s formula with c ≠ ½. A 1 : 3 split needs 1.33 times as many people in all as a 1 : 1 split; 1 : 9 needs 2.8 times.', 'n_per_group'),
+        ('Smallest possible p', 'exact Mann-Whitney: 2 / C(n<sub>1</sub> + n<sub>2</sub>, n<sub>1</sub>); sign-flip with n people: 2 / 2<sup>n</sup>',
+         'With very small groups even a perfect separation cannot reach p &lt; .05 (3 vs 3) or survive the correction (fewer than 8 per group for 179 measures). '
+         'This sets the "runs from / meaningful from" limits in docs/sample-sizes.md.', 'mw_p'),
+        ('What "large" means', 'Cliff\'s δ: negligible &lt; 0.147 ≤ small &lt; 0.33 ≤ medium &lt; 0.474 ≤ large',
+         'Romano et al. (2006). δ = 0.474 means a value from the group is higher than one from the comparison about 74% of the time. Effects found by screening many '
+         'measures in a small sample are usually overestimated: plan with half the δ seen (the explore.csv column n_per_group_80_half).', 'delta_size'),
+    ]
+    rows = ''.join('<tr><td class="c">%s<br><b>%s</b></td><td>%s</td><td class="r">%s</td></tr>' % (A.esc(t), f, how, code_ref(fn)) for t, f, how, fn in formulas)
+    return ('<h2 class="sec" id="sample-sizes">Sample sizes: how they are worked out</h2>'
+            '<p class="note">Every sample size on these pages (Explore: Ideas to test and Leads; docs/sample-sizes.md) is the number of people that gives an '
+            '80%% chance (power) of a significant result, two-sided, if the true effect is the one stated. Assumptions: independent people, one pizza each, '
+            'equal groups unless stated, no dropouts (recruit about 3 times as many to allow for people who do not finish).</p>'
+            '<table class="m">%s</table>'
+            '<h3>Worked examples</h3><p class="note">Computed by the functions above while this page was built, and checked against the hand calculation.</p>'
+            '<table class="m"><tr><td class="c"><b>case</b></td><td><b>input</b></td><td><b>calculation</b></td></tr>%s</table>'
+            '<h3>What a group size can detect</h3><p class="note">The smallest Cliff\'s δ with 80%% power at α = .05 (two groups of this size, one test): '
+            'δ = √(2 (z<sub>α/2</sub> + z<sub>β</sub>)² / (3 n)).</p><table class="m"><tr><td><b>people per group</b></td><td><b>smallest δ</b></td><td><b>size</b></td></tr>%s</table>'
+            % (rows, ''.join('<tr><td class="c">%s</td><td>%s</td><td>%s</td></tr>' % e for e in ex), detect))
+
+
 def version():
     here = os.path.dirname(os.path.abspath(__file__))
     try:
@@ -508,8 +587,8 @@ def build_page():
             '<p class="muted">Pizza coordinates: centre (0, 0), crust edge at radius 1 (= 15 cm), y up; 1 drawing unit = 1.5 mm. n = pieces on the pizza. '
             'Each row names the function in <code>analysis/analyse.py</code> that computes it. Built from %s on %s.</p>%s'
             '<h2 class="sec">Worked examples</h2><p class="note">Computed by the code above while this page was built, and checked against the hand calculation shown.</p>'
-            '<table class="m"><tr><td class="c"><b>measure</b></td><td><b>input</b></td><td><b>calculation</b></td></tr>%s</table>'
-            '</div></body></html>' % (A.REPORT_CSS, CSS, A.esc(version()), time.strftime('%Y-%m-%d %H:%M'), ''.join(secs), small_examples()))
+            '<table class="m"><tr><td class="c"><b>measure</b></td><td><b>input</b></td><td><b>calculation</b></td></tr>%s</table>%s'
+            '</div></body></html>' % (A.REPORT_CSS, CSS, A.esc(version()), time.strftime('%Y-%m-%d %H:%M'), ''.join(secs), small_examples(), sample_size_section()))
 
 
 def write(path):

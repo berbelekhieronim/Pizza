@@ -67,6 +67,10 @@ What a given group size can detect (80% power, α = .05, two groups):
 
 ## The formulas
 
+The full derivations, assumptions and worked examples (computed by the code and checked when the page is built) are
+on the researcher page under **Methods → Sample sizes: how they are worked out**. In Explore, hover a sample size (ⓘ)
+for its formula.
+
 - **Two groups (Mann–Whitney, Cliff's δ):** n per group = 2 (z<sub>α/2</sub> + z<sub>β</sub>)² / (3 δ²)
   (Noether 1987; `n_per_group` in `analyse.py`), z<sub>α/2</sub> = 1.96, z<sub>β</sub> = 0.84.
 - **Correlation:** n = ((z<sub>α/2</sub> + z<sub>β</sub>) / atanh ρ)² + 3 (`n_for_rho`).
@@ -82,10 +86,14 @@ The study's groups are self-described: autistic, ADHD, AuDHD (both), other neuro
 difference and a measure the task records well. **Pick 3–5 of them as preregistered primary outcomes**, and treat
 everything else in Explore as exploratory.
 
-These leads are on the **Explore** page, under **Planned hypotheses** (H1–H8). Each shows its verdict, the measures with
-their predicted direction, effect, p and q, whether the direction matches the prediction, and a bar for how close the
-smaller group is to the 24 people a large effect needs. They are corrected as one small family of tests, so a real
-difference can show there before it would survive the full screen.
+These leads are on the **Explore** page, under **Ideas to test** (ideas 1–8). They are ideas, not hypotheses: nothing
+is preregistered, and ideas 6 and 8 have no expected direction. Each idea shows its verdict, the measures with their
+expected direction, effect, p and q, whether the effect goes the expected way, and **how many tests it runs and how many
+people that takes**. Every extra measure or comparison adds to the correction: an idea of 4 measures in one comparison
+(4 tests) needs 34 per group for a large effect if preregistered alone (α = .05 / 4), one of 8 tests needs 38, and all
+of the ideas together (about 25 tests) need about 46 per group. A bar shows how close the smaller group is to the
+number for that idea. They are corrected as one small family, so a real difference can show there before it would
+survive the full screen.
 
 | lead | why expect it | measures | first test |
 |---|---|---|---|

@@ -5,12 +5,19 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
-**Explore: planned hypotheses.** The eight leads from `docs/sample-sizes.md` (fewer and more familiar toppings, foods
+**Explore: ideas to test.** The eight leads from `docs/sample-sizes.md` (fewer and more familiar toppings, foods
 kept apart, order and symmetry, sensory reasons and safe foods, quicker choices and changes of mind, AuDHD's own
-pattern, the effect of seeing the nutrition, own vs typical pizza) now open the Explore page. Each is tested with a
-predicted direction as one small family (false discovery rate over these tests only), with a verdict (supported /
-too few yet / not supported), a check that the direction matches, and how close the groups are to the size a large
-effect needs. Also in `explore.csv` (grouping = planned) and on the Methods page.
+pattern, the effect of seeing the nutrition, own vs typical pizza) open the Explore page as **ideas**, not hypotheses
+(nothing is preregistered; two have no expected direction). They are tested as one small family (false discovery rate
+over these tests only). Each shows a verdict (strong lead / too few yet / no sign yet), whether the effect goes the
+expected way, its number of tests (measures × comparisons) and the people per group a large effect needs with the
+correction for those tests (alone, and as part of all the ideas), with a bar for how close the groups are. Also in
+`explore.csv` (grouping = planned) and on the Methods page.
+- **Methods → Sample sizes: how they are worked out**: every formula behind the sample sizes (two groups via Noether
+  with Cliff's δ, correlations via Fisher's z, changes within a person via the sign test, the correction for several
+  tests, unequal groups, the smallest possible p, what "large" means), with its assumptions and worked examples that the
+  page build checks against the code, and a table of what each group size can detect. Explore shows the formula when you
+  hover a sample size (ⓘ).
 
 **Reports are built on request, to save compute**
 - On Cloudflare the reports are built when a researcher presses **Build reports** (the button turns solid when there

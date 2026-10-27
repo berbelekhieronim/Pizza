@@ -379,8 +379,11 @@ def main():
         check(len(rows) == 24, 'one row per participant')
         ex = open(os.path.join(out, 'explore.html'), encoding='utf-8').read()
         planned = [r for r in csv.DictReader(open(os.path.join(out, 'explore.csv'), encoding='utf-8')) if r['grouping'] == 'planned']
-        check(ex.count('class="hyp ') == 8 and 'Planned hypotheses' in ex and planned and all(r['q'] != '' for r in planned),
-              'Explore: the 8 planned hypotheses, tested as their own family (rows in explore.csv)')
+        check(ex.count('class="hyp ') == 8 and 'Ideas to test' in ex and ex.count('class="cost"') == 8 and planned and all(r['q'] != '' for r in planned),
+              'Explore: the 8 ideas to test, as their own family, each with its number of tests and the people it needs (rows in explore.csv)')
+        mh = open(os.path.join(out, 'methods.html'), encoding='utf-8').read()
+        check('id="sample-sizes"' in mh and '<b>38</b> per group' in mh and 'Noether' in mh and 'n_per_group' in ex.split('Ideas to test')[0] + mh,
+              'Methods: how the sample sizes are worked out, with worked examples checked against the code')
         # a build saved part-way but never finished (the participant stopped before "I'm done") is left out and listed
         src = sorted(glob.glob(os.path.join(tmp, 'sample', '*.json')))
         part = os.path.join(tmp, 'partial'); os.makedirs(part)
