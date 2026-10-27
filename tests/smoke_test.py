@@ -298,7 +298,23 @@ def researcher_access_checks(base, key, study, n_study, n_all, other_pid, label)
     return skey
 
 
+def cloudflare_only():
+    """python3 tests/smoke_test.py --only cloudflare: just the Cloudflare section (about a minute), run by the deploy
+    workflow before it deploys."""
+    tmp = tempfile.mkdtemp(prefix='pizza-smoke-cf-')
+    try:
+        check(run('examples/simulate.py', os.path.join(tmp, 'sample'), '5', '6', 'AB'), 'simulate participants')
+        sample = json.load(open(sorted(glob.glob(os.path.join(tmp, 'sample', '*.json')))[0], encoding='utf-8'))
+        cloudflare_checks(tmp, {k: v for k, v in sample.items() if k.startswith('pz')})
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    print('\n%s' % ('all checks passed' if not failures else '%d check(s) failed' % len(failures)))
+    sys.exit(1 if failures else 0)
+
+
 def main():
+    if sys.argv[1:3] == ['--only', 'cloudflare']:
+        return cloudflare_only()
     t_start = time.time()
     keep = os.environ.get('PIZZA_KEEP_OUTPUT')          # CI: keep the reports built from simulated data, as a run artifact
     tmp = tempfile.mkdtemp(prefix='pizza-smoke-')

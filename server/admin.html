@@ -34,6 +34,8 @@ h1{font-size:1.35rem;margin:4px 0 4px}h2{font-size:1.05rem;margin:0 0 10px}
 .kpis{display:flex;flex-wrap:wrap;gap:8px}
 .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:5px 12px;min-width:92px}
 .kpi b{display:block;font-size:1.1rem}.kpi span{color:var(--muted);font-size:.75rem}
+.kpi.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--panel))}.kpi.ok b{color:var(--ok)}
+.kpi.warn{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--panel))}.kpi.warn b{color:var(--warn)}
 .frame{position:relative}.frame .loading{position:absolute;top:24px;left:24px;right:24px;color:var(--muted);font-size:.9rem;pointer-events:none}
 .tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-top:8px}
 .tabs button{font:inherit;background:none;border:0;border-bottom:3px solid transparent;padding:8px 12px;color:var(--muted);cursor:pointer}
@@ -244,10 +246,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     var d = all ? S.all : s;
     $('title').textContent = all ? 'All studies together' : s.id;
     $('desc').textContent = all ? 'Every session, all studies.' : s.description;
-    $('kpis').innerHTML = [
-      [d.n, 'sessions started'], [d.done, 'finished'], [pct(d.done, d.n), 'completion'], [mins(d.median_seconds), 'median time (finished)'],
-      [when(d.last).slice(0, 10), 'last started']
-    ].map(function (k) { return '<div class="kpi"><b>' + esc(k[0]) + '</b><span>' + esc(k[1]) + '</span></div>'; }).join('');
+    kpiRefresh();
     buildBar();
     // links & data
     var studiesHere = all ? S.studies : [s];
@@ -336,7 +335,8 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     lastBuilt = built;
     clearTimeout(poll);
     // refresh only while a build is queued or running (every 5 s / 20 s), and not while this tab is hidden
-    if (S.build && (running || queued || (waiting && b.instant))) poll = setTimeout(refresh, running ? 5000 : 20000);
+    // (and once a minute while new data waits, so the tile turns green by itself when its build is done)
+    if (S.build && (running || queued || (waiting && b.instant) || (b.instant && r && !r.fresh))) poll = setTimeout(refresh, running ? 5000 : queued ? 20000 : 60000);
   }
   function refresh() {
     if (document.hidden) { poll = setTimeout(refresh, 20000); return; }
@@ -344,11 +344,27 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     fetch('/admin/api/state?' + new URLSearchParams(o), { headers: { Accept: 'application/json' } }).then(function (r) { return r.json(); })
       .then(function (s) { S = s; buildBar(); kpiRefresh(); }).catch(function () { poll = setTimeout(refresh, 15000); });
   }
+  function shortTime(t) {
+    if (!t) return '–';
+    var d = new Date(t), mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
+    return d.getDate() + ' ' + mon + ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  }
+  function analysisTile() {
+    // is everything so far in the reports? green when yes, amber while new data waits or is being analysed
+    var r = S.reports, b = S.build, st = b && b.status;
+    if (!b) return ['kpi', 'on open', 'reports are built when opened'];
+    if (st && (st.state === 'running' || st.state === 'queued' || st.state === 'waiting')) return ['kpi warn', 'Analysing…', 'new data is being analysed'];
+    if (r && r.fresh) return ['kpi ok', '✓ All analysed', 'every session so far is in the reports'];
+    if (r) return ['kpi warn', 'New data', 'not yet in the reports (from ' + shortTime(r.when) + ')'];
+    return ['kpi warn', 'Not analysed', 'no reports yet'];
+  }
   function kpiRefresh() {
     var d = S.study === 'all' ? S.all : current();
     if (!d) return;
+    var a = analysisTile();
     $('kpis').innerHTML = [[d.n, 'sessions started'], [d.done, 'finished'], [pct(d.done, d.n), 'completion'], [mins(d.median_seconds), 'median time (finished)'],
-      [when(d.last).slice(0, 10), 'last started']].map(function (k) { return '<div class="kpi"><b>' + esc(k[0]) + '</b><span>' + esc(k[1]) + '</span></div>'; }).join('');
+      [shortTime(d.last), 'last started']].map(function (k) { return '<div class="kpi"><b>' + esc(k[0]) + '</b><span>' + esc(k[1]) + '</span></div>'; }).join('')
+      + '<div class="' + a[0] + '" title="' + esc(a[2]) + '"><b>' + esc(a[1]) + '</b><span>' + esc(a[2]) + '</span></div>';
   }
   function reloadReports() {
     [].forEach.call(document.querySelectorAll('iframe.report'), function (fr) { fr.removeAttribute('src'); });

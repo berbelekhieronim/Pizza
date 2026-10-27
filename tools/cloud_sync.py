@@ -16,6 +16,7 @@ copies are deleted at the end (pass --keep DIR to keep them). Standard library o
 """
 import argparse
 import calendar
+import concurrent.futures
 import gzip
 import hashlib
 import io
@@ -218,10 +219,17 @@ def main():
         st = Store(db_path)
         new_state = {'code': version, 'scopes': dict(state.get('scopes') or {})}
         stamp = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-        for i, scope in enumerate(todo, 1):
-            site.status('running', step='Analysing %s (%d of %d)' % (scope, i, len(todo)))
-            t1 = time.time()
-            files, n = build_scope(st, db_path, scope, work)
+        # a study holding exactly the sessions of "all" (e.g. all data so far is in one study) gets a copy of all's
+        # reports instead of a second identical analysis; the others are analysed side by side
+        count = lambda sc: sigs[sc].split('|')[0]
+        same = {sc for sc in todo if sc != 'all' and count(sc) == count('all') and sigs[sc].split('|')[1] == sigs['all'].split('|')[1]}
+        if same and 'all' not in todo:
+            todo = ['all'] + todo
+        analyse = [sc for sc in todo if sc not in same]
+        site.status('running', 'Analysing %s side by side%s.' % (', '.join(analyse), ('; %s will reuse the analysis of all' % ', '.join(sorted(same))) if same else ''),
+                    step='Analysing %d of %d sets' % (len(analyse), len(todo)))
+
+        def store(scope, files, n, t1, note=''):
             files['reports/%s/.built' % scope] = json.dumps({'when': stamp, 'n': n, 'sig': sigs[scope]}).encode()
             if scope == 'all' and 'reports/all/methods.html' in files:
                 files['methods.html'] = files['reports/all/methods.html']
@@ -237,8 +245,24 @@ def main():
             for name, data in files.items():
                 site.put(name, data)
             new_state['scopes'][scope] = sigs[scope]
-            site.status('running', '%s: %d pizzas analysed, %d files stored (%.0f s).' % (scope, n, len(files), time.time() - t1),
-                        step='Analysed %s (%d of %d)' % (scope, i, len(todo)))
+            done_n[0] += 1
+            site.status('running', '%s: %d pizzas %s, %d files stored (%.0f s).' % (scope, n, note or 'analysed', len(files), time.time() - t1),
+                        step='Stored %d of %d sets' % (done_n[0], len(todo)))
+
+        done_n, built = [0], {}
+        t1 = time.time()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(4, os.cpu_count() or 2))) as pool:
+            jobs = {pool.submit(build_scope, st, db_path, sc, work): sc for sc in analyse}
+            for fut in concurrent.futures.as_completed(jobs):
+                sc = jobs[fut]
+                files, n = fut.result()
+                built[sc] = (files, n)
+                store(sc, files, n, t1)
+        for sc in sorted(same):                # the copies: all's reports under the study's name
+            files, n = built['all']
+            copy = {k.replace('reports/all/', 'reports/%s/' % sc).replace('exports/all/', 'exports/%s/' % sc): v
+                    for k, v in files.items() if k.startswith(('reports/all/', 'exports/all/')) and not k.endswith('/.built')}
+            store(sc, copy, n, t1, note='(same sessions as all: copied)')
         site.put('state.json', json.dumps(new_state).encode())
         site.status('done', 'Done in %.0f s.' % (time.time() - t0), clear_wanted=wanted or '', built_upto=sigs['all'].split('|', 1)[1])
     except SystemExit as e:

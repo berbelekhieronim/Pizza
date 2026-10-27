@@ -15,6 +15,13 @@ matched to the format below. Add an entry for every change that reaches particip
 - **Progress on the researcher page:** a spinner with the current step ("Analysing tests (3 of 9)"), elapsed time, a
   live log and a link to the GitHub run. Reports reload by themselves when the build is done. The page refreshes only
   while a build is queued or running, and not when its tab is hidden.
+- **Status tile in the top bar:** green "✓ All analysed" when every session so far is in the reports; amber while
+  new data waits or is being analysed. The last-started date is shortened (27 Oct 13:55).
+- **Faster iteration.**
+  - A push to `main` deploys at once, after a one-minute test of the Cloudflare part (`smoke_test.py --only
+    cloudflare`); the full checks run alongside.
+  - The reports job analyses studies side by side, and a study holding the same sessions as "all studies" reuses
+    that analysis instead of repeating it.
 - **Fixed:** the reports job could be refused partway through many studies, because the per-connection limit counted
   its uploads. The limit now applies to wrong keys only, and the job retries if refused.
 
