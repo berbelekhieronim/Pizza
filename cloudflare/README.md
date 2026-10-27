@@ -86,6 +86,13 @@ Fine-grained tokens*: this repository only, permission **Actions: Read and write
 repository variable `PIZZA_SITE_URL` (e.g. `https://pizza.example.org`), and deploy again. The bot check is updated
 for the new address.
 
+## Moving sessions between studies
+
+**Actions → move sessions → Run workflow** moves sessions and personal links from one study to another in the live
+database, e.g. *from* `all` *to* `tests` to label everything collected so far as test data. The reports are rebuilt
+afterwards. The target study must be in `server/study.json` (`tests` is: the team's own test runs, with the nutrition
+button on).
+
 ## Hard caps: the study never makes Cloudflare bill you
 
 Stay on the **free plans**: do not upgrade to Workers Paid. On the free plans, Workers and D1 cannot bill: at their

@@ -3,6 +3,11 @@
 What changed, newest first. The task stores its version with every pizza (`summary.v` in `pz_summary`), so data can be
 matched to the format below. Add an entry for every change that reaches participants or the analysis.
 
+## Unreleased
+
+- Study `tests` (the team's test runs; nutrition button on). *Actions → move sessions* moves sessions between
+  studies in the Cloudflare database (`deploy.py move`). Everything collected before was moved to `tests`.
+
 ## 0.13.0 (2026-10-27) – task: seeing the nutrition on request; participant-only view
 
 Task data changes, so pizzas now record `summary.v` 0.13.0. The task jumps from 0.10.1 to 0.13.0 because 0.11 and

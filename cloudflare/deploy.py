@@ -5,6 +5,7 @@
     python3 cloudflare/deploy.py deploy    # everything below, idempotent (run by .github/workflows/cloudflare.yml)
     python3 cloudflare/deploy.py build     # cloudflare/public only: the participant page and the task script
     python3 cloudflare/deploy.py url       # print the site's address
+    python3 cloudflare/deploy.py move all tests   # move sessions to another study (Actions -> move sessions)
 
 deploy needs only CLOUDFLARE_API_TOKEN and PIZZA_ADMIN_KEY (the owner's researcher password). It finds the account
 (or takes CLOUDFLARE_ACCOUNT_ID), registers a workers.dev subdomain if the account has none (PIZZA_SUBDOMAIN, default
@@ -160,6 +161,36 @@ def ensure_bucket(eu):
         print('  Created the R2 bucket %s.' % BUCKET)
 
 
+def move(src, dest):
+    """Moves sessions and personal links from one study to another in the live database (src 'all' = every study;
+    'main' = the main study). Used for test data. Prints counts only."""
+    import re
+    ok = lambda x: x in ('main', 'all') or re.match(r'^[a-z0-9][a-z0-9-]{0,39}$', x)
+    if not (ok(src) and ok(dest)) or dest == 'all' or src == dest:
+        sys.exit('Usage: deploy.py move <from study | main | all> <to study | main>')
+    with open(os.path.join(ROOT, 'server', 'study.json'), encoding='utf-8') as f:
+        known = set((json.load(f).get('studies') or {}))
+    if dest != 'main' and dest not in known:
+        sys.exit('Study %s is not in server/study.json -> "studies": add it first.' % dest)
+    to = '' if dest == 'main' else dest
+    where = '' if src == 'all' else " WHERE study = '%s'" % ('' if src == 'main' else src)
+    account_id()
+    cfg = json.load(open(os.path.join(HERE, 'wrangler.json'), encoding='utf-8'))
+    cfg.pop('$schema', None)
+    cfg['d1_databases'][0]['database_id'] = ensure_database(os.environ.get('PIZZA_EU', '1') != '0')
+    path = os.path.join(HERE, 'wrangler.deploy.json')
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(cfg, f, indent=2)
+    def q(sql):
+        out = wrangler('d1', 'execute', NAME, '--remote', '--json', '--command', sql, '--config', path).stdout
+        return json.loads(out[out.index('['):])
+    count = lambda: [q('SELECT COUNT(*) AS n FROM %s%s' % (t, where))[0]['results'][0]['n'] for t in ('sessions', 'invites')]
+    n = count()
+    q("UPDATE sessions SET study = '%s'%s; UPDATE invites SET study = '%s'%s;" % (to, where, to, where))
+    left = count() if src != 'all' else [0, 0]
+    print('Moved %d sessions and %d personal links from %s to %s%s.' % (n[0], n[1], src, dest, '' if left == [0, 0] else ' (%d sessions did not move)' % left[0]))
+
+
 def deploy():
     for k in ('CLOUDFLARE_API_TOKEN', 'PIZZA_ADMIN_KEY'):
         if not os.environ.get(k):
@@ -211,6 +242,8 @@ if __name__ == '__main__':
         print(build())
     elif cmd == 'deploy':
         deploy()
+    elif cmd == 'move' and len(sys.argv) == 4:
+        move(sys.argv[2], sys.argv[3])
     elif cmd == 'check':
         sys.exit(0 if check() else 1)
     elif cmd == 'url':
