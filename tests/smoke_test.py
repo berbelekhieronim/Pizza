@@ -712,6 +712,18 @@ def main():
             out_ = subprocess.run(['node', '-e', js], capture_output=True, text=True)
             check(len(trows) >= 120 and all(r[0] and r[2] for r in trows) and out_.returncode == 0 and json.loads(out_.stdout) == ['S2', 'F', 'Salami', 'K', True, True, True],
                   'tools/texts.py exports every text of Pizza Pilot 11.2026 (%d); a study\'s own wording replaces the built-in texts, the defaults stay' % len(trows))
+            # every language complete (no text missing or left in English, same placeholders and answers) and every study's own texts valid
+            r = subprocess.run([PY, os.path.join(ROOT, 'tools', 'texts.py'), 'check'], capture_output=True, text=True, timeout=300)
+            check(r.returncode == 0 and 'all well' in r.stdout, 'texts: every language complete and every study\'s own texts valid (tools/texts.py check)' + ('' if r.returncode == 0 else ' - ' + r.stdout[-600:]))
+            bad = json.load(open(os.path.join(ROOT, 'server', 'study.json'), encoding='utf-8'))
+            bad['studies']['pilot-2026-11']['texts'] = {'task.nope': 'x', 'task.promptBuild': ' ', 'task.nutri.perSlice': 'no number', 'names.pep': 'Salami'}
+            badp = os.path.join(tmp, 'bad-study.json')
+            json.dump(bad, open(badp, 'w', encoding='utf-8'), ensure_ascii=False)
+            r = subprocess.run([PY, os.path.join(ROOT, 'tools', 'texts.py'), 'check'], capture_output=True, text=True, timeout=300, env=dict(os.environ, PIZZA_STUDY_JSON=badp))
+            d = subprocess.run([PY, os.path.join(ROOT, 'tools', 'texts.py'), 'diff', 'pilot-2026-11'], capture_output=True, text=True, timeout=300, env=dict(os.environ, PIZZA_STUDY_JSON=badp))
+            check(r.returncode == 1 and 'task.nope: unknown key' in r.stdout and 'task.promptBuild: empty' in r.stdout and 'perSlice: must keep {x}' in r.stdout
+                  and 'names.pep' not in r.stdout and 'names.pep' in d.stdout and 'Salami' in d.stdout,
+                  'texts: a study\'s unknown, empty or placeholder-losing texts are caught; diff lists what a study changed')
             g1 = FB.A.piece_grams({'ing': 'tom', 's': 1.0})
             check(abs(FB.A.piece_grams({'ing': 'tom', 's': 2.0}) - 4 * g1) < 1e-9 and abs(FB.A.piece_grams({'ing': 'tom', 's': 0.5}) - g1 / 4) < 1e-9,
                   'a piece twice as big weighs 4x (grams follow area)')

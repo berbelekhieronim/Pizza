@@ -237,7 +237,12 @@ by collaborators) and loaded back, without touching the code:
 ```
 python3 tools/texts.py export pilot-2026-11 teksty.xlsx    # or .csv; one row per text: key, where it is shown, current text, new text
 python3 tools/texts.py import pilot-2026-11 teksty.xlsx    # only rows with a new text; writes server/study.json
+python3 tools/texts.py check                               # every language complete, every study's own texts valid (the smoke test runs it)
+python3 tools/texts.py diff pilot-2026-11 [other-study]    # what a study changed, from the built-in texts or another study
 ```
+
+Reports, downloads and the researcher page stay in English (column names, answer codes such as `formal` / `self`,
+`woman`, `vegan`); only the participant's side is translated.
 
 Import puts the consent and end-page texts into the study's own settings and everything else into its `"texts"`
 (flat keys such as `task.steps.2` or `names.pep`), which the participant page and the task use instead of their built-in

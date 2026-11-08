@@ -5,6 +5,13 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Texts checked in every language** (`tools/texts.py check`, run by the smoke test): every text a participant can see
+exists in each language with the same placeholders and answer codes, and is not left in English (a short list of
+names that read the same in both is allowed); every study's own `"texts"` use existing keys, are not empty and keep
+their placeholders. `tools/texts.py diff <study> [other]` lists the texts a study changed (from the built-in wording or
+from another study). The metryczka now has English texts too. Reports and downloads stay in English (column names,
+codes, labels); only what participants see is translated.
+
 **The wording of a study, as a spreadsheet** (`tools/texts.py`): `export` writes every text a participant of a study
 sees (127 for Pizza Pilot 11.2026: consent, practice, building, nutrition table, metryczka, end page, messages, topping
 names), with where it is shown and an empty column for the new text; `import` loads the edited sheet back into

@@ -3,6 +3,8 @@
 
     python3 tools/texts.py export pilot-2026-11 teksty.xlsx      # or .csv
     python3 tools/texts.py import pilot-2026-11 teksty.xlsx      # writes server/study.json
+    python3 tools/texts.py check                                 # every language and every study's texts (the smoke test runs it)
+    python3 tools/texts.py diff pilot-2026-11 [other-study]      # texts that differ from another study (or the built-in ones)
 
 The sheet has one row per text: key, where it is shown, the current text, and an empty column for the new text. Fill in
 only the texts to change. Import puts the consent and end-page texts into the study's own settings (intro, consent,
@@ -21,7 +23,7 @@ import sys
 from collections import OrderedDict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-STUDY_JSON = os.path.join(ROOT, 'server', 'study.json')
+STUDY_JSON = os.environ.get('PIZZA_STUDY_JSON') or os.path.join(ROOT, 'server', 'study.json')   # another file for tests
 sys.path.insert(0, os.path.join(ROOT, 'server'))
 HEAD = ['klucz', 'gdzie się wyświetla', 'obecny tekst', 'nowy tekst (wpisz tylko, jeśli zmieniasz)']
 
@@ -69,9 +71,11 @@ def load_all():
     return json.load(open(STUDY_JSON, encoding='utf-8'), object_pairs_hook=OrderedDict)
 
 
-def study_settings(sid):
-    import server                                  # load_study: the study's settings over the main ones
-    return server.load_study(sid)
+def study_settings(sid, data=None):
+    """A study's settings over the main ones (as server.load_study, from STUDY_JSON)."""
+    data = data or load_all()
+    own = (data.get('studies') or {}).get(sid, {}) if sid else {}
+    return OrderedDict(list(data.items()) + list(own.items()))
 
 
 def current_texts(sid, st):
@@ -82,10 +86,12 @@ def current_texts(sid, st):
     js = ("global.window = global; global.document = undefined; require(%s);"
           "var WORDS = %s; var own = %s, lang = %s;"
           "var page = Object.assign({}, WORDS[lang] || WORDS.en); for (var k in own) if (k.indexOf('page.') === 0 && own[k]) page[k.slice(5)] = own[k];"
-          "console.log(JSON.stringify({ page: page, task: PizzaBuilder.texts(lang, own), names: PizzaBuilder.names(lang, own) }));"
+          "console.log(JSON.stringify({ page: page, task: PizzaBuilder.texts(lang, own), names: PizzaBuilder.names(lang, own),"
+          " languages: PizzaBuilder.languages, pageLanguages: Object.keys(WORDS), pageKeys: Object.keys(WORDS[lang] || {}) }));"
           % (json.dumps(os.path.join(ROOT, 'pizza-builder.js')), words, json.dumps(own), json.dumps(lang)))
     out = subprocess.run(['node', '-e', js], capture_output=True, text=True, check=True)
     d = json.loads(out.stdout)
+    current_texts.info = d
 
     def task(path):
         obj = d['task']
@@ -94,18 +100,25 @@ def current_texts(sid, st):
                 if obj and isinstance(obj[0], list):
                     obj = next((x[1] for x in obj if x[0] == part), None)
                 else:
-                    obj = obj[int(part) - 1]
+                    obj = obj[int(part) - 1] if 0 < int(part) <= len(obj) else None
             else:
                 obj = obj.get(part) if isinstance(obj, dict) else None
             if obj is None:
                 return None
         return obj
     rows = []
-    for i, p in enumerate(st.get('intro') or [], 1):
-        rows.append(('study.intro.%d' % i, 'Zgoda: akapit %d' % i, p))
-    for k, where in STUDY_KEYS:
-        rows.append((k, where, st.get(k[6:]) or ''))
-    for k, where in PAGE_KEYS:
+    if not getattr(st, 'no_study_rows', False):
+        for i, p in enumerate(st.get('intro') or [], 1):
+            rows.append(('study.intro.%d' % i, 'Zgoda: akapit %d' % i, p))
+        fallback = {'study.completion_title': d['page'].get('thanks'), 'study.decline_message': d['page'].get('declined'), 'study.consent': d['page'].get('agree')}
+        for k, where in STUDY_KEYS:
+            if k == 'study.decline_message' and not st.get('consent_choice'):
+                continue                           # only with consent as YES / NO
+            rows.append((k, where, st.get(k[6:]) or fallback.get(k) or ''))
+    choice = st.get('consent_choice') or getattr(st, 'no_study_rows', False)
+    for k, where in PAGE_KEYS + ([] if choice else [('page.next', 'Zgoda: przycisk Dalej (zgoda jako pole do zaznaczenia)')]):
+        if not choice and k in ('page.consentTitle', 'page.yes', 'page.no', 'page.declinedTitle'):
+            continue                               # these belong to consent as YES / NO
         rows.append((k, where, d['page'].get(k[5:], '')))
     cheeses, sauces = st.get('cheeses') or ['none', 'light', 'normal', 'extra'], st.get('sauces') or ['none', 'tomato', 'white', 'bbq']
     for k, where in PRACTICE + BUILD + NUTRI + (MET if st.get('followup') == 'metryczka' else []) + DESKTOP:
@@ -201,7 +214,92 @@ def do_import(sid, path):
     return changed, problems
 
 
+class Built(OrderedDict):
+    """Settings that show every text of a language: all sauces and cheeses, the metryczka, no study's own wording."""
+    no_study_rows = True
+
+
+ALL_SAUCES, ALL_CHEESES = ['none', 'tomato', 'white', 'bbq'], ['none', 'light', 'normal', 'extra', 'vegan']
+# texts that may read the same in English and another language (brand-like names, codes): not "untranslated"
+SAME_OK = {'task.sauceNames.bbq', 'task.cheeseNames.light', 'names.pep', 'names.kim', 'names.nor', 'task.metAgePh'}
+
+
+def built_in(lang):
+    """{key: text} of the built-in texts of a language, with the language lists the page and the task know."""
+    rows = current_texts('', Built(lang=lang, followup='metryczka', sauces=ALL_SAUCES, cheeses=ALL_CHEESES))
+    return {k: t for k, _w, t in rows}, current_texts.info
+
+
+def check():
+    """Problems with the texts: a language missing or not translating a text, placeholders that do not match, lists with
+    other answers; a study's own texts with unknown keys, empty texts or lost placeholders. [] = all well."""
+    problems = []
+    en, info = built_in('en')
+    langs = info['languages']
+    if sorted(langs) != sorted(info['pageLanguages']):
+        problems.append('languages: the task has %s, the participant page %s' % (', '.join(sorted(langs)), ', '.join(sorted(info['pageLanguages']))))
+    for lang in langs:
+        if lang == 'en':
+            continue
+        tx, li = built_in(lang)
+        if sorted(li['pageKeys']) != sorted(built_in('en')[1]['pageKeys']):
+            problems.append('%s: the participant page has other texts than in English (participate.html WORDS)' % lang)
+        for k, e in en.items():
+            t = tx.get(k)
+            if not t:
+                problems.append('%s %s: missing' % (lang, k))
+            elif placeholders(t) != placeholders(e):
+                problems.append('%s %s: placeholders %s, English has %s' % (lang, k, placeholders(t), placeholders(e)))
+            elif t == e and k not in SAME_OK:
+                problems.append('%s %s: the same as in English (not translated?): %r' % (lang, k, t))
+    data = load_all()
+    for sid in [''] + list((data.get('studies') or {}).keys()):
+        st = study_settings(sid, data)
+        lang = st.get('lang') or 'en'
+        name = sid or 'main'
+        if lang not in langs:
+            problems.append('%s: language %r has no texts (languages: %s)' % (name, lang, ', '.join(langs)))
+            continue
+        base = en if lang == 'en' else built_in(lang)[0]
+        for k, v in (st.get('texts') or {}).items():
+            if k not in base:
+                problems.append('%s texts %s: unknown key' % (name, k))
+            elif not isinstance(v, str) or not v.strip():
+                problems.append('%s texts %s: empty' % (name, k))
+            elif placeholders(v) != placeholders(base[k]):
+                problems.append('%s texts %s: must keep %s' % (name, k, ', '.join(placeholders(base[k])) or 'no placeholders'))
+        for k, _w, t in current_texts(sid, st):
+            if not t:
+                problems.append('%s %s: shows an empty text' % (name, k))
+    return problems
+
+
+def diff(sid, other=None):
+    """[(key, text in sid, text in other)] for every text that differs; other = None: the built-in texts of sid's language."""
+    a = {k: t for k, _w, t in current_texts(sid, study_settings(sid))}
+    if other:
+        b = {k: t for k, _w, t in current_texts(other, study_settings(other))}
+    else:
+        st = study_settings(sid)
+        b = built_in(st.get('lang') or 'en')[0]
+        b.update({k: t for k, t in a.items() if k.startswith('study.')})    # a study's own settings are its own
+    keys = list(a) + ([k for k in b if k not in a] if other else [])      # against the built-in texts: only what sid shows
+    return [(k, a.get(k, '(not shown)'), b.get(k, '(not shown)')) for k in keys if a.get(k) != b.get(k)]
+
+
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == 'check':
+        problems = check()
+        for p in problems:
+            print('  ' + p)
+        print('texts: %s' % ('all well' if not problems else '%d problem(s)' % len(problems)))
+        sys.exit(1 if problems else 0)
+    if len(sys.argv) in (3, 4) and sys.argv[1] == 'diff':
+        rows = diff(sys.argv[2], sys.argv[3] if len(sys.argv) == 4 else None)
+        for k, a, b in rows:
+            print('%s\n   %s: %s\n   %s: %s' % (k, sys.argv[2], a, sys.argv[3] if len(sys.argv) == 4 else 'built-in', b))
+        print('%d text(s) differ' % len(rows))
+        return
     if len(sys.argv) != 4 or sys.argv[1] not in ('export', 'import'):
         sys.exit(__doc__)
     cmd, sid, path = sys.argv[1:]

@@ -580,7 +580,17 @@
       age: ['Your age', false, [['18-24', '18-24'], ['25-34', '25-34'], ['35-44', '35-44'], ['45-54', '45-54'], ['55-64', '55-64'], ['65+', '65 or over'], ['pnts', 'Prefer not to say']]],
       gender: ['Your gender', false, [['woman', 'Woman'], ['man', 'Man'], ['nonbinary', 'Non-binary'], ['other', 'Another gender'], ['pnts', 'Prefer not to say']]]
     },
-    aboutScales: [['picky', 'I am a picky eater.'], ['sensoryfood', 'Food textures, smells or looks often bother me.']]
+    aboutScales: [['picky', 'I am a picky eater.'], ['sensoryfood', 'Food textures, smells or looks often bother me.']],
+    // metryczka (Followup style 'metryczka'): the short demographic card
+    metTitle: 'About you', metSub: 'Finally, a few questions about you.',
+    metAge: 'How old are you?', metAgePh: 'e.g. 27', metAgeBad: 'Please enter your age in years (a number from 16 to 99).',
+    metDx: [['no', 'No'], ['formal', 'Diagnosed by a specialist'], ['self', 'Self-diagnosed']],
+    metAutism: 'Are you on the autism spectrum?', metAdhd: 'Do you have ADHD?',
+    metGender: 'What is your gender?', metGenders: [['man', 'Man'], ['woman', 'Woman'], ['nonbinary', 'Non-binary'], ['pnts', 'Prefer not to say']],
+    metTrans: 'Are you transgender?', metTransOpts: [['yes', 'Yes'], ['no', 'No'], ['pnts', 'Prefer not to say']],
+    metDiet: 'Do you follow a special diet? Choose any that apply, or none.',
+    metDiets: [['vegetarian', 'Vegetarian diet'], ['vegan', 'Vegan diet'], ['allergy', 'Food allergies'], ['other', 'Other']],
+    metDietPh: 'Which? (optional)'
   };
 
   // Other languages: the texts that differ from TEXT (anything missing falls back to English) and the topping names.
@@ -1756,6 +1766,7 @@
     text: TEXT,
     // the texts in a language (English where it has none), with a study's own wording; and the topping names
     texts: function (lang, flat) { return texts({ lang: lang, texts: flat }); },
+    languages: ['en'].concat(Object.keys(LANG)),          // languages the task has texts for
     names: function (lang, flat) { var o = { lang: lang, texts: flat }; texts(o); var out = {}; for (var k in ING) out[k] = iname(o, k); return out; },
     picture: picture,
     mount: function (root, opts) {
