@@ -589,6 +589,15 @@ def main():
             # each study's researcher link sees, analyses and exports that study only
             skey = researcher_access_checks(base, 'smoke-key', 'pilot-asd', 3, 5, 'SMOKE001', '')
             inclusion_checks(base, 'smoke-key', skey, 'pilot-asd', 'SMOKE001', '')
+            # the R download carries analysed sessions only: an excluded one is in neither the tables nor raw/
+            gone = invites[1]['invite']
+            post_form(base + '/admin/api/inclusion?key=smoke-key', {'pid': gone, 'value': 'exclude'})
+            zf = zipfile.ZipFile(io.BytesIO(http('GET', base + '/admin/r.zip?key=smoke-key&study=pilot-asd')[1]))
+            pc = {r['pid'] for r in csv.DictReader(io.StringIO(zf.read('pizza-data/participants.csv').decode('utf-8')))}
+            raw = {n.split('/')[-1][:-5] for n in zf.namelist() if n.startswith('pizza-data/raw/')}
+            check(gone not in pc and gone not in raw and raw == pc and gone in zf.read('pizza-data/excluded.csv').decode('utf-8'),
+                  'the R download leaves an excluded session out of raw/ too (only its id and reason in excluded.csv)')
+            post_form(base + '/admin/api/inclusion?key=smoke-key', {'pid': gone, 'value': 'auto'})
             code, z = http('GET', base + '/admin/r.zip?key=' + skey)
             pc = list(csv.DictReader(io.StringIO(zipfile.ZipFile(io.BytesIO(z)).read('pizza-data/participants.csv').decode('utf-8'))))
             check(len(pc) == 3 and {r['study'] for r in pc} == {'pilot-asd'}, 'a study\'s researcher link downloads that study only')

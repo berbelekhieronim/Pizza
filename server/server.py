@@ -214,6 +214,16 @@ class Study:
 FILTER_KEYS = ('study', 'grp', 'source', 'stage', 'neuro', 'cond', 'q', 'since', 'until')
 
 
+def analysed_pids(folder):
+    """The participants the analysis kept (participants.csv): the R download's raw/ holds only these, never an
+    excluded, declined or unfinished session."""
+    try:
+        with open(os.path.join(folder, 'participants.csv'), encoding='utf-8') as fh:
+            return {row['pid'] for row in csv.DictReader(fh)}
+    except (OSError, KeyError):
+        return set()
+
+
 def filter_slug(f):
     """A short, stable name for a filter (for the reports folder): '' for none, the study for a study only."""
     used = {k: v for k, v in f.items() if v not in (None, '') or (k == 'study' and v == '')}
@@ -252,7 +262,8 @@ Tables (UTF-8 CSV, missing values = NA, yes/no = 1/0, times in ms, positions in 
     data_check.json       sessions, analysed and left-out pizzas, and whether they add up (also on the Overview page)
     variables.csv         every column of every table: type, factor levels, unit, description
     methods.html          how every number is counted (open in a browser)
-    raw/                  each participant's session exactly as the study saved it (JSON)
+    raw/                  each analysed participant's session exactly as the study saved it (JSON);
+                          excluded, declined and unfinished sessions are left out
 """
 NEURO_NAMES = {'autistic': 'Autistic', 'adhd': 'ADHD', 'dys': 'Dyslexic etc.', 'otherND': 'Other ND', 'none': 'None', 'pnts': 'Prefer not to say'}
 
@@ -439,8 +450,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 for name in R_FILES:
                     if os.path.exists(os.path.join(folder, name)):
                         z.write(os.path.join(folder, name), 'pizza-data/' + name)
+                keep = analysed_pids(folder)
                 for rec in st.records(f):
-                    z.writestr('pizza-data/raw/%s.json' % rec['pid'], json.dumps(rec))
+                    if rec['pid'] in keep:
+                        z.writestr('pizza-data/raw/%s.json' % rec['pid'], json.dumps(rec))
             return self.download(buf.getvalue(), 'application/zip', 'pizza-data-R%s.zip' % self.tag(f))
         if route == '/admin/data.zip':
             buf = io.BytesIO()

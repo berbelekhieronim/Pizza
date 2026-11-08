@@ -185,6 +185,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-08 | Claude Code (cloud) | R download: raw/ now holds only the analysed sessions (excluded, declined and unfinished ones left out), both servers; smoke check |
 |---|---|---|
 | 2026-11-08 | Claude Code (cloud) | tools/texts.py: export / import every participant-facing text of a study (xlsx/csv); study "texts" overrides on the page and in the task |
 | 2026-11-08 | Claude Code (cloud) | 0.14.0 (task): Pizza Pilot 11.2026 (pilot-2026-11): Polish flow, consent TAK/NIE (declined stage), vegan cheese, metryczka, baked pizza at the end; per-study flow settings on both servers |

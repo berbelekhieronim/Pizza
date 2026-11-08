@@ -5,6 +5,11 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**The R download holds analysed sessions only.** Its `raw/` folder used to hold every session of the study
+(excluded, declined and unfinished ones too); it now holds the same participants as `participants.csv`, on both
+servers. `excluded.csv` still lists the left-out ids with the reason. The session list, the raw sessions zip and the
+database copy remain full archives.
+
 **Texts checked in every language** (`tools/texts.py check`, run by the smoke test): every text a participant can see
 exists in each language with the same placeholders and answer codes, and is not left in English (a short list of
 names that read the same in both is allowed); every study's own `"texts"` use existing keys, are not empty and keep

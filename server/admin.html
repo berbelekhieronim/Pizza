@@ -270,9 +270,9 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     }).join('');
     ['r', 'raw', 'db'].forEach(function (k) { $('dl-' + k).href = '/admin/' + { r: 'r.zip', raw: 'data.zip', db: 'database.sqlite' }[k] + '?' + q(); });
     $('dl-sessions').href = '/admin/sessions.csv?' + q();
-    $('dlnote').innerHTML = esc('These cover ' + (all ? 'all studies' : 'study ' + s.id) + '. The R download holds every table, variables.csv, load_pizza.R and the raw sessions.')
+    $('dlnote').innerHTML = esc('These cover ' + (all ? 'all studies' : 'study ' + s.id) + '. The R download holds every table, variables.csv, load_pizza.R and the raw sessions of the analysed pizzas.')
       + '<br><b>Included / excluded:</b> the R download\'s tables hold only the analysed pizzas (the automatic rule plus your choices on the Sessions tab); '
-      + 'the left-out ones are listed in <code>excluded.csv</code> with the reason, and <code>raw/</code> still has every session. The session list, the raw '
+      + 'the left-out ones are listed in <code>excluded.csv</code> (id and reason only) and are not in <code>raw/</code>. The session list, the raw '
       + 'sessions and the database keep every session; the session list has columns <code>analysis</code> (included / left_out / no_pizza) and '
       + '<code>inclusion</code> (auto / include / exclude). A change on the Sessions tab reaches the R download and the reports after the next rebuild.';
     $('storage').textContent = S.storage ? S.storage : '';

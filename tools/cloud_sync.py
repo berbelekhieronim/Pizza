@@ -36,7 +36,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'server'))
 sys.path.insert(1, os.path.join(ROOT, 'analysis'))                # synthetic.py
 from store import Store  # noqa: E402
-from server import R_FILES, R_README  # noqa: E402
+from server import R_FILES, R_README, analysed_pids  # noqa: E402
 
 UA = {'User-Agent': 'pizza-study-sync/1'}
 REPORT_FILES = ('.html', '.csv')
@@ -147,7 +147,6 @@ def build_scope(st, db_path, scope, work):
     else:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600, env=env)
     files, n, check = {}, 0, {}
-    raw = [('raw/%s.json' % rec['pid'], json.dumps(rec)) for rec in records]
     if r.returncode == 0 and os.path.exists(os.path.join(out, 'participants.csv')):
         with open(os.path.join(out, 'participants.csv'), encoding='utf-8') as fh:
             n = max(0, sum(1 for _ in fh) - 1)
@@ -166,7 +165,8 @@ def build_scope(st, db_path, scope, work):
             if os.path.exists(os.path.join(out, name)):
                 with open(os.path.join(out, name), 'rb') as fh:
                     r_files.append(('pizza-data/' + name, fh.read()))
-        files['exports/%s/pizza-data-R.zip' % scope] = zip_bytes(r_files + [('pizza-data/' + name, data) for name, data in raw])
+        keep = analysed_pids(out)       # raw/ holds the analysed sessions only, like the tables
+        files['exports/%s/pizza-data-R.zip' % scope] = zip_bytes(r_files + [('pizza-data/raw/%s.json' % rec['pid'], json.dumps(rec)) for rec in records if rec['pid'] in keep])
     elif 'No pizza fields found' not in (r.stderr + r.stdout):
         print('  %s: the analysis failed (exit %d); its last lines:\n%s' % (scope, r.returncode, '\n'.join((r.stderr or r.stdout).strip().split('\n')[-3:])))
     files['exports/%s/sessions.zip' % scope] = zip_bytes([('participants/%s.json' % rec['pid'], json.dumps(rec)) for rec in records])
