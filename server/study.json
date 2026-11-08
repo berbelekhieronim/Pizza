@@ -49,6 +49,36 @@
       "description": "Tests by the research team: not participant data",
       "nutrition_reveal": true,
       "synthetic": 100
+    },
+    "pilot-2026-11": {
+      "title": "Pizza Pilot 11.2026",
+      "description": "Pilotaż, listopad 2026 (po polsku): świadoma zgoda TAK/NIE, instrukcja, budowanie pizzy z tabelą wartości odżywczych, metryczka, upieczona pizza na koniec",
+      "lang": "pl",
+      "intro": [
+        "Zapraszamy do udziału w badaniu pilotażowym prowadzonym na Uniwersytecie SWPS. Badanie polega na wykonywaniu zadania, w którym należy umieszczać składniki na pizzy zgodnie z otrzymanymi instrukcjami. Celem pilotażu jest sprawdzenie działania zadania i przygotowanie do dalszych badań.",
+        "Udział w badaniu jest całkowicie dobrowolny. Możesz odmówić udziału lub przerwać badanie w dowolnym momencie, bez podawania przyczyny i bez żadnych negatywnych konsekwencji.",
+        "Dane zebrane podczas badania będą traktowane jako poufne i wykorzystywane do celów naukowych. Wyniki będą przedstawiane w sposób, który nie pozwala na rozpoznanie poszczególnych osób.",
+        "Możesz poprosić o usunięcie swojej pizzy z bazy danych, kontaktując się pod adresem atokarek1@swps.edu.pl. Jeśli masz pytania dotyczące badania lub swojego udziału, możesz pisać na ten sam adres."
+      ],
+      "consent": "Wyrażam zgodę na udział w badaniu pilotażowym:",
+      "consent_choice": true,
+      "decline_message": "Dziękujemy. Bez zgody nie możemy kontynuować badania, więc kończy się ono w tym miejscu. Możesz zamknąć tę stronę.",
+      "nutrition_panel": true,
+      "nutrition_reveal": false,
+      "cheeses": [
+        "none",
+        "light",
+        "extra",
+        "vegan"
+      ],
+      "cheese": "light",
+      "typical_build": false,
+      "followup": "metryczka",
+      "completion_title": "Dziękujemy za pomoc!",
+      "completion_message": "Oto Twoja upieczona pizza:",
+      "bake_picture": true,
+      "show_code": false,
+      "groups": []
     }
   }
 }

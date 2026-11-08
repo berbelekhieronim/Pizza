@@ -23,6 +23,11 @@
   .status:empty { display:none; }   /* no empty line under the task: the page fits the window */
   .notice { background:#f4efe9; border-radius:10px; padding:8px 12px; margin:0 0 10px; font-size:.95rem; }
   .notice[hidden] { display:none; }
+  .choice { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin:18px 0 4px; max-width:62ch; }
+  .choice p { margin:0; font-weight:600; flex-basis:100%; }
+  .choice button { min-width:7em; }
+  button.alt { background:#fff; color:var(--ink); border:1px solid var(--line); }
+  .baked { display:flex; justify-content:center; margin:14px 0 6px; }
 </style>
 </head>
 <body>
@@ -30,7 +35,7 @@
   <div class="sheet">
     <p class="notice" id="notice" hidden></p>
     <div id="stage"></div>
-    <div class="next" id="next" hidden><button class="go" type="button">Next &rarr;</button></div>
+    <div class="next" id="next" hidden><button class="go" type="button"></button></div>
     <p class="status" id="status" aria-live="polite"></p>
   </div>
 </div>
@@ -39,7 +44,25 @@
 (function () {
   var params = new URLSearchParams(location.search);
   var S = { pid: null, cond: '', fields: {}, stage: 'intro', study: {} };
-  var steps = ['intro', 'practice', 'build', 'followup', 'done'];
+  // the page's own words, in the study's language (study.json "lang"); the task brings its own (pizza-builder.js LANG)
+  var WORDS = {
+    en: { next: 'Next \u2192', saveFail: 'Could not save just now; it will try again.', offline: 'Connection lost; your answers are kept and will be sent when it is back.',
+      welcome: 'Welcome back. You can carry on from the part you were on.', moment: 'One moment', botCheck: 'Checking that you are a person, not a bot (this usually takes a second).',
+      botFailTitle: 'This link does not work just now', botFail: 'The check that you are a person did not pass. Please reload the page.',
+      badLink: 'This link does not work', cantStart: 'The study could not start. Please check your connection and reload the page.',
+      thanks: 'Thank you', back: 'Taking you back in a moment\u2026', agree: 'I agree to take part.', consentTitle: 'Informed consent',
+      yes: 'YES', no: 'NO', declinedTitle: 'Thank you', declined: 'You chose not to take part, so the study ends here. You can close this page.',
+      typical: 'Now make the pizza you think a typical person taking part in this study would choose. Drag toppings onto the pizza; drag a topping off to remove it.' },
+    pl: { next: 'Dalej \u2192', saveFail: 'Nie udało się teraz zapisać; spróbujemy ponownie.', offline: 'Utracono połączenie; Twoje odpowiedzi są zachowane i zostaną wysłane, gdy wróci.',
+      welcome: 'Witaj ponownie. Możesz kontynuować od miejsca, w którym przerwano.', moment: 'Chwileczkę', botCheck: 'Sprawdzamy, czy jesteś osobą, a nie botem (zwykle trwa to sekundę).',
+      botFailTitle: 'Ten link chwilowo nie działa', botFail: 'Sprawdzenie nie powiodło się. Odśwież stronę.',
+      badLink: 'Ten link nie działa', cantStart: 'Nie udało się rozpocząć badania. Sprawdź połączenie z internetem i odśwież stronę.',
+      thanks: 'Dziękujemy!', back: 'Za chwilę nastąpi przekierowanie\u2026', agree: 'Wyrażam zgodę na udział w badaniu.', consentTitle: 'Świadoma zgoda',
+      yes: 'TAK', no: 'NIE', declinedTitle: 'Dziękujemy', declined: 'Nie wyrażono zgody na udział, więc badanie kończy się w tym miejscu. Możesz zamknąć tę stronę.',
+      typical: 'Teraz zrób pizzę, którą Twoim zdaniem wybrałaby typowa osoba biorąca udział w tym badaniu. Przeciągaj składniki na pizzę; przeciągnij składnik poza pizzę, aby go usunąć.' }
+  };
+  var L = WORDS.en;
+  function words(lang) { L = WORDS[lang] || WORDS.en; document.documentElement.lang = WORDS[lang] ? lang : 'en'; next.querySelector('button').textContent = L.next; }
   var stage = document.getElementById('stage'), next = document.getElementById('next'), status = document.getElementById('status'), notice = document.getElementById('notice');
   var widget = null, timer = null, pending = false;
 
@@ -54,8 +77,8 @@
     var body = JSON.stringify({ pid: S.pid, stage: S.stage, fields: S.fields });
     pending = true;
     return fetch('api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: body.length < 60000 })
-      .then(function (r) { pending = false; status.textContent = r.ok ? '' : 'Could not save just now; it will try again.'; if (!r.ok) send(); })
-      .catch(function () { pending = false; status.textContent = 'Connection lost; your answers are kept and will be sent when it is back.'; send(); });
+      .then(function (r) { pending = false; status.textContent = r.ok ? '' : L.saveFail; if (!r.ok) send(); })
+      .catch(function () { pending = false; status.textContent = L.offline; send(); });
   }
   window.addEventListener('pagehide', function () {
     if (S.pid && navigator.sendBeacon) navigator.sendBeacon('api/save', new Blob([JSON.stringify({ pid: S.pid, stage: S.stage, fields: S.fields })], { type: 'application/json' }));
@@ -78,16 +101,22 @@
     send(true);
     if (name === 'intro') return intro();
     if (name === 'done') return done();
+    if (name === 'declined') return declined();
     if (S.resumed) S.resumed = false; else notice.hidden = true;   // the "welcome back" note shows on the part they came back to only
     var box = document.createElement('div');
     stage.appendChild(box);
     var opts = { mode: name === 'typical' ? 'build' : name, onSave: onSave, condition: S.cond, onFinish: function () { send(true); go(o[i + 1]); } };
+    if (S.study.lang) opts.lang = S.study.lang;
     if (name === 'typical') {
       opts.prefix = 'pzt_';
-      opts.prompt = 'Now make the pizza you think a typical person taking part in this study would choose. Drag toppings onto the pizza; drag a topping off to remove it.';
+      opts.prompt = L.typical;
     }
-    if (name === 'followup') { opts.counts = S.fields.pz_counts || null; opts.askAbout = S.study.about_you !== false; }
+    if (name === 'followup') {
+      opts.counts = S.fields.pz_counts || null; opts.askAbout = S.study.about_you !== false;
+      if (S.study.followup) opts.style = S.study.followup;     // e.g. "metryczka": only the short demographic card
+    }
     if (name === 'build' || name === 'typical') {
+      ['sauces', 'sauce', 'cheeses', 'cheese'].forEach(function (k) { if (S.study[k] != null) opts[k] = S.study[k]; });   // the study's base choices
       // study settings for what people see while building; condition_settings can vary them by condition (an experiment)
       var cs = (S.study.condition_settings || {})[S.cond] || {};
       opts.nutrition = cs.nutrition_panel != null ? !!cs.nutrition_panel : !!S.study.nutrition_panel;
@@ -100,10 +129,16 @@
     widget = PizzaBuilder.mount(box, opts);
   }
   function intro() {
-    var st = S.study;
-    stage.innerHTML = '<div class="intro"><h1>' + esc(st.title || 'Make a pizza') + '</h1>' +
-      (st.intro || []).map(function (p) { return '<p>' + esc(p) + '</p>'; }).join('') +
-      '<label class="consent"><input type="checkbox" id="agree"> <span>' + esc(st.consent || 'I agree to take part.') + '</span></label></div>';
+    var st = S.study, paras = (st.intro || []).map(function (p) { return '<p>' + esc(p) + '</p>'; }).join('');
+    if (st.consent_choice) {             // consent as a question with two answers: YES goes on, NO ends the study
+      stage.innerHTML = '<div class="intro"><h1>' + esc(L.consentTitle) + '</h1>' + paras + '<div class="choice"><p>' + esc(st.consent || L.agree) + '</p>' +
+        '<button class="go" type="button" id="yes">' + esc(L.yes) + '</button><button class="go alt" type="button" id="no">' + esc(L.no) + '</button></div></div>';
+      document.getElementById('yes').onclick = function () { S.fields.consent = new Date().toISOString(); go('practice'); };
+      document.getElementById('no').onclick = function () { S.fields.consent = 'declined ' + new Date().toISOString(); go('declined'); };
+      return;
+    }
+    stage.innerHTML = '<div class="intro"><h1>' + esc(st.title || 'Make a pizza') + '</h1>' + paras +
+      '<label class="consent"><input type="checkbox" id="agree"> <span>' + esc(st.consent || L.agree) + '</span></label></div>';
     var box = document.getElementById('agree');
     next.hidden = false;
     var btn = next.querySelector('button');
@@ -111,23 +146,38 @@
     box.onchange = function () { btn.disabled = !box.checked; };
     btn.onclick = function () { if (!box.checked) return; btn.disabled = false; S.fields.consent = new Date().toISOString(); go('practice'); };
   }
+  function declined() {
+    stage.innerHTML = '<h1>' + esc(L.declinedTitle) + '</h1><p>' + esc(S.study.decline_message || L.declined) + '</p>';
+    send(true);
+  }
   function done() {
     var st = S.study;
-    stage.innerHTML = '<h1>Thank you</h1><p>' + esc(st.completion_message || 'You are done.') + '</p><p class="code">' + esc(S.pid) + '</p>';
+    stage.innerHTML = '<h1>' + esc(st.completion_title || L.thanks) + '</h1><p>' + esc(st.completion_message || '') + '</p>';
+    if (st.bake_picture && S.fields.pz_final) {          // the participant's own pizza, baked
+      var pic = document.createElement('div'); pic.className = 'baked';
+      pic.appendChild(PizzaBuilder.picture(S.fields.pz_final, S.fields.pz_summary, Math.min(380, (stage.clientWidth || 380) - 20)));
+      stage.appendChild(pic);
+    }
+    if (st.show_code !== false) stage.insertAdjacentHTML('beforeend', '<p class="code">' + esc(S.pid) + '</p>');
     var finish = send(true);
     if (st.completion_redirect) {
-      stage.innerHTML += '<p>Taking you back in a moment&hellip;</p>';
+      stage.insertAdjacentHTML('beforeend', '<p>' + esc(L.back) + '</p>');
       Promise.resolve(finish).then(function () { setTimeout(function () { location.href = st.completion_redirect; }, 1500); });
     }
   }
 
-  if (!PizzaBuilder.isDesktop()) {        // computers only: no session is started on a phone or tablet
-    stage.innerHTML = '<h1>' + esc(PizzaBuilder.text.desktopTitle) + '</h1><p>' + esc(PizzaBuilder.text.desktopBody) + '</p>';
-    return;
-  }
+  words('en');
   // ?i=<invite> (a personal link), or ?study=<id>&group=..&source=.. (an open study link), or nothing (the main study)
   var link = { i: params.get('i') || '', study: params.get('study') || '', source: params.get('source') || '' };
   var studyInfo = fetch('study.json?' + new URLSearchParams({ i: link.i, study: link.study })).then(function (r) { return r.json(); }).catch(function () { return {}; });
+  if (!PizzaBuilder.isDesktop()) {        // computers only: no session is started on a phone or tablet
+    studyInfo.then(function (st) {
+      var T = PizzaBuilder.texts((st || {}).lang);
+      stage.innerHTML = '<h1>' + esc(T.desktopTitle) + '</h1><p>' + esc(T.desktopBody) + '</p>';
+    });
+    return;
+  }
+  studyInfo.then(function (st) { words((st || {}).lang); });
   function start(ts) {
     return fetch('api/start?' + new URLSearchParams({ pid: link.i ? '' : (params.get('pid') || params.get('PROLIFIC_PID') || sessionStorage.getItem('pz-pid') || ''),
       group: params.get('group') || '', cond: params.get('cond') || '', i: link.i, study: link.study, source: link.source, ts: ts || '' })).then(function (r) { return r.json(); });
@@ -136,7 +186,7 @@
   // it usually passes by itself. The Python study server never asks for it.
   function checked(res) {
     if (!res.verify) return res;
-    stage.innerHTML = '<h1>One moment</h1><p>Checking that you are a person, not a bot (this usually takes a second).</p><div id="ts"></div>';
+    stage.innerHTML = '<h1>' + esc(L.moment) + '</h1><p>' + esc(L.botCheck) + '</p><div id="ts"></div>';
     return new Promise(function (resolve, reject) {
       var s = document.createElement('script');
       s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
@@ -147,14 +197,15 @@
   }
   Promise.all([studyInfo, start().then(checked)]).then(function (res) {
     if (res[1].verify) {
-      stage.innerHTML = '<h1>This link does not work just now</h1><p>The check that you are a person did not pass. Please reload the page.</p>';
+      stage.innerHTML = '<h1>' + esc(L.botFailTitle) + '</h1><p>' + esc(L.botFail) + '</p>';
       return;
     }
     if (res[1].error) {                    // a mistyped or unknown link: never start an unlabelled session
-      stage.innerHTML = '<h1>This link does not work</h1><p>' + esc(res[1].error) + '</p>';
+      stage.innerHTML = '<h1>' + esc(L.badLink) + '</h1><p>' + esc(res[1].error) + '</p>';
       return;
     }
     S.study = res[0] || {};
+    words(S.study.lang);
     S.pid = res[1].pid; S.cond = res[1].cond || '';
     try { sessionStorage.setItem('pz-pid', S.pid); } catch (e) {}
     document.title = S.study.title || document.title;
@@ -162,17 +213,18 @@
     // starts again, the follow-up keeps what the build saved, and restarts are counted for the analysis
     var was = res[1].stage;
     if (was === 'done') return go('done');
+    if (was === 'declined') return go('declined');
     if (order().indexOf(was) > 0) {
       if (res[1].counts) S.fields.pz_counts = res[1].counts;
       S.fields.restarts = String((+res[1].restarts || 0) + 1);
-      notice.textContent = 'Welcome back. You can carry on from the part you were on.';
+      notice.textContent = L.welcome;
       notice.hidden = false;
       S.resumed = true;
       return go(was);
     }
     go('intro');
   }).catch(function () {
-    stage.innerHTML = '<p>The study could not start. Please check your connection and reload the page.</p>';
+    stage.innerHTML = '<p>' + esc(L.cantStart) + '</p>';
   });
 })();
 </script>

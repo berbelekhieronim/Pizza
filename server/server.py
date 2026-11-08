@@ -52,7 +52,9 @@ BUILD_LOCK = threading.Lock()
 
 STUDY_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 STUDY_KEYS = ('title', 'intro', 'consent', 'completion_message', 'completion_redirect', 'typical_build', 'about_you', 'conditions', 'groups',
-              'nutrition_panel', 'nutrition_show', 'nutrition_base', 'nutrition_reveal', 'condition_settings', 'synthetic')
+              'nutrition_panel', 'nutrition_show', 'nutrition_base', 'nutrition_reveal', 'condition_settings', 'synthetic',
+              # a study's own flow: language, consent with yes/no, the questions at the end, the base choices, the end page
+              'lang', 'consent_choice', 'decline_message', 'followup', 'sauces', 'sauce', 'cheeses', 'cheese', 'bake_picture', 'show_code', 'completion_title')
 SYNTHETIC_CHOICES = (0, 25, 50, 100, 200, 500)        # synthetic pizzas a test study can hold (study.json "synthetic" = the default)
 
 
@@ -255,7 +257,8 @@ Tables (UTF-8 CSV, missing values = NA, yes/no = 1/0, times in ms, positions in 
 NEURO_NAMES = {'autistic': 'Autistic', 'adhd': 'ADHD', 'dys': 'Dyslexic etc.', 'otherND': 'Other ND', 'none': 'None', 'pnts': 'Prefer not to say'}
 
 
-STAGE_NAMES = {'intro': 'reading the intro', 'practice': 'practice', 'build': 'building', 'typical': 'typical pizza', 'followup': 'questions', 'done': 'finished'}
+STAGE_NAMES = {'intro': 'reading the intro', 'practice': 'practice', 'build': 'building', 'typical': 'typical pizza', 'followup': 'questions', 'done': 'finished',
+               'declined': 'declined consent'}
 PAGE = 100
 ALL_KEY = '*'                                         # study_keys row of the researcher link for all studies
 NOT_BUILT = ('<!doctype html><meta charset="utf-8"><body style="font:15px system-ui,sans-serif;color:#6e635b;max-width:640px;margin:48px auto;'

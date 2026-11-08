@@ -801,6 +801,30 @@
      "satfat": 10.114,
      "salt": 1.5475
     }
+   },
+   "vegan": {
+    "ndb": null,
+    "food": "VEGAN CHEESE, COCONUT-OIL BASED, MOZZARELLA STYLE (LABEL VALUES)",
+    "grams": 100.0,
+    "note": "stand-in: SR28 has no vegan cheese; typical label values of a coconut-oil vegan mozzarella (approximate, B12 fortified)",
+    "per100": {
+     "kcal": 275.0,
+     "protein": 0.0,
+     "fat": 23.0,
+     "carbs": 20.0,
+     "fibre": 0.0,
+     "sugars": 0.0,
+     "calcium": 0.0,
+     "iron": 0.0,
+     "potassium": 0.0,
+     "vitC": 0.0,
+     "folate": 0.0,
+     "vitB12": 2.5,
+     "vitA": 0.0,
+     "vitD": 0.0,
+     "satfat": 21.0,
+     "salt": 2.3
+    }
    }
   }
  }

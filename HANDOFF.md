@@ -4,7 +4,7 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-10-27, task version 0.13.1, server 0.12.1)
+## Snapshot (2026-11-08, task version 0.14.0, server 0.12.1)
 
 - **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
@@ -186,6 +186,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 | date | session | what was done |
 |---|---|---|
+| 2026-11-08 | Claude Code (cloud) | 0.14.0 (task): Pizza Pilot 11.2026 (pilot-2026-11): Polish flow, consent TAK/NIE (declined stage), vegan cheese, metryczka, baked pizza at the end; per-study flow settings on both servers |
 | 2026-10-27 | Claude Code (cloud) | Type search in four families vs Gaussian-copula no-types nulls (Bonferroni), synthetic latent styles, behaviour x preference correlations |
 | 2026-10-27 | Claude Code (cloud) | Synthetic test data (analysis/synthetic.py) for the tests study: chooser bar (0-500, default 100), ground-truth group differences, flagged everywhere, real-only counts, both servers |
 | 2026-10-27 | Claude Code (cloud) | Analysis audit (docs/analysis-audit.md): FDR per family of questions, CIs for 5+, no chance tests, spacing-aware symmetry chance, neurotype vs Not ND, normality bands need 20+, clusters only with structure + compare two clusters, pruned screen, nd_any + idea 9 |

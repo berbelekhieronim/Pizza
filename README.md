@@ -215,6 +215,22 @@ Edit `server/study.json` for the title, intro text, consent sentence, completion
 Prolific completion link), the conditions, the groups that get a ready-made link, whether to add the "typical
 participant" build (`typical_build`), and whether to ask the "About you" questions (`about_you`, on by default).
 
+**Each version of the study is a study of its own** under `"studies"` in `server/study.json`, listed on the researcher
+page with its `title` (e.g. *Pizza Pilot 11.2026*, id `pilot-2026-11`, link `/?study=pilot-2026-11`). Besides the
+settings above, a study can set its own flow:
+
+| setting | what it does | Pizza Pilot 11.2026 |
+|---|---|---|
+| `lang` | language of the participant pages and the task (`pl` built in; anything missing falls back to English) | `"pl"` |
+| `intro`, `consent` | the consent text (paragraphs) and the consent sentence | the SWPS pilot consent |
+| `consent_choice` | `true`: the consent is a question with YES / NO buttons; NO ends the study (stage `declined`, with `decline_message`) | `true` |
+| `followup` | the questions after the build: `strong` (default), `ratings`, or `metryczka` (only the short demographic card: age, autism, ADHD, gender, transgender, special diets) | `"metryczka"` |
+| `sauces`, `sauce`, `cheeses`, `cheese` | which sauces and cheeses are offered and which is selected at the start (`none`, `light`, `normal`, `extra`, `vegan`) | cheeses `none`, `light`, `extra`, `vegan`; `light` selected |
+| `nutrition_panel` | the nutrition table with calories under the pizza | `true` |
+| `completion_title`, `completion_message`, `bake_picture`, `show_code` | the end page: heading, text, the participant's pizza baked, and whether to show the completion code | "Dziękujemy za pomoc!", "Oto Twoja upieczona pizza:", picture on, no code |
+
+The toppings are shown in a new random order for every participant (as in every study).
+
 Things to know:
 - **Coming back mid-study.** If a participant reloads, closes the tab or opens their personal link again, they are not
   asked for consent again: they return to the part they were on, which starts again, with a short "welcome back"

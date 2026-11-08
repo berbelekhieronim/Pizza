@@ -221,7 +221,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     if (scope !== 'study') {
       pick.hidden = false;
       pick.innerHTML = '<option value="">Choose a study…</option><option value="all">All studies together</option>'
-        + S.studies.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.id) + ' (' + s.n + (s.synthetic && s.synthetic.stored ? ' + ' + s.synthetic.stored + ' synthetic' : '') + ')</option>'; }).join('');
+        + S.studies.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.title ? s.title + ' · ' + s.id : s.id) + ' (' + s.n + (s.synthetic && s.synthetic.stored ? ' + ' + s.synthetic.stored + ' synthetic' : '') + ')</option>'; }).join('');
       pick.value = S.study || '';
     }
     if (S.msg && !render.shown) { $('msg').textContent = S.msg; $('msg').hidden = false; render.shown = true; }
@@ -232,7 +232,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
   function chooser() {
     $('view').hidden = true; $('chooser').hidden = false;
     var cards = S.studies.map(function (s) {
-      return '<a class="scard" href="?' + new URLSearchParams({ key: KEY, study: s.id }) + '"><span class="name">' + esc(s.id) + '</span>'
+      return '<a class="scard" href="?' + new URLSearchParams({ key: KEY, study: s.id }) + '"><span class="name">' + esc(s.title || s.id) + (s.title ? ' <span class="muted small">' + esc(s.id) + '</span>' : '') + '</span>'
         + '<span class="muted small">' + esc(s.description) + '</span>'
         + '<span class="stats"><span class="stat"><b>' + s.n + '</b><span>opened</span></span><span class="stat"><b>' + s.built + '</b><span>built a pizza</span></span>'
         + '<span class="stat"><b>' + s.done + '</b><span>finished</span></span>'
@@ -256,7 +256,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     $('chooser').hidden = true; $('view').hidden = false;
     var s = current(), all = S.study === 'all';
     var d = all ? S.all : s;
-    $('title').textContent = all ? 'All studies together' : s.id;
+    $('title').textContent = all ? 'All studies together' : (s.title ? s.title + ' (' + s.id + ')' : s.id);
     $('desc').textContent = all ? 'Every session, all studies.' : s.description;
     kpiRefresh();
     buildBar();
@@ -472,7 +472,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
           if (c[0] === 'study') v = v || 'main';
           if (c[0] === 'pid' && String(v).indexOf('SYN-') === 0) return '<td>' + esc(v) + '<span class="syn" title="Synthetic test data (simulated), not a participant">synthetic</span></td>';
           if (c[0] === 'stage') {
-            var idle = r.stage !== 'done' && r.updated && Date.now() - Date.parse(r.updated) > (S.idle_minutes || 30) * 60000;
+            var idle = r.stage !== 'done' && r.stage !== 'declined' && r.updated && Date.now() - Date.parse(r.updated) > (S.idle_minutes || 30) * 60000;
             v = (idle ? 'stopped at ' : '') + (S.stages[v] || v) + (idle ? ' (last saved ' + shortTime(r.updated) + ')' : '');
           }
           if (c[0] === 'neuro') v = (v || '').split(' ').filter(Boolean).map(function (x) { return S.neuro[x] || x; }).join(', ');

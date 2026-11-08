@@ -5,6 +5,25 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Task 0.14.0 and Pizza Pilot 11.2026: each version of the study is a study of its own**
+- New study `pilot-2026-11`, *Pizza Pilot 11.2026*, listed on the researcher page with its title; open link
+  `/?study=pilot-2026-11`. Its flow, in Polish:
+  1. **Świadoma zgoda** (the SWPS pilot consent) with **TAK / NIE**; NIE ends the study (new stage `declined`, never
+     counted as "in progress").
+  2. The practice round (instructions) in Polish.
+  3. Making the pizza in Polish, toppings in a new random order for everyone, cheeses: bez sera / light / extra ser /
+     wegański ser, and the nutrition table with calories under the pizza.
+  4. **Metryczka**: age in years, autism and ADHD (no / diagnosed by a specialist / self-diagnosed), gender, transgender,
+     special diets (any number or none, with a text box).
+  5. **Dziękujemy za pomoc! Oto Twoja upieczona pizza** with a picture of the participant's own pizza, baked.
+- New study settings (both servers): `lang`, `consent_choice`, `decline_message`, `followup`, `sauces`, `sauce`,
+  `cheeses`, `cheese`, `completion_title`, `bake_picture`, `show_code` (README).
+- Task: a `lang` option (Polish texts and topping names built in), **vegan cheese** (`vegan`: 100 g, nutrition from
+  typical product labels, as SR28 has none; drawn paler; it keeps a pizza vegan in `diet_class`), the `metryczka`
+  follow-up style, and `PizzaBuilder.picture()` for the baked pizza.
+- Analysis: new columns `age_years` and `transgender`; the metryczka also fills neurotype, gender, diet and
+  `health_allergy`. Data recorded by task 0.14.0 have `summary.v` = 0.14.0.
+
 **Profiles: searching for types, honestly** (and synthetic people with real types)
 - Clusters were judged by a fixed silhouette of 0.25. Tested on synthetic data: clustering on 2 components gave 0.37-0.40
   on data with no types, and a plain normal "no types" comparison let skewed measures pass as clustered at 500 people.

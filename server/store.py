@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS study_keys (study TEXT PRIMARY KEY, key TEXT NOT NULL
 FIELD_RE = re.compile(r'^[a-z_]{2,40}$')
 INVITE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789'     # no 0/o, 1/l/i: easy to read out or type
 SORTABLE = ('pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces', 'started', 'seconds', 'restarts')
-STAGES = ('intro', 'practice', 'build', 'typical', 'followup', 'done')
+STAGES = ('intro', 'practice', 'build', 'typical', 'followup', 'done', 'declined')   # declined: said no to the consent
 IDLE_MINUTES = 30            # an unfinished session with no save for this long counts as stopped (it can still resume)
 ACTIVITY = ('active', 'stopped')   # extra values of the "where" filter, from the time of the last save
 ANALYSIS = ('included', 'left_out', 'synthetic', 'real')  # ... from whether the session's pizza is analysed, or is synthetic
@@ -196,9 +196,9 @@ class Store:
         if f.get('study') is not None:
             sql.append('study = ?'); args.append(f['study'])
         if f.get('stage') == 'active':
-            sql.append("stage != 'done' AND updated >= ?"); args.append(idle_cutoff())
+            sql.append("stage NOT IN ('done', 'declined') AND updated >= ?"); args.append(idle_cutoff())
         elif f.get('stage') == 'stopped':
-            sql.append("stage != 'done' AND (updated IS NULL OR updated < ?)"); args.append(idle_cutoff())
+            sql.append("stage != 'done' AND (stage = 'declined' OR updated IS NULL OR updated < ?)"); args.append(idle_cutoff())   # a refusal is not "in progress"
         elif f.get('stage') == 'included':
             sql.append(INCLUDED_SQL)
         elif f.get('stage') == 'left_out':
@@ -251,7 +251,7 @@ class Store:
         ones are counted apart); the rest of the unfinished real ones have stopped."""
         return {r['study']: (r['n'] or 0, r['done'] or 0, r['built'] or 0, r['active'] or 0, r['syn'] or 0) for r in self.db().execute(
             "SELECT study, SUM(NOT %s) n, SUM(NOT %s AND stage = 'done') done, SUM(NOT %s AND stage IN ('typical', 'followup', 'done')) built, "
-            "SUM(NOT %s AND stage != 'done' AND updated >= ?) active, SUM(%s) syn FROM sessions GROUP BY study" % ((SYN_SQL,) * 5), (idle_cutoff(),))}
+            "SUM(NOT %s AND stage NOT IN ('done', 'declined') AND updated >= ?) active, SUM(%s) syn FROM sessions GROUP BY study" % ((SYN_SQL,) * 5), (idle_cutoff(),))}
 
     # ---- settings kept in the database
     def meta(self, k):

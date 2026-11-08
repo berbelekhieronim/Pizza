@@ -62,7 +62,7 @@ A JSON array of `[t, type, ...]`:
 | `undo` | undone action (`add`/`move`/`resize`/`remove`/`clear`), id or count, topping code (or the restored ids for `clear`) | |
 | `clear` | number of pieces removed, their ids (space-separated) | "Start over" confirmed |
 | `clearno` | | "Start over" opened, then declined |
-| `sauce`, `cheese` | new value | sauce: `none`/`tomato`/`white`/`bbq`; cheese: `none`/`light`/`normal`/`extra` |
+| `sauce`, `cheese` | new value | sauce: `none`/`tomato`/`white`/`bbq`; cheese: `none`/`light`/`normal`/`extra`/`vegan` (vegan cheese from task 0.14.0) |
 | `hover` | code, ms | mouse rested ≥150 ms on a tray item (desktop only) |
 | `hide`, `show` | | tab hidden or visible again |
 | `done`, `cancel`, `finish` | | "I'm done" pressed, confirmation declined, task finished |
@@ -94,6 +94,17 @@ Practice only: `targetErr` (distance from the target centre for each attempt, ma
 `pep:3,ham:0,...`: the same counts in a form that is safe to pipe into later questions.
 
 ### `pzf_data` - follow-up
+
+The metryczka (`style: 'metryczka'`, task 0.14.0; e.g. Pizza Pilot 11.2026): one card, kept as answered in `met`, and
+also written where the analysis reads it:
+
+```
+{ v, style: 'metryczka', start, met: { age: years (16-99), autism, adhd: 'no' / 'formal' (diagnosed by a specialist) / 'self' (self-diagnosed),
+  gender: 'man' / 'woman' / 'nonbinary' / 'pnts', trans: 'yes' / 'no' / 'pnts', diet: [any of 'vegetarian', 'vegan', 'allergy', 'other'],
+  dietOther: text, t: {question: ms to first answer}, ms },
+  about: { neuro, dx, age (band), ageYears, gender, trans }, diet: [vegetarian / vegan / other, or 'none'], dietOther, health: ['allergy'] or ['none'],
+  finished, tTotal }
+```
 
 The default (`style: 'strong'`):
 
@@ -192,7 +203,7 @@ Scales run 1-7:
 | `stack_same_share`, `touch_same_share` | share of stacked / touching pairs that are the same topping (piling one topping vs layering different ones) |
 | `nn_gap_mm` | median edge-to-edge distance from each piece to its nearest neighbour, in mm on a 30 cm pizza (negative = overlapping) |
 | `n_grown`, `n_shrunk`, `size_mean`, `size_min`, `size_max` | pieces made bigger / smaller by holding; mean, smallest and largest size factor |
-| `diet_class` | the strictest diet the whole pizza fits: `vegan`, `vegetarian` (dairy or egg, including any cheese or white sauce), `pescatarian` (anchovies or shrimp, no meat), `meat` |
+| `diet_class` | the strictest diet the whole pizza fits: `vegan`, `vegetarian` (dairy or egg, including any cheese except vegan cheese, or white sauce), `pescatarian` (anchovies or shrimp, no meat), `meat` |
 | `n_<vegan/vegetarian/seafood/meat>_pieces`, `area_share_<...>` | pieces, and share of topping area, in each diet class. Kimchi counts as vegan (change `DIET_CLASS` if your kimchi has fish sauce) |
 | `atypicality_bits`, `composition_pct` | *which toppings*: surprisal of the pizza's set of toppings under the reference, Σ over toppings offered of −log₂ P(on or off) with P from the reference inclusion rate (+0.5 smoothing); and its percentile in the reference distribution |
 | `count_pct` | *how many*: how extreme the number of different toppings is in the reference, in both directions, as 100 × (1 − two-sided tail probability). A plain pizza or one with everything scores high |

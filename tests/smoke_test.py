@@ -168,6 +168,9 @@ def cloudflare_checks(tmp, fields):
         code, page = http('GET', base + '/')
         check(code == 200 and b'pizza-builder.js' in page, 'Worker: participant page')
         check('nutrition_reveal' in json.loads(http('GET', base + '/study.json')[1]), 'Worker: passes the nutrition-reveal setting to the page')
+        pst = json.loads(http('GET', base + '/study.json?study=pilot-2026-11')[1])
+        check(pst['lang'] == 'pl' and pst['consent_choice'] is True and pst['followup'] == 'metryczka' and pst['cheeses'] == ['none', 'light', 'extra', 'vegan']
+              and pst['bake_picture'] is True, 'Worker: passes the Pizza Pilot 11.2026 flow (Polish, consent yes / no, metryczka, cheeses, baked pizza)')
         check(http('GET', base + '/pizza-builder.js')[0] == 200, 'Worker: serves the task script')
         check(json.loads(http('GET', base + '/api/start?group=ASD&pid=CFSMOKE1')[1]).get('pid') == 'CFSMOKE1', 'Worker: starts a session')
         check(http('POST', base + '/api/save', {'pid': 'CFSMOKE1', 'stage': 'done', 'fields': fields})[0] == 200, 'Worker: saves a session')
@@ -612,6 +615,32 @@ def main():
             ok = run('analysis/analyse.py', os.path.join(data, 'study.db'), '--study', 'pilot-asd', '--out', os.path.join(tmp, 'from-db'))
             pc = list(csv.DictReader(open(os.path.join(tmp, 'from-db', 'participants.csv'), encoding='utf-8'))) if ok else []
             check(len(pc) == 3 and {r['study'] for r in pc} == {'pilot-asd'}, 'analyse.py reads the database, one study at a time (--study)')
+            # Pizza Pilot 11.2026: its own flow (Polish, consent yes / no, metryczka, its cheeses, the baked pizza at the end)
+            pst = json.loads(http('GET', base + '/study.json?study=pilot-2026-11')[1])
+            check(pst['title'] == 'Pizza Pilot 11.2026' and pst['lang'] == 'pl' and pst['consent_choice'] is True and pst['followup'] == 'metryczka'
+                  and pst['cheeses'] == ['none', 'light', 'extra', 'vegan'] and pst['nutrition_panel'] is True and pst['bake_picture'] is True and pst['show_code'] is False,
+                  'Pizza Pilot 11.2026: Polish, consent yes / no, metryczka, its cheeses, nutrition table, the baked pizza at the end')
+            pids = [json.loads(http('GET', base + '/api/start?study=pilot-2026-11')[1])['pid'] for _ in range(2)]
+            http('POST', base + '/api/save', {'pid': pids[0], 'stage': 'declined', 'fields': {'consent': 'declined 2026-11-08T10:00:00Z'}})
+            met = {'style': 'metryczka', 'finished': True, 'met': {'age': 31, 'autism': 'self', 'adhd': 'no', 'gender': 'nonbinary', 'trans': 'yes', 'diet': ['vegan', 'allergy']},
+                   'about': {'neuro': ['autistic'], 'dx': {'autistic': 'self'}, 'eating': [], 'age': '25-34', 'ageYears': 31, 'gender': 'nonbinary', 'trans': 'yes'},
+                   'diet': ['vegan'], 'health': ['allergy'], 'dietOther': ''}
+            vsum = dict(sample['pz_summary'] if isinstance(sample['pz_summary'], dict) else json.loads(sample['pz_summary']), cheese='vegan', sauce='tomato')
+            vfin = [f for f in json.loads(sample['pz_final']) if f[1] not in ('pep', 'ham', 'chk', 'kan', 'anc', 'shr', 'tun', 'egg', 'gor')]
+            http('POST', base + '/api/save', {'pid': pids[1], 'stage': 'done', 'fields': {'consent': '2026-11-08T10:00:00Z', 'pz_final': json.dumps(vfin),
+                                                                                          'pz_summary': json.dumps(vsum), 'pz_events': sample['pz_events'] if isinstance(sample['pz_events'], str) else json.dumps(sample['pz_events']),
+                                                                                          'pzf_data': json.dumps(met)}})
+            pl = api(base, 'state', 'smoke-key', study='pilot-2026-11')
+            prow = next(r for r in pl['studies'] if r['id'] == 'pilot-2026-11')
+            dec = api(base, 'sessions', 'smoke-key', study='pilot-2026-11', stage='declined')
+            check(prow['title'] == 'Pizza Pilot 11.2026' and prow['n'] == 2 and prow['active'] == 0 and dec['total'] == 1 and pl['stages']['declined'],
+                  'Pizza Pilot 11.2026: listed with its title; a refusal is its own stage, never "in progress"')
+            ok = run('analysis/analyse.py', os.path.join(data, 'study.db'), '--study', 'pilot-2026-11', '--out', os.path.join(tmp, 'pilot'))
+            pc = list(csv.DictReader(open(os.path.join(tmp, 'pilot', 'participants.csv'), encoding='utf-8'))) if ok else []
+            check(len(pc) == 1 and pc[0]['cheese'] == 'vegan' and pc[0]['diet_class'] == 'vegan' and pc[0]['age_years'] == '31' and pc[0]['age_band'] == '25-34'
+                  and pc[0]['transgender'] == '1' and pc[0]['gender'] == 'nonbinary' and pc[0]['neurotype'] == 'Autistic' and pc[0]['dx_autistic'] == 'self'
+                  and pc[0]['diet'] == 'vegan' and pc[0]['health_allergy'] == '1',
+                  'Pizza Pilot 11.2026: the analysis reads the metryczka (age, transgender, autism / ADHD, gender, diets) and vegan cheese keeps a pizza vegan')
         finally:
             srv.terminate()
             srv.wait(timeout=10)
@@ -659,6 +688,9 @@ def main():
                 py = FB.A.nutrition_measures(ps, summ)
                 ncases.append({'ps': [{'ing': p_['ing'], 'size': p_['s']} for p_ in ps], 'sauce': summ.get('sauce') or 'tomato', 'cheese': summ.get('cheese') or 'normal',
                                'py': [round(py[FB.A.NUT_COL[k]], 6) for k in FB.A.NUTRIENTS]})
+                if len(ncases) <= 3:                       # and the same pizzas with vegan cheese
+                    pv = FB.A.nutrition_measures(ps, dict(summ, cheese='vegan'))
+                    ncases.append({'ps': ncases[-1]['ps'], 'sauce': ncases[-1]['sauce'], 'cheese': 'vegan', 'py': [round(pv[FB.A.NUT_COL[k]], 6) for k in FB.A.NUTRIENTS]})
             js = ("global.window = global; global.document = undefined; require(%s); const cs = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
                   "const K = %s; console.log(JSON.stringify(cs.map(c => { const t = PizzaBuilder.nutrition(c.ps, c.sauce, c.cheese, true); return K.map(k => Math.round(t[k] * 1e6) / 1e6); })));"
                   % (json.dumps(os.path.join(ROOT, 'pizza-builder.js')), json.dumps(FB.A.NUTRIENTS)))

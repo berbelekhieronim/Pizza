@@ -53,7 +53,7 @@ SECTIONS = [
         ('first_topping, meat_before_veg', 'First topping placed. Mean placement rank of veg minus of meat, ranks scaled 0-1 (> 0: meat placed earlier).', 'order_measures'),
     ]),
     ('Diet', None, [
-        ('diet_class, diet_rank', 'Strictest diet the pizza fits: meat if any meat; else pescatarian if any seafood; else vegetarian if egg, blue cheese, any cheese, or white sauce; else vegan. Rank 0 = vegan … 3 = meat.', 'pizza_diet_class'),
+        ('diet_class, diet_rank', 'Strictest diet the pizza fits: meat if any meat; else pescatarian if any seafood; else vegetarian if egg, blue cheese, any cheese except vegan cheese, or white sauce; else vegan. Rank 0 = vegan … 3 = meat.', 'pizza_diet_class'),
         ('n_{class}_pieces, area_share_{class}', 'Pieces of each diet class; their outline area / total topping area.', 'analyse'),
         ('diet, diet_other', 'Stated diets (follow-up), space-separated; "prefer not to say" is left out.', 'analyse'),
         ('diet_conflict', '<b>ingredients_long</b>: 1 if the stated diets usually exclude this topping (table DIET_EXCLUDES); empty if no diet stated.', 'ingredient_rows'),
@@ -125,7 +125,7 @@ SECTIONS = [
         ('practice_drag_median, practice_target_err, practice_target_tries, practice_ms, practice_pointer, drag_vs_practice', 'Practice trial: median drag; first distance from the target; tries; duration; pointer; drag_median / practice_drag_median.', 'practice_measures'),
         ('first_pick_ms, first_add_ms, hover_ms, decision_ms_mean, picks, rejects, removes, picked_not_kept, tray_pos', '<b>ingredients_long</b>: per topping: first pick and add time; total mouse rest on its tray item; mean decision time before picking it; counts; lifted but not kept (0/1); position in the shuffled tray.', 'ingredient_rows'),
     ]),
-    ('Nutrition', 'Nutrients per 100 g from USDA SR28 (analysis/nutrition.json, made by tools/build_nutrition.py; stand-ins where SR28 has no entry are listed there and in the README). The task\'s nutrition panel uses the same table and formula. Base of a 30 cm pizza: dough 250 g; sauce tomato 80 g, white 80 g, BBQ 60 g; mozzarella light 60 g, normal 100 g, extra 150 g.', [
+    ('Nutrition', 'Nutrients per 100 g from USDA SR28 (analysis/nutrition.json, made by tools/build_nutrition.py; stand-ins where SR28 has no entry are listed there and in the README). The task\'s nutrition panel uses the same table and formula. Base of a 30 cm pizza: dough 250 g; sauce tomato 80 g, white 80 g, BBQ 60 g; mozzarella light 60 g, normal 100 g, extra 150 g; vegan cheese 100 g (a stand-in from typical product labels: SR28 has none).', [
         ('grams', '<b>ingredients_long</b>: Σ over this topping\'s pieces of grams<sub>piece</sub> = grams of a standard piece × s², s = drawn size (random 0.9-1.1 × hold-to-resize g). A slice is flat, so its weight follows its area: twice as wide = 4 × the grams.', 'piece_grams'),
         ('kcal', '<b>ingredients_long</b>: grams × kcal per 100 g / 100.', 'analyse'),
         ('{nut}', 'Whole pizza (toppings + dough + sauce + cheese): Σ grams / 100 × amount per 100 g. Salt = sodium × 2.5. Units in the name (g, mg, ug).', 'nutrition_measures'),
@@ -206,6 +206,7 @@ SECTIONS = [
         ('nd_identified', 'formal if every ticked autism / ADHD identity is formally diagnosed, else "self or waiting".', 'about_measures'),
         ('eat_{eat}, eat_any', 'Eating history ticked (0/1); any of picky, ARFID, eating disorder, allergy.', 'about_measures'),
         ('self_picky, self_sensory_food, age_band, gender', '1-7 self-ratings; demographics (prefer not to say → empty).', 'about_measures'),
+        ('age_years, transgender', 'From the metryczka (the short demographic card, style "metryczka"): age in years (16-99), and age_band from it; transgender 1 / 0 (prefer not to say → empty). The metryczka also fills neurotype (autism / ADHD: no, diagnosed by a specialist = formal, self-diagnosed = self), gender, diet (vegetarian, vegan, other with its text) and health_allergy.', 'about_measures'),
     ]),
     ('Removals (removals_long.csv: one row per piece taken off the pizza)', None, [
         ('pid, build, ing, x, y', '<b>removals_long</b>: participant, build, topping code, position the piece had when removed.', 'action_history'),

@@ -2,7 +2,7 @@
 // reads exactly like server/data/study.db. D1 has no BEGIN/COMMIT: a write that must be atomic is one batch().
 
 export const SORTABLE = ['pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces', 'started', 'seconds', 'restarts'];
-export const STAGES = ['intro', 'practice', 'build', 'typical', 'followup', 'done'];
+export const STAGES = ['intro', 'practice', 'build', 'typical', 'followup', 'done', 'declined'];   // declined: said no to the consent
 export const ACTIVITY = ['active', 'stopped'];     // extra "where" filter values, from the time of the last save
 export const ANALYSIS = ['included', 'left_out', 'synthetic', 'real'];  // ... from whether the session's pizza is analysed, or is synthetic
 const SYN_SQL = "pid LIKE 'SYN-%'";               // synthetic sessions of a test study (analysis/synthetic.py), as in store.py
@@ -99,8 +99,8 @@ export class Store {
     // study (null = all, '' = main), grp, source, stage, cond, neuro (contains), q (pid contains), since / until
     const sql = [], args = [];
     if (f.study !== null && f.study !== undefined) { sql.push('study = ?'); args.push(f.study); }
-    if (f.stage === 'active') { sql.push("stage != 'done' AND updated >= ?"); args.push(idleCutoff()); }
-    if (f.stage === 'stopped') { sql.push("stage != 'done' AND (updated IS NULL OR updated < ?)"); args.push(idleCutoff()); }
+    if (f.stage === 'active') { sql.push("stage NOT IN ('done', 'declined') AND updated >= ?"); args.push(idleCutoff()); }
+    if (f.stage === 'stopped') { sql.push("stage != 'done' AND (stage = 'declined' OR updated IS NULL OR updated < ?)"); args.push(idleCutoff()); }   // a refusal is not "in progress"
     if (f.stage === 'included') sql.push(INCLUDED_SQL);
     if (f.stage === 'left_out') sql.push(LEFT_OUT_SQL);
     if (f.stage === 'synthetic') sql.push(SYN_SQL);
@@ -156,7 +156,7 @@ export class Store {
     // {study: [sessions, finished, built a pizza, in progress now, synthetic]} of the real sessions (the synthetic ones
     // are counted apart); the rest of the unfinished real ones have stopped
     const { results } = await this.db.prepare(`SELECT study, SUM(NOT ${SYN_SQL}) AS n, SUM(NOT ${SYN_SQL} AND stage = 'done') AS done, `
-      + `SUM(NOT ${SYN_SQL} AND stage IN ('typical', 'followup', 'done')) AS built, SUM(NOT ${SYN_SQL} AND stage != 'done' AND updated >= ?) AS active, `
+      + `SUM(NOT ${SYN_SQL} AND stage IN ('typical', 'followup', 'done')) AS built, SUM(NOT ${SYN_SQL} AND stage NOT IN ('done', 'declined') AND updated >= ?) AS active, `
       + `SUM(${SYN_SQL}) AS syn FROM sessions GROUP BY study`).bind(idleCutoff()).all();
     return Object.fromEntries(results.map((r) => [r.study, [r.n || 0, r.done || 0, r.built || 0, r.active || 0, r.syn || 0]]));
   }

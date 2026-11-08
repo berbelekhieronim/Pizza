@@ -87,14 +87,14 @@ def topping_diet(ing):
 
 
 def pizza_diet_class(pieces, summary):
-    """Strictest diet the whole pizza fits: cheese and white sauce count as dairy."""
+    """Strictest diet the whole pizza fits: cheese (but not vegan cheese) and white sauce count as dairy."""
     kinds = {topping_diet(p['ing']) for p in pieces}
     if 'meat' in kinds:
         return 'meat'
     if 'seafood' in kinds:
         return 'pescatarian'
     cheese, sauce = (summary or {}).get('cheese'), (summary or {}).get('sauce')
-    if 'vegetarian' in kinds or (cheese not in (None, 'none')) or sauce == 'white':
+    if 'vegetarian' in kinds or (cheese not in (None, 'none', 'vegan')) or sauce == 'white':
         return 'vegetarian'
     return 'vegan'
 
@@ -1299,6 +1299,9 @@ def about_measures(about):
     out['self_sensory_food'] = about.get('sensoryfood')
     out['age_band'] = None if about.get('age') in (None, 'pnts') else about.get('age')
     out['gender'] = None if about.get('gender') in (None, 'pnts') else about.get('gender')
+    # the metryczka (pizza-builder.js, style 'metryczka') asks the age in years and whether the person is transgender
+    out['age_years'] = about.get('ageYears') if isinstance(about.get('ageYears'), int) else None
+    out['transgender'] = {'yes': 1, 'no': 0}.get(about.get('trans'))
     return out
 
 

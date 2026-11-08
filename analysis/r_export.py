@@ -38,7 +38,7 @@ FACTORS = {
     'diet_class': (['vegan', 'vegetarian', 'pescatarian', 'meat'], True),
     'normality_band': (['typical', 'uncommon', 'unusual'], True),
     'sauce': (['tomato', 'none', 'white', 'bbq'], False),
-    'cheese': (['none', 'light', 'normal', 'extra'], True),
+    'cheese': (['none', 'light', 'normal', 'extra', 'vegan'], False),   # vegan cheese is not more or less cheese: unordered
     'pizza_freq': (['never', 'lt1m', '1-3m', '1w', 'gt1w'], True),
     'pointer': (['mouse', 'pen', 'touch'], False),
     'tier': (['common', 'mid', 'unusual'], True),

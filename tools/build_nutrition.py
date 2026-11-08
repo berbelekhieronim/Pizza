@@ -36,8 +36,10 @@ BASE = {
     'dough': ('18033', 250.0, 'stand-in: SR28 has no pizza crust; Italian bread is the same baked dough'),
     'sauce': {'tomato': ('06152', 80.0, ''), 'white': ('06264', 80.0, 'white sauce (bechamel)'), 'bbq': ('06150', 60.0, ''), 'none': (None, 0.0, '')},
     'cheese': {'none': (None, 0.0, ''), 'light': ('01028', 60.0, 'mozzarella, part-skim'), 'normal': ('01028', 100.0, 'mozzarella, part-skim'),
-               'extra': ('01028', 150.0, 'mozzarella, part-skim')},
+               'extra': ('01028', 150.0, 'mozzarella, part-skim'), 'vegan': ('label:vegan-cheese', 100.0, 'stand-in: SR28 has no vegan cheese; typical label values of a coconut-oil vegan mozzarella (approximate, B12 fortified)')},
 }
+# foods SR28 does not have, from typical product labels (per 100 g); entry() uses them for an NDB of 'label:<name>'
+LABEL = {'vegan-cheese': ('VEGAN CHEESE, COCONUT-OIL BASED, MOZZARELLA STYLE (LABEL VALUES)', {'kcal': 275.0, 'protein': 0.0, 'fat': 23.0, 'carbs': 20.0, 'fibre': 0.0, 'sugars': 0.0, 'calcium': 0.0, 'iron': 0.0, 'potassium': 0.0, 'vitC': 0.0, 'folate': 0.0, 'vitB12': 2.5, 'vitA': 0.0, 'vitD': 0.0, 'satfat': 21.0, 'salt': 2.3})}
 UNITS = {'kcal': 'kcal', 'protein': 'g', 'carbs': 'g', 'sugars': 'g', 'fat': 'g', 'satfat': 'g', 'fibre': 'g', 'salt': 'g',
          'vitA': 'µg', 'vitC': 'mg', 'vitD': 'µg', 'vitB12': 'µg', 'folate': 'µg', 'calcium': 'mg', 'iron': 'mg', 'potassium': 'mg'}
 RI = {'kcal': 2000, 'protein': 50, 'carbs': 260, 'sugars': 90, 'fat': 70, 'satfat': 20, 'fibre': 25, 'salt': 6, 'vitA': 800, 'vitC': 80,
@@ -64,6 +66,9 @@ def per100(row):
 def entry(db, ndb, grams, note):
     if ndb is None:
         return {'ndb': None, 'food': None, 'grams': 0.0, 'note': note, 'per100': None}
+    if ndb.startswith('label:'):
+        food, values = LABEL[ndb[6:]]
+        return {'ndb': None, 'food': food, 'grams': grams, 'note': note, 'per100': dict(values)}
     row = db[ndb]
     return {'ndb': ndb, 'food': row[1], 'grams': grams, 'note': note, 'per100': per100(row)}
 

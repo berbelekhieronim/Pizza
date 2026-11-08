@@ -3,7 +3,7 @@
 import { loadStudy, studies, scopeName, SYNTHETIC_CHOICES } from './config.js';
 
 export const ALL_KEY = '*';               // study_keys row of the researcher link for all studies
-const STAGE_NAMES = { intro: 'reading the intro', practice: 'practice', build: 'building', typical: 'typical pizza', followup: 'questions', done: 'finished' };
+const STAGE_NAMES = { intro: 'reading the intro', practice: 'practice', build: 'building', typical: 'typical pizza', followup: 'questions', done: 'finished', declined: 'declined consent' };
 const NEURO_NAMES = { autistic: 'Autistic', adhd: 'ADHD', dys: 'Dyslexic etc.', otherND: 'Other ND', none: 'None', pnts: 'Prefer not to say' };
 
 export function esc(s) {
