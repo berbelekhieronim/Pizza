@@ -643,7 +643,39 @@
     ['nutri', 'feel', 'scales', 'about'].forEach(function (k) { T[k] = extend({}, TEXT[k], (L.text || {})[k] || {}, (o.text || {})[k] || {}); });
     if (T.nutri && L.text && L.text.nutri) T.nutri.names = extend({}, TEXT.nutri.names, L.text.nutri.names, ((o.text || {}).nutri || {}).names || {});
     if (L.names) o.names = extend({}, L.names, o.names || {});
+    // a study's own wording (server/study.json "texts", made with tools/texts.py): flat keys such as task.promptBuild,
+    // task.steps.2 (the 2nd of a list), task.metDx.formal (the answer with that code), task.nutri.names.kcal, names.pep
+    var flat = o.texts || {};
+    Object.keys(flat).forEach(function (key) {
+      var v = flat[key], parts = key.split('.');
+      if (typeof v !== 'string' || !v) return;
+      if (parts[0] === 'names' && parts.length === 2) { o.names = extend({}, o.names || {}); o.names[parts[1]] = v; return; }
+      if (parts[0] !== 'task') return;
+      setText(T, parts.slice(1), v);
+    });
     return T;
+  }
+  // puts one text into the (copied) structure of TEXT: objects by key, lists of strings by number (1 = first), lists of
+  // [code, label] pairs by code
+  function setText(T, path, v) {
+    var obj = T;
+    for (var i = 0; i < path.length; i++) {
+      var k = path[i], last = i === path.length - 1, cur = obj[k];
+      if (Array.isArray(obj)) {
+        var arr = obj, n = parseInt(k, 10);
+        if (arr.length && Array.isArray(arr[0])) {             // [code, label] pairs
+          for (var j = 0; j < arr.length; j++) if (arr[j][0] === k) { if (last) arr[j] = [k, v]; else { obj = arr[j]; } break; }
+          return;
+        }
+        if (!(n >= 1 && n <= arr.length)) return;
+        if (last) arr[n - 1] = v; else obj = arr[n - 1];
+        continue;
+      }
+      if (cur === undefined) { if (last) obj[k] = v; return; }
+      if (last) { if (typeof cur === 'string') obj[k] = v; return; }
+      obj[k] = Array.isArray(cur) ? cur.map(function (x) { return Array.isArray(x) ? x.slice() : x; }) : (typeof cur === 'object' ? extend({}, cur) : cur);
+      obj = obj[k];
+    }
   }
 
   function iname(o, code) { return (o.names && o.names[code]) || ING[code].name; }
@@ -665,7 +697,7 @@
     // researcher setting: a "Show nutrition information" button under the pizza, and the pizza's nutrition in the
     // "I'm done" dialog with "Bake it for me" / "I changed my mind" (back to building)
     nutritionReveal: false,
-    names: null, text: null, lang: null, onSave: null, onFinish: null, onEvent: null
+    names: null, text: null, lang: null, texts: null, onSave: null, onFinish: null, onEvent: null
   };
 
   function Builder(root, opts) {
@@ -1316,7 +1348,7 @@
     // 'About you', the last card: who the participant is, so patterns can be explored across many kinds of people.
     // 'diet' is asked here only when the separate diet card is off. Set askAbout: false if the survey asks these itself.
     askAbout: true, aboutQuestions: ['neuro', 'eating', 'diet', 'scales', 'age', 'gender'],
-    scales: ['like', 'fam', 'safe', 'disg', 'norm'], pizzaItems: null, names: null, text: null, lang: null, onSave: null, onFinish: null
+    scales: ['like', 'fam', 'safe', 'disg', 'norm'], pizzaItems: null, names: null, text: null, lang: null, texts: null, onSave: null, onFinish: null
   };
 
   function Followup(root, opts) {
@@ -1722,7 +1754,9 @@
     ingredients: ING,
     defaultIngredients: DEFAULT_INGREDIENTS.slice(),
     text: TEXT,
-    texts: function (lang) { return texts({ lang: lang }); },   // the texts in a language (English where it has none)
+    // the texts in a language (English where it has none), with a study's own wording; and the topping names
+    texts: function (lang, flat) { return texts({ lang: lang, texts: flat }); },
+    names: function (lang, flat) { var o = { lang: lang, texts: flat }; texts(o); var out = {}; for (var k in ING) out[k] = iname(o, k); return out; },
     picture: picture,
     mount: function (root, opts) {
       if (typeof root === 'string') root = document.querySelector(root);

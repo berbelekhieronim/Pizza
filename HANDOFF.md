@@ -186,6 +186,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 | date | session | what was done |
 |---|---|---|
+| 2026-11-08 | Claude Code (cloud) | tools/texts.py: export / import every participant-facing text of a study (xlsx/csv); study "texts" overrides on the page and in the task |
 | 2026-11-08 | Claude Code (cloud) | 0.14.0 (task): Pizza Pilot 11.2026 (pilot-2026-11): Polish flow, consent TAK/NIE (declined stage), vegan cheese, metryczka, baked pizza at the end; per-study flow settings on both servers |
 | 2026-10-27 | Claude Code (cloud) | Type search in four families vs Gaussian-copula no-types nulls (Bonferroni), synthetic latent styles, behaviour x preference correlations |
 | 2026-10-27 | Claude Code (cloud) | Synthetic test data (analysis/synthetic.py) for the tests study: chooser bar (0-500, default 100), ground-truth group differences, flagged everywhere, real-only counts, both servers |

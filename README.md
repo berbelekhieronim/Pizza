@@ -231,6 +231,19 @@ settings above, a study can set its own flow:
 
 The toppings are shown in a new random order for every participant (as in every study).
 
+**Changing the wording.** Every text a participant sees in a study can be exported to a spreadsheet, edited (for example
+by collaborators) and loaded back, without touching the code:
+
+```
+python3 tools/texts.py export pilot-2026-11 teksty.xlsx    # or .csv; one row per text: key, where it is shown, current text, new text
+python3 tools/texts.py import pilot-2026-11 teksty.xlsx    # only rows with a new text; writes server/study.json
+```
+
+Import puts the consent and end-page texts into the study's own settings and everything else into its `"texts"`
+(flat keys such as `task.steps.2` or `names.pep`), which the participant page and the task use instead of their built-in
+wording. Placeholders such as `{x}` must stay; a text without them is skipped and reported. Commit and push, and the
+site updates. The current sheet for Pizza Pilot 11.2026 is `docs/texts/teksty-pilot-2026-11.xlsx`.
+
 Things to know:
 - **Coming back mid-study.** If a participant reloads, closes the tab or opens their personal link again, they are not
   asked for consent again: they return to the part they were on, which starts again, with a short "welcome back"

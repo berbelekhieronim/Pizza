@@ -62,7 +62,13 @@
       typical: 'Teraz zrób pizzę, którą Twoim zdaniem wybrałaby typowa osoba biorąca udział w tym badaniu. Przeciągaj składniki na pizzę; przeciągnij składnik poza pizzę, aby go usunąć.' }
   };
   var L = WORDS.en;
-  function words(lang) { L = WORDS[lang] || WORDS.en; document.documentElement.lang = WORDS[lang] ? lang : 'en'; next.querySelector('button').textContent = L.next; }
+  // a study's own wording for these (study.json "texts": page.<key>, made with tools/texts.py) replaces the defaults
+  function words(lang, own) {
+    L = {}; var base = WORDS[lang] || WORDS.en;
+    for (var k in base) L[k] = base[k];
+    for (var key in (own || {})) if (key.indexOf('page.') === 0 && typeof own[key] === 'string' && own[key] && L[key.slice(5)] != null) L[key.slice(5)] = own[key];
+    document.documentElement.lang = WORDS[lang] ? lang : 'en'; next.querySelector('button').textContent = L.next;
+  }
   var stage = document.getElementById('stage'), next = document.getElementById('next'), status = document.getElementById('status'), notice = document.getElementById('notice');
   var widget = null, timer = null, pending = false;
 
@@ -107,6 +113,7 @@
     stage.appendChild(box);
     var opts = { mode: name === 'typical' ? 'build' : name, onSave: onSave, condition: S.cond, onFinish: function () { send(true); go(o[i + 1]); } };
     if (S.study.lang) opts.lang = S.study.lang;
+    if (S.study.texts) opts.texts = S.study.texts;
     if (name === 'typical') {
       opts.prefix = 'pzt_';
       opts.prompt = L.typical;
@@ -172,12 +179,12 @@
   var studyInfo = fetch('study.json?' + new URLSearchParams({ i: link.i, study: link.study })).then(function (r) { return r.json(); }).catch(function () { return {}; });
   if (!PizzaBuilder.isDesktop()) {        // computers only: no session is started on a phone or tablet
     studyInfo.then(function (st) {
-      var T = PizzaBuilder.texts((st || {}).lang);
+      var T = PizzaBuilder.texts((st || {}).lang, (st || {}).texts);
       stage.innerHTML = '<h1>' + esc(T.desktopTitle) + '</h1><p>' + esc(T.desktopBody) + '</p>';
     });
     return;
   }
-  studyInfo.then(function (st) { words((st || {}).lang); });
+  studyInfo.then(function (st) { words((st || {}).lang, (st || {}).texts); });
   function start(ts) {
     return fetch('api/start?' + new URLSearchParams({ pid: link.i ? '' : (params.get('pid') || params.get('PROLIFIC_PID') || sessionStorage.getItem('pz-pid') || ''),
       group: params.get('group') || '', cond: params.get('cond') || '', i: link.i, study: link.study, source: link.source, ts: ts || '' })).then(function (r) { return r.json(); });
@@ -205,7 +212,7 @@
       return;
     }
     S.study = res[0] || {};
-    words(S.study.lang);
+    words(S.study.lang, S.study.texts);
     S.pid = res[1].pid; S.cond = res[1].cond || '';
     try { sessionStorage.setItem('pz-pid', S.pid); } catch (e) {}
     document.title = S.study.title || document.title;

@@ -701,6 +701,17 @@ def main():
             nut = json.load(open(os.path.join(ROOT, 'analysis', 'nutrition.json'), encoding='utf-8'))
             embedded = re.search(r'var NUTRITION = (\{.*?\});\n', open(os.path.join(ROOT, 'pizza-builder.js'), encoding='utf-8').read())
             check(embedded and json.loads(embedded.group(1)) == nut, 'the task embeds the same nutrition table as analysis/nutrition.json')
+            # a study's own wording (tools/texts.py): every text exported, overrides applied without touching the defaults
+            tcsv = os.path.join(tmp, 'teksty.csv')
+            ok = run('tools/texts.py', 'export', 'pilot-2026-11', tcsv)
+            trows = list(csv.reader(open(tcsv, encoding='utf-8-sig')))[1:] if ok else []
+            js = ("global.window = global; global.document = undefined; require(%s); var own = {'task.steps.2': 'S2', 'task.metDx.formal': 'F', 'names.pep': 'Salami', 'task.nutri.names.kcal': 'K'};"
+                  "var T = PizzaBuilder.texts('pl', own), D = PizzaBuilder.texts('pl');"
+                  "console.log(JSON.stringify([T.steps[1], T.metDx[1][1], PizzaBuilder.names('pl', own).pep, T.nutri.names.kcal, D.steps[1] !== 'S2', D.metDx[1][1] !== 'F', PizzaBuilder.text.steps[1] !== 'S2']));"
+                  % json.dumps(os.path.join(ROOT, 'pizza-builder.js')))
+            out_ = subprocess.run(['node', '-e', js], capture_output=True, text=True)
+            check(len(trows) >= 120 and all(r[0] and r[2] for r in trows) and out_.returncode == 0 and json.loads(out_.stdout) == ['S2', 'F', 'Salami', 'K', True, True, True],
+                  'tools/texts.py exports every text of Pizza Pilot 11.2026 (%d); a study\'s own wording replaces the built-in texts, the defaults stay' % len(trows))
             g1 = FB.A.piece_grams({'ing': 'tom', 's': 1.0})
             check(abs(FB.A.piece_grams({'ing': 'tom', 's': 2.0}) - 4 * g1) < 1e-9 and abs(FB.A.piece_grams({'ing': 'tom', 's': 0.5}) - g1 / 4) < 1e-9,
                   'a piece twice as big weighs 4x (grams follow area)')

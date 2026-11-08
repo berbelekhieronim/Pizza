@@ -5,6 +5,13 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**The wording of a study, as a spreadsheet** (`tools/texts.py`): `export` writes every text a participant of a study
+sees (127 for Pizza Pilot 11.2026: consent, practice, building, nutrition table, metryczka, end page, messages, topping
+names), with where it is shown and an empty column for the new text; `import` loads the edited sheet back into
+`server/study.json` (the study's settings and its new `"texts"`), checking that placeholders such as `{x}` stay. The
+participant page and the task (`texts` option, `PizzaBuilder.texts(lang, texts)`) use a study's own wording over the
+built-in texts. The sheet for Pizza Pilot 11.2026: `docs/texts/teksty-pilot-2026-11.xlsx`.
+
 **Task 0.14.0 and Pizza Pilot 11.2026: each version of the study is a study of its own**
 - New study `pilot-2026-11`, *Pizza Pilot 11.2026*, listed on the researcher page with its title; open link
   `/?study=pilot-2026-11`. Its flow, in Polish:
