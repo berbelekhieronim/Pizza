@@ -192,6 +192,7 @@ def cloudflare_checks(tmp, fields):
         check(api(base, 'sessions', key, study='all', stage='done', sort='n_pieces', dir='asc')['total'] == 3, 'Worker: filters by stage and sorts')
         rows = list(csv.DictReader(io.StringIO(http('GET', base + '/admin/sessions.csv?key=' + key)[1].decode('utf-8-sig'))))
         check({r['study'] for r in rows} == {'main', 'pilot-asd'} and len(rows) == 3, 'Worker: session list (.csv)')
+        client_checks(base, key, 'CFSMOKE1', 'Worker: ')
         skey = researcher_access_checks(base, key, 'pilot-asd', 2, 3, 'CFSMOKE1', 'Worker: ')
         inclusion_checks(base, key, skey, 'pilot-asd', 'CFSMOKE1', 'Worker: ')
         check(all(http(m, base + p + '?key=' + skey, b)[0] == 404 for m, p, b in
@@ -296,6 +297,25 @@ def post_form(url, form):
             return r.status, r.read()
     except urllib.error.HTTPError as e:
         return e.code, e.read()
+
+
+def client_checks(base, key, pid, label):
+    """The device the participant page records (browser, system, time zone, trouble saving or in the page): listed on the
+    Sessions tab and in the session list download, with the times also in Warsaw time."""
+    sys.path.insert(0, os.path.join(ROOT, 'server'))
+    import server as SRV
+    cl = {'client': json.dumps({'ua': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0', 'browser': 'Chrome 130', 'os': 'Windows 11', 'tz': 'Europe/Warsaw'}),
+          'browser': 'Chrome 130', 'os': 'Windows 11', 'tz': 'Europe/Warsaw', 'save_fails': '2',
+          'client_errors': json.dumps([['2026-11-10T12:00:00Z', 'build', 'TypeError: x'], ['2026-11-10T12:00:01Z', 'build', 'ReferenceError: y']])}
+    check(http('POST', base + '/api/save', {'pid': pid, 'fields': cl})[0] == 200, label + 'saves the participant\'s browser, system and any trouble')
+    row = next((r for r in api(base, 'sessions', key, study='all')['rows'] if r['pid'] == pid), {})
+    rows = list(csv.DictReader(io.StringIO(http('GET', base + '/admin/sessions.csv?key=' + key)[1].decode('utf-8-sig'))))
+    c = next((r for r in rows if r['pid'] == pid), {})
+    check(row.get('browser') == 'Chrome 130' and row.get('os') == 'Windows 11' and row.get('tz') == 'Europe/Warsaw' and row.get('save_fails') == '2'
+          and c.get('browser') == 'Chrome 130' and c.get('os') == 'Windows 11' and c.get('n_client_errors') == '2' and c.get('save_fails') == '2'
+          and c.get('started_warsaw') == SRV.warsaw(c.get('started')) and c.get('started_warsaw') not in (None, '', 'NA')
+          and all(r.get('browser') == 'NA' for r in rows if r['pid'] != pid),
+          label + 'Sessions tab and session list (.csv): browser, system, time zone, retried saves, page errors, times in Warsaw time (NA where not recorded)')
 
 
 def inclusion_checks(base, key, skey, study, other_pid, label):
@@ -591,6 +611,7 @@ def main():
             check(code == 200 and {r['pid'] for r in rows} == {'SMOKE001', 'OLD001'} | {i['invite'] for i in invites}
                   and {r['study'] for r in rows} == {'main', 'pilot-asd'}, 'session list (.csv) holds every session')
             # each study's researcher link sees, analyses and exports that study only
+            client_checks(base, 'smoke-key', 'SMOKE001', '')
             skey = researcher_access_checks(base, 'smoke-key', 'pilot-asd', 3, 5, 'SMOKE001', '')
             inclusion_checks(base, 'smoke-key', skey, 'pilot-asd', 'SMOKE001', '')
             # the R download carries analysed sessions only: an excluded one is in neither the tables nor raw/
@@ -727,6 +748,17 @@ def main():
             nut = json.load(open(os.path.join(ROOT, 'analysis', 'nutrition.json'), encoding='utf-8'))
             embedded = re.search(r'var NUTRITION = (\{.*?\});\n', open(os.path.join(ROOT, 'pizza-builder.js'), encoding='utf-8').read())
             check(embedded and json.loads(embedded.group(1)) == nut, 'the task embeds the same nutrition table as analysis/nutrition.json')
+            # Warsaw time (session list download): the EU summer-time rule in server.py (and the Worker, checked against it
+            # above) agrees with the time-zone database of node / the researcher's browser, around both changes of the clock
+            sys.path.insert(0, os.path.join(ROOT, 'server'))
+            import server as SRV
+            ts = ['2026-03-29T00:59:59Z', '2026-03-29T01:00:00Z', '2026-10-25T00:59:59Z', '2026-10-25T01:00:00Z', '2026-11-10T13:35:12Z',
+                  '2026-07-01T22:30:00Z', '2027-03-28T01:00:00Z', '2025-12-31T23:30:00Z', '2028-10-29T00:30:00Z']
+            js = ("const f = new Intl.DateTimeFormat('sv-SE', {timeZone: 'Europe/Warsaw', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'});"
+                  "console.log(JSON.stringify(%s.map(t => f.format(new Date(t)))));" % json.dumps(ts))
+            out_ = subprocess.run(['node', '-e', js], capture_output=True, text=True)
+            check(out_.returncode == 0 and json.loads(out_.stdout) == [SRV.warsaw(t) for t in ts],
+                  'Warsaw time in the session list agrees with the time-zone database, around summer time (%d times)' % len(ts))
             # every topping in every table (CLAUDE.md: the tables that must stay in step), tofu included
             js = ("global.window = global; global.document = undefined; require(%s); require(%s); var I = PizzaBuilder.ingredients;"
                   "var cases = JSON.parse(require('fs').readFileSync(0, 'utf8'));"

@@ -265,8 +265,24 @@ Per pizza: `n_adjustments`, `n_adj_*`, `adj_symmetry_expected`, `adj_symmetry_ex
 ### Study server session fields
 
 `study`, `group`, `source`, `invite`, `cond` (from the link), `consent` (time the consent box was ticked and the
-participant went on), `restarts` (times they came back mid-study, see README), `stage` (last part reached:
-intro / practice / build / typical / followup / done), `started`, `updated`.
+participant went on; `declined <time>` for NIE), `restarts` (times they came back mid-study, see README), `stage` (last
+part reached: intro / practice / build / typical / followup / done / declined), `started`, `updated`. All times are
+UTC (ISO 8601, ending in `Z`); the researcher page shows them in Warsaw time, and the session list download has
+`started_warsaw` and `finished_warsaw` as well.
+
+From study server 0.13.0 the participant page also saves, when the session starts (and again if they come back):
+
+| field | content |
+|---|---|
+| `browser` | browser and major version, e.g. `Chrome 130`, `Edge 130`, `Firefox 132`, `Safari 18` |
+| `os` | system, e.g. `Windows 11`, `Windows 10`, `Windows 10/11` (Firefox and Safari cannot tell them apart), `macOS`, `Linux`, `ChromeOS` |
+| `tz` | the computer's time zone, e.g. `Europe/Warsaw` |
+| `client` | JSON: `ua` (the full user-agent string), `browser`, `os`, `tz`, `tzOffset` (minutes ahead of UTC), `lang`, `langs` (preferred languages), `screen` [w, h], `viewport` [w, h], `dpr`, `touch` (touch points), `cores`, `at` (when recorded) |
+| `save_fails` | saves that did not go through and were retried (offline, server busy); missing = none |
+| `client_errors` | JSON list of errors in the page, at most 20: `[time, part, message]`; missing = none |
+
+No IP address or location is recorded. Sessions from before 0.13.0 have none of these (NA in the downloads).
+`browser`, `os` and `tz` are also columns of `participants.csv`.
 
 ### The study server's database (`server/data/study.db`, SQLite)
 

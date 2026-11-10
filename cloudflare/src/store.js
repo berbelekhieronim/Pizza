@@ -9,6 +9,9 @@ const SYN_SQL = "pid LIKE 'SYN-%'";               // synthetic sessions of a tes
 // The researcher's choice for a session (field 'inclusion', never taken from a participant's save), as in store.py
 export const INCLUSION_VALUES = ['include', 'exclude', 'auto'];
 const INCL_SQL = "COALESCE((SELECT NULLIF(value, 'auto') FROM fields WHERE fields.pid = sessions.pid AND name = 'inclusion'), '')";
+// saved by the participant page: browser, system, time zone, trouble saving or in the page (as store.py CLIENT_SQL)
+export const CLIENT_FIELDS = ['browser', 'os', 'tz', 'save_fails', 'client_errors'];
+const CLIENT_SQL = CLIENT_FIELDS.map((k) => `(SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = '${k}') AS ${k}`).join(', ');
 const LEFT_OUT_SQL = `(${INCL_SQL} = 'exclude' OR (${INCL_SQL} = '' AND stage NOT IN ('typical', 'followup', 'done') AND n_pieces IS NOT NULL))`;
 const INCLUDED_SQL = `(${INCL_SQL} = 'include' OR (${INCL_SQL} = '' AND stage IN ('typical', 'followup', 'done')))`;
 // what the analysis does with a session: included / left_out / no_pizza (shown on the Sessions tab and in sessions.csv)
@@ -118,7 +121,7 @@ export class Store {
     sort = SORTABLE.includes(sort) ? sort : 'started';
     const [total, rows] = await this.db.batch([
       this.db.prepare(`SELECT COUNT(*) AS n, SUM(stage = 'done') AS done FROM sessions${w}`).bind(...a),
-      this.db.prepare(`SELECT *, ${INCL_SQL} AS inclusion, ${ANALYSIS_SQL} AS analysis FROM sessions${w} ORDER BY ${sort} ${desc ? 'DESC' : 'ASC'}, pid LIMIT ? OFFSET ?`).bind(...a, limit, offset),
+      this.db.prepare(`SELECT *, ${INCL_SQL} AS inclusion, ${ANALYSIS_SQL} AS analysis, ${CLIENT_SQL} FROM sessions${w} ORDER BY ${sort} ${desc ? 'DESC' : 'ASC'}, pid LIMIT ? OFFSET ?`).bind(...a, limit, offset),
     ]);
     return { rows: rows.results, total: total.results[0].n, done: total.results[0].done || 0 };
   }

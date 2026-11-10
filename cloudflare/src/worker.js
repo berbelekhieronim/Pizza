@@ -94,6 +94,25 @@ function csvCell(v) {
 }
 const csvRow = (cells) => cells.map(csvCell).join(',') + '\r\n';
 
+export function warsaw(t) {
+  // a stored UTC time ('2026-11-10T13:35:12Z') as Warsaw time ('2026-11-10 14:35:12'): CET (UTC+1), CEST (UTC+2) from
+  // the last Sunday of March to the last Sunday of October, 01:00 UTC (the EU rule; same as warsaw() in server.py)
+  const u = Date.parse(String(t).slice(0, 19) + 'Z');
+  if (Number.isNaN(u)) return null;
+  const y = new Date(u).getUTCFullYear();
+  const lastSunday = (m) => { const d = new Date(Date.UTC(y, m + 1, 0, 1)); return d.getTime() - d.getUTCDay() * 86400000; };
+  const summer = u >= lastSunday(2) && u < lastSunday(9);
+  return new Date(u + (summer ? 2 : 1) * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+}
+const SESSION_CSV = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'started_warsaw', 'finished_warsaw',
+  'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'analysis', 'inclusion', 'browser', 'os', 'tz', 'save_fails', 'n_client_errors'];
+function sessionCsvRow(r0) {
+  // one row of the session list download (as server.py session_csv_row): times in UTC as stored, and in Warsaw time
+  const r = { ...r0, started_warsaw: r0.started ? warsaw(r0.started) : null, finished_warsaw: r0.finished ? warsaw(r0.finished) : null };
+  try { r.n_client_errors = JSON.parse(r0.client_errors || '[]').length; } catch (e) { r.n_client_errors = null; }
+  return SESSION_CSV.map((c) => (c === 'study' && !r[c] ? 'main' : c === 'inclusion' && !r[c] ? 'auto' : r[c] === null || r[c] === undefined ? 'NA' : r[c]));
+}
+
 class Request_ {
   constructor(request, env, ctx) {
     this.req = request;
@@ -306,9 +325,8 @@ class Request_ {
     }
     if (route === '/admin/sessions.csv') {
       const { rows } = await st.query(f, this.arg('sort', 'started'), this.arg('dir', 'desc') !== 'asc', 1e9);
-      const cols = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'analysis', 'inclusion'];
-      let out = csvRow(cols.map((c) => (c === 'grp' ? 'group' : c)));
-      for (const r of rows) out += csvRow(cols.map((c) => (c === 'study' && !r[c] ? 'main' : c === 'inclusion' && !r[c] ? 'auto' : r[c] === null ? 'NA' : r[c])));
+      let out = csvRow(SESSION_CSV.map((c) => (c === 'grp' ? 'group' : c)));
+      for (const r of rows) out += csvRow(sessionCsvRow(r));
       return this.download(out, 'text/csv; charset=utf-8', `sessions-${filterSlug(f) || 'all'}-${stamp()}.csv`);
     }
     if (route === '/admin/invites.csv') {

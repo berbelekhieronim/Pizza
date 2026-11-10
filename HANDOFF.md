@@ -4,7 +4,7 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-11-10, task version 0.15.0, server 0.12.1)
+## Snapshot (2026-11-10, task version 0.15.0, server 0.13.0)
 
 - **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
@@ -137,6 +137,11 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 ## Known limitations and open questions
 
+- **Phones and tablets leave no trace.** The task is desktop only and starts no session on a phone, so people who open
+  the link on a phone are not counted anywhere. If the pilot is advertised where people read on phones, consider
+  recording these visits (a count, or a session in a stage of its own) to know how many are lost.
+- **Live data seen from the reports job only.** The GitHub reports log on 2026-11-10 showed 533 sessions (510 synthetic
+  in the test study), 3 finished pizzas in Pizza Pilot 11.2026. Device and trouble fields start with server 0.13.0.
 - **Tofu and the pilot.** Pizza Pilot 11.2026 had participants before tofu and the vegan mark (task 0.14.0) and has
   them after (0.15.0). Their pizzas are analysed together (tofu NA where not offered; `docs/BUILDER.md`), but the
   stimulus differs: compare or control for `summary.v` (task version) before pooling sauce choice or vegan share.
@@ -193,6 +198,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-10 | Claude Code (cloud) | Server 0.13.0: data-capture check (logs, save path, limits); device (browser, os, tz, client), save_fails, client_errors; whole event log kept; leaving the page sends unsaved fields only; Warsaw time on the researcher page and in the session list |
 | 2026-11-10 | Claude Code (cloud) | meat_or_fish fixed (seafood was never flagged); smoke check against diet_class |
 | 2026-11-10 | Claude Code (cloud) | 0.15.0 (task): tofu on every tray, vegan mark on tomato and BBQ sauces; n_<topping> NA when not offered, sample comparisons over offered toppings; explicit sauce/cheese diet tables (preview fixed for vegan cheese); docs/BUILDER.md; reports signature counts inclusion choices |
 | 2026-11-08 | Claude Code (cloud) | R download: raw/ now holds only the analysed sessions (excluded, declined and unfinished ones left out), both servers; smoke check |

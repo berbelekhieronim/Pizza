@@ -195,7 +195,17 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     });
   }
   function mins(s) { return s == null ? '–' : (s / 60).toFixed(s < 600 ? 1 : 0) + ' min'; }
-  function when(t) { return t ? t.replace('T', ' ').slice(0, 16) : '–'; }
+  // every time on this page is Warsaw time (the times are stored in UTC)
+  var WAW = null;
+  try { WAW = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Warsaw', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }); } catch (e) {}
+  function waw(t) {        // {year, month, day, hour, minute} of a stored time, in Warsaw
+    var d = new Date(t), p = {};
+    if (isNaN(d)) return null;
+    if (!WAW) { var i = d.toISOString(); return { year: i.slice(0, 4), month: i.slice(5, 7), day: i.slice(8, 10), hour: i.slice(11, 13), minute: i.slice(14, 16) }; }
+    WAW.formatToParts(d).forEach(function (x) { p[x.type] = x.value; });
+    return p;
+  }
+  function when(t) { var p = t && waw(t); return p ? p.year + '-' + p.month + '-' + p.day + ' ' + p.hour + ':' + p.minute : '–'; }
   function pct(a, b) { return b ? Math.round(100 * a / b) + '%' : '–'; }
 
   function setUrl(study, tab) {
@@ -320,7 +330,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
       html = '<span class="spin" aria-hidden="true"></span><span class="msg"><b>Building the reports</b> · ' + esc(st.step || '') + ' · started ' + ago(st.started) + ' ago</span>';
     } else if (queued) {
       html = '<span class="spin" aria-hidden="true"></span><span class="msg"><b>Build queued</b> · ' + esc(st.step || '')
-        + (b.due ? ' · builds about ' + esc(when(b.due).slice(11)) + ' UTC if nobody else saves before then' : '') + '</span>';
+        + (b.due ? ' · builds about ' + esc(when(b.due).slice(11)) + ' if nobody else saves before then' : '') + '</span>';
     } else if (waiting) {
       html = b.instant ? '<span class="spin" aria-hidden="true"></span><span class="msg"><b>Build requested</b> ' + ago(b.wanted) + ' ago · GitHub is starting it</span>'
         : '<span class="msg"><b>Build requested</b>, but the site cannot start GitHub without the GitHub token: start it from GitHub (Actions → reports → Run workflow).</span>';
@@ -328,10 +338,10 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
       cls += ' failed';
       html = '<span class="msg"><b>The last build failed</b> ' + ago(st.updated) + ' ago: ' + esc((st.log || []).slice(-1)[0] || '') + '</span>';
     } else if (r && r.code_changed && !(b && b.pending)) {
-      html = '<span class="msg"><b>The analysis was updated</b> since these reports were built (' + esc(when(r.when)) + ' UTC) · press <b>Build reports</b> to see the new version</span>';
+      html = '<span class="msg"><b>The analysis was updated</b> since these reports were built (' + esc(when(r.when)) + ') · press <b>Build reports</b> to see the new version</span>';
     } else if (b && b.pending) {
       html = '<span class="msg"><b>New data since the last build</b>'
-        + (r ? ' (reports from ' + esc(when(r.when)) + ' UTC)' : '') + ' · '
+        + (r ? ' (reports from ' + esc(when(r.when)) + ')' : '') + ' · '
         + (b.auto ? 'a build is queued when the next session finishes, or press Build reports'
           : b.instant ? 'press <b>Build reports</b> to analyse it (a minute or two)' : 'builds need the GitHub token; start one from GitHub (Actions → reports → Run workflow)')
         + '</span>';
@@ -339,7 +349,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
       var c = r.check || {}, extra = [];
       if (c.typical) extra.push(c.typical + ' typical-participant pizza' + (c.typical === 1 ? '' : 's') + ' analysed separately');
       if (c.left_out) extra.push(c.left_out + ' unfinished build' + (c.left_out === 1 ? '' : 's') + ' left out');
-      html = '<span class="msg">Reports built ' + esc(when(r.when)) + ' UTC from ' + r.n + ' finished pizza' + (r.n === 1 ? '' : 's')
+      html = '<span class="msg">Reports built ' + esc(when(r.when)) + ' from ' + r.n + ' finished pizza' + (r.n === 1 ? '' : 's')
         + (extra.length ? ' (' + esc(extra.join('; ')) + ')' : '') + ' · up to date'
         + (c.ok === false ? ' · <b class="warn">Data check: ' + r.n + ' pizzas analysed but ' + c.built_sessions + ' sessions got past the build; see Overview → Data check</b>'
           : (c.ok ? ' · ✓ matches the sessions' : '')) + '</span>';
@@ -351,7 +361,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
       + (running || waiting || queued ? ' disabled' : '') + ' title="Analyses the sessions that changed since the last build">Build reports</button></form>';
     if (st && st.run_url) html += '<a class="small" href="' + esc(st.run_url) + '" target="_blank" rel="noopener">Open the run on GitHub</a>';
     if (st && st.log && st.log.length) {
-      html += '<details class="buildlog"' + (running || (st.state === 'failed') ? ' open' : '') + '><summary>Build log' + (st.started ? ' (' + esc(when(st.started)) + ' UTC)' : '') + '</summary><pre>'
+      html += '<details class="buildlog"' + (running || (st.state === 'failed') ? ' open' : '') + '><summary>Build log' + (st.started ? ' (' + esc(when(st.started)) + '; times in the log are UTC)' : '') + '</summary><pre>'
         + esc(st.log.join('\n')) + '</pre></details>';
     }
     var el = $('buildbar'), open = el.querySelector('details') && el.querySelector('details').open;
@@ -374,9 +384,9 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
       .then(function (s) { S = s; buildBar(); kpiRefresh(); }).catch(function () { poll = setTimeout(refresh, 15000); });
   }
   function shortTime(t) {
-    if (!t) return '–';
-    var d = new Date(t), mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
-    return d.getDate() + ' ' + mon + ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+    var p = t && waw(t);
+    if (!p) return '–';
+    return (+p.day) + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+p.month - 1] + ' ' + p.hour + ':' + p.minute;
   }
   function analysisTile() {
     // is everything so far in the reports? green when yes, amber while new data waits or is being analysed
@@ -459,10 +469,13 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
       $('count').innerHTML = '<b>' + d.total + ' session' + (d.total === 1 ? '' : 's') + ' match</b>, ' + d.done + ' finished.';
       $('csv').href = '/admin/sessions.csv?' + q(Object.assign({ sort: view.sort, dir: view.dir }, view.filters));
       var cols = [['pid', 'Participant'], ['inclusion', 'Analysis'], ['study', 'Study'], ['grp', 'Group'], ['source', 'Source'], ['neuro', 'Says they are'], ['cond', 'Condition'],
-        ['stage', 'Where'], ['n_pieces', 'Pieces'], ['started', 'Started (UTC)'], ['seconds', 'Time taken'], ['restarts', 'Restarts']];
+        ['stage', 'Where'], ['n_pieces', 'Pieces'], ['started', 'Started (Warsaw)'], ['seconds', 'Time taken'], ['restarts', 'Restarts'], ['os', 'Device']];
+      // columns nobody on this page has a value in (e.g. no groups or conditions in this study) are left out, to save room
+      cols = cols.filter(function (c) { return ['grp', 'source', 'neuro', 'cond'].indexOf(c[0]) < 0 || d.rows.some(function (r) { return r[c[0]]; }); });
       var head = '<tr>' + cols.map(function (c) {
         if (c[0] === 'inclusion') return '<th title="Whether this session\'s pizza is analysed. Automatic: yes once they pressed &quot;I\'m done&quot;; '
           + 'a pizza they stopped building is left out. Choose Include or Exclude to override; the reports rebuild.">' + c[1] + '</th>';
+        if (c[0] === 'os') return '<th title="The participant\'s browser and system, recorded when the session started (from study server 0.13.0). ⚠: saves that had to be retried or errors in the page (hover for details); the time zone shows on hover.">' + c[1] + '</th>';
         var arrow = c[0] === view.sort ? (view.dir === 'desc' ? ' ▼' : ' ▲') : '';
         return '<th><a data-sort="' + c[0] + '">' + c[1] + arrow + '</a></th>';
       }).join('') + '</tr>';
@@ -479,9 +492,17 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
           if (c[0] === 'started') v = when(v);
           if (c[0] === 'seconds') v = v == null ? '' : mins(v);
           if (c[0] === 'inclusion') return '<td>' + inclusionCell(r) + '</td>';
+          if (c[0] === 'os') {      // browser, system, time zone and trouble: recorded from study server 0.13.0 (earlier sessions: empty)
+            var trouble = [];
+            if (+r.save_fails) trouble.push(r.save_fails + ' save' + (+r.save_fails === 1 ? '' : 's') + ' failed and were retried');
+            try { var ce = JSON.parse(r.client_errors || '[]'); if (ce.length) trouble.push(ce.length + ' page error' + (ce.length === 1 ? '' : 's') + ': ' + ce.map(function (x) { return x[2]; }).join(' | ')); } catch (e) {}
+            v = [r.browser, r.os].filter(Boolean).join(' · ');
+            return '<td' + (r.tz ? ' title="time zone ' + esc(r.tz) + '"' : '') + '>' + esc(v)
+              + (trouble.length ? ' <span class="syn" title="' + esc(trouble.join('; ')) + '">⚠</span>' : '') + '</td>';
+          }
           return '<td>' + esc(v == null ? '' : v) + '</td>';
         }).join('') + '</tr>';
-      }).join('') || '<tr><td colspan="12" class="muted">No sessions match.</td></tr>';
+      }).join('') || '<tr><td colspan="' + cols.length + '" class="muted">No sessions match.</td></tr>';
       $('table').innerHTML = head + body;
       $('pager').innerHTML = d.pages > 1 ? (d.page > 1 ? '<button class="alt small" data-page="' + (d.page - 1) + '">&larr; newer</button>' : '')
         + '<span class="muted small">page ' + d.page + ' of ' + d.pages + '</span>'

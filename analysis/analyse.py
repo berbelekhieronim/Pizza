@@ -3784,7 +3784,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
                                            e[9] if len(e) > 9 and isinstance(e[9], list) else [None] * 7))})
             svgs.append((pid, prefix, pizza_svg(pieces, summary, '%s %s (%d)' % (pid, prefix.rstrip('_'), n))))
             piece_long.extend(piece_rows(pid, prefix, final, pieces, rec))
-            for c in (group_cols or []) + ['study', 'source', 'group']:     # grouping columns from the export / study server
+            for c in (group_cols or []) + ['study', 'source', 'group', 'browser', 'os', 'tz']:     # grouping columns from the export / study server; the device
                 if c not in rec:
                     rec[c] = field(row, c) or row.get(c) or None
             if rec['study'] is None and 'study' in row:       # study server sessions outside any named study

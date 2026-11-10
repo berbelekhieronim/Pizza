@@ -224,6 +224,36 @@ def analysed_pids(folder):
         return set()
 
 
+def warsaw(t):
+    """A stored UTC time ('2026-11-10T13:35:12Z') as Warsaw time ('2026-11-10 14:35:12'): CET (UTC+1), CEST (UTC+2) from
+    the last Sunday of March to the last Sunday of October, 01:00 UTC (the EU rule; same as warsaw() in the Worker)."""
+    import calendar as _cal
+    import datetime as _dt
+    try:
+        u = _dt.datetime.strptime(str(t)[:19], '%Y-%m-%dT%H:%M:%S')
+    except ValueError:
+        return None
+    def last_sunday(month):
+        d = _dt.datetime(u.year, month, _cal.monthrange(u.year, month)[1], 1)
+        return d - _dt.timedelta(days=(d.weekday() + 1) % 7)
+    summer = last_sunday(3) <= u < last_sunday(10)
+    return (u + _dt.timedelta(hours=2 if summer else 1)).strftime('%Y-%m-%d %H:%M:%S')
+
+
+SESSION_CSV = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'started_warsaw', 'finished_warsaw',
+               'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'analysis', 'inclusion', 'browser', 'os', 'tz', 'save_fails', 'n_client_errors']
+
+
+def session_csv_row(r):
+    """One row of the session list download (the same in the Worker): times in UTC as stored, and in Warsaw time."""
+    r = dict(r, started_warsaw=warsaw(r.get('started')) if r.get('started') else None, finished_warsaw=warsaw(r.get('finished')) if r.get('finished') else None)
+    try:
+        r['n_client_errors'] = len(json.loads(r.get('client_errors') or '[]'))
+    except ValueError:
+        r['n_client_errors'] = None
+    return ['main' if c == 'study' and not r.get(c) else 'auto' if c == 'inclusion' and not r.get(c) else ('NA' if r.get(c) is None else r[c]) for c in SESSION_CSV]
+
+
 def filter_slug(f):
     """A short, stable name for a filter (for the reports folder): '' for none, the study for a study only."""
     used = {k: v for k, v in f.items() if v not in (None, '') or (k == 'study' and v == '')}
@@ -423,10 +453,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             rows, _, _ = st.query(f, self.arg('sort', 'started'), self.arg('dir', 'desc') != 'asc', limit=10 ** 9)
             buf = io.StringIO()
             w = csv.writer(buf)
-            cols = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'analysis', 'inclusion']
-            w.writerow(['group' if c == 'grp' else c for c in cols])
+            w.writerow(['group' if c == 'grp' else c for c in SESSION_CSV])
             for r in rows:
-                w.writerow(['main' if c == 'study' and not r[c] else 'auto' if c == 'inclusion' and not r[c] else ('NA' if r[c] is None else r[c]) for c in cols])
+                w.writerow(session_csv_row(r))
             return self.download(buf.getvalue().encode('utf-8'), 'text/csv; charset=utf-8', 'sessions%s.csv' % self.tag(f))
         if route == '/admin/invites.csv':
             sid = f['study']

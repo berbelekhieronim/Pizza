@@ -281,6 +281,9 @@ The researcher page starts with a **study chooser**; each study then opens in on
 Profiles, Symmetry, Methods, Links & data). Its session list:
 - **Filter** by study, group, recruitment source, condition, where people are (intro … finished), what they say they
   are, start date and participant id; click a column heading to **sort**; 100 sessions per page.
+- **Times are Warsaw time** (stored in UTC). The **Device** column shows each participant's browser and system (hover:
+  time zone); **⚠** marks a session whose saves had to be retried or whose page had errors (hover for what happened).
+  Recorded from study server 0.13.0; the full list of what is kept is in `CODEBOOK.md` → *Study server session fields*.
 - **Everything below the filter follows it**: the counts, the reports, and the exports – *Download for R* (all tables,
   `variables.csv`, `load_pizza.R` and the raw sessions), *Session list (.csv)* (one row per session, as shown),
   *Raw sessions (.zip)* and *Database (.sqlite)* (a copy of the database; with a study chosen, that study only).

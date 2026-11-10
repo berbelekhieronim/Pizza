@@ -34,6 +34,7 @@ SECTIONS = [
     ('Identifiers and raw counts', None, [
         ('pid, build, condition, finished, group', 'As recorded: participant, which build (pz = own pizza, pzt = "typical" pizza), condition, finished (1/0), group from the study link.', 'analyse'),
         ('study, source', 'Study server: the study the participant\'s link belongs to (study.json "studies"), and the recruitment source written on their invite link (or ?source= on an open link).', 'analyse'),
+        ('browser, os, tz', 'Study server (from server 0.13.0; NA before): the participant\'s browser with its major version (e.g. Chrome 130), operating system (e.g. Windows 11, macOS) and time zone (e.g. Europe/Warsaw), read by the participant page from the browser when the session started. The full record is the session field client.', 'analyse'),
         ('sauce, cheese', 'The base chosen: sauce none / tomato / white / bbq; cheese none / light / normal / extra.', 'analyse'),
         ('n_pieces, n_{ing}', 'Pieces on the finished pizza, in total and per topping. n_{ing} is NA when that topping was not on the person\'s tray (e.g. tofu before task 0.15.0), so “not offered” never reads as “left off”.', 'analyse'),
         ('n_ev_{ev}', 'Number of events of that type in the log (pick, add, reject, tap, grab, move, remove, resize, abort, undo, clear, hover).', 'analyse'),

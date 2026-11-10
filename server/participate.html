@@ -71,6 +71,7 @@
   }
   var stage = document.getElementById('stage'), next = document.getElementById('next'), status = document.getElementById('status'), notice = document.getElementById('notice');
   var widget = null, timer = null, pending = false;
+  var acked = {};       // the value of each field the server last confirmed: leaving the page sends only what is newer
 
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
@@ -80,15 +81,73 @@
     clearTimeout(timer);
     if (!now) { timer = setTimeout(function () { send(true); }, 4000); return; }
     if (!S.pid) return;
-    var body = JSON.stringify({ pid: S.pid, stage: S.stage, fields: S.fields });
+    var snap = {}; for (var k in S.fields) snap[k] = S.fields[k];
+    var body = JSON.stringify({ pid: S.pid, stage: S.stage, fields: snap });
     pending = true;
     return fetch('api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: body.length < 60000 })
-      .then(function (r) { pending = false; status.textContent = r.ok ? '' : L.saveFail; if (!r.ok) send(); })
-      .catch(function () { pending = false; status.textContent = L.offline; send(); });
+      .then(function (r) {
+        pending = false; status.textContent = r.ok ? '' : L.saveFail;
+        if (r.ok) { for (var k in snap) acked[k] = snap[k]; } else { failed(); send(); }
+      })
+      .catch(function () { pending = false; status.textContent = L.offline; failed(); send(); });
   }
+  // saves that did not go through (offline, server busy): counted, so the researcher can see a session had trouble
+  function failed() { S.fields.save_fails = String((+S.fields.save_fails || 0) + 1); }
   window.addEventListener('pagehide', function () {
-    if (S.pid && navigator.sendBeacon) navigator.sendBeacon('api/save', new Blob([JSON.stringify({ pid: S.pid, stage: S.stage, fields: S.fields })], { type: 'application/json' }));
+    if (!S.pid || !navigator.sendBeacon) return;
+    // only the fields the server has not confirmed yet: a beacon carries at most 64 KB, and the whole record is often more
+    var fresh = {}; for (var k in S.fields) if (acked[k] !== S.fields[k]) fresh[k] = S.fields[k];
+    navigator.sendBeacon('api/save', new Blob([JSON.stringify({ pid: S.pid, stage: S.stage, fields: fresh })], { type: 'application/json' }));
   });
+  // errors in the page (a broken browser extension, an old browser): kept with the session, at most 20
+  function pageError(msg) {
+    if (!S.pid) return;
+    try {
+      var list = JSON.parse(S.fields.client_errors || '[]');
+      if (list.length >= 20) return;
+      list.push([new Date().toISOString().slice(0, 19) + 'Z', S.stage, String(msg).slice(0, 300)]);
+      S.fields.client_errors = JSON.stringify(list); send();
+    } catch (e) { /* never let this break the study */ }
+  }
+  window.addEventListener('error', function (e) { pageError((e.message || 'error') + (e.filename ? ' @ ' + e.filename.split('/').pop() + ':' + e.lineno : '')); });
+  window.addEventListener('unhandledrejection', function (e) { pageError('promise: ' + ((e.reason && e.reason.message) || e.reason)); });
+  // the participant's browser, system and screen, for the researcher page and the analysis (no IP address, no location)
+  function browserOs(ua) {
+    var b = 'other', m;
+    if ((m = ua.match(/Edg(?:e|A|iOS)?\/(\d+)/))) b = 'Edge ' + m[1];
+    else if ((m = ua.match(/(?:OPR|Opera)\/(\d+)/))) b = 'Opera ' + m[1];
+    else if ((m = ua.match(/SamsungBrowser\/(\d+)/))) b = 'Samsung Internet ' + m[1];
+    else if ((m = ua.match(/(?:Firefox|FxiOS)\/(\d+)/))) b = 'Firefox ' + m[1];
+    else if ((m = ua.match(/(?:Chrome|CriOS)\/(\d+)/))) b = 'Chrome ' + m[1];
+    else if ((m = ua.match(/Version\/(\d+)[\d.]* .*Safari\//))) b = 'Safari ' + m[1];
+    var o = 'other';
+    if (/Windows NT 10/.test(ua)) o = 'Windows 10/11';
+    else if ((m = ua.match(/Windows NT (\d+\.\d+)/))) o = 'Windows NT ' + m[1];
+    else if (/iPhone|iPad|iPod/.test(ua)) o = 'iOS';
+    else if (/Mac OS X/.test(ua)) o = 'macOS';
+    else if (/CrOS/.test(ua)) o = 'ChromeOS';
+    else if ((m = ua.match(/Android (\d+)/))) o = 'Android ' + m[1];
+    else if (/Linux/.test(ua)) o = 'Linux';
+    return [b, o];
+  }
+  function client() {
+    try {
+      var ua = navigator.userAgent || '', bo = browserOs(ua), tz = '';
+      try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+      var c = { ua: ua, browser: bo[0], os: bo[1], tz: tz, tzOffset: -new Date().getTimezoneOffset(), lang: navigator.language || '',
+        langs: (navigator.languages || []).slice(0, 5), screen: [screen.width, screen.height], viewport: [innerWidth, innerHeight],
+        dpr: window.devicePixelRatio || 1, touch: navigator.maxTouchPoints || 0, cores: navigator.hardwareConcurrency || null,
+        at: new Date().toISOString().slice(0, 19) + 'Z' };
+      S.fields.client = JSON.stringify(c); S.fields.browser = bo[0]; S.fields.os = bo[1]; S.fields.tz = tz;
+      // Chromium browsers tell Windows 11 from 10 only when asked
+      if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues && bo[1] === 'Windows 10/11') {
+        navigator.userAgentData.getHighEntropyValues(['platformVersion']).then(function (h) {
+          var v = parseInt((h && h.platformVersion) || '', 10);
+          if (!isNaN(v)) { S.fields.os = v >= 13 ? 'Windows 11' : 'Windows 10'; c.os = S.fields.os; S.fields.client = JSON.stringify(c); send(); }
+        }).catch(function () {});
+      }
+    } catch (e) { /* never let this break the study */ }
+  }
   function onSave(k, v) { S.fields[k] = v; send(); }
 
   function order() {
@@ -112,6 +171,7 @@
     var box = document.createElement('div');
     stage.appendChild(box);
     var opts = { mode: name === 'typical' ? 'build' : name, onSave: onSave, condition: S.cond, onFinish: function () { send(true); go(o[i + 1]); } };
+    opts.maxEventChars = 500000;   // the study server keeps the whole log (the 60,000 default is for Qualtrics' embedded data)
     if (S.study.lang) opts.lang = S.study.lang;
     if (S.study.texts) opts.texts = S.study.texts;
     if (name === 'typical') {
@@ -215,6 +275,7 @@
     words(S.study.lang, S.study.texts);
     S.pid = res[1].pid; S.cond = res[1].cond || '';
     try { sessionStorage.setItem('pz-pid', S.pid); } catch (e) {}
+    client();
     document.title = S.study.title || document.title;
     // coming back (a reload, a closed tab, a personal link opened again): no second consent; the part they were on
     // starts again, the follow-up keeps what the build saved, and restarts are counted for the analysis

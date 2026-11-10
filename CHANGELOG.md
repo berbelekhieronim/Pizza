@@ -5,6 +5,25 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Study server 0.13.0: the device, trouble while saving, and Warsaw time.** Checked first that nothing is being lost:
+every field the task saves is accepted by both servers (string values, names the servers allow), the save rate and size
+limits are far above what a session sends, a session that goes offline keeps its answers and sends them when the
+connection is back, and leaving the page sends what is not saved yet. Then, without changing the pilot's flow:
+- **The participant's device** is saved when a session starts: `browser` (e.g. Chrome 130), `os` (e.g. Windows 11),
+  `tz` (time zone) and `client` (the full user agent, languages, screen, window, pixel ratio, touch points, cores). No IP
+  address or location. Shown on the Sessions tab (*Device*), in the session list download, and as `browser`, `os`, `tz`
+  in `participants.csv`. Read from the saved fields, so no database change on either server.
+- **Trouble is recorded**: `save_fails` (saves that had to be retried) and `client_errors` (errors in the page, at
+  most 20); a ⚠ on the Sessions tab, `save_fails` and `n_client_errors` in the session list download.
+- **No more trimming on the study server**: the task drops hover events once its log passes 60,000 characters (a
+  limit for Qualtrics' embedded data); the study server's page now allows 500,000, so the whole log is kept.
+- **Leaving the page** sends only the fields the server has not confirmed yet: a browser sends at most 64 KB as the
+  page closes, and a whole record can be more, so the last seconds before closing could be lost.
+- **Warsaw time** on the researcher page (times, "last saved", build times; stored times stay UTC). The session list
+  download keeps the UTC columns and adds `started_warsaw` and `finished_warsaw` (CET / CEST, checked against the
+  time-zone database around both changes of the clock). The Sessions tab leaves out the group, source, "says they are"
+  and condition columns when nobody on the page has a value in them.
+
 **`meat_or_fish` now flags seafood.** It is defined (Methods page, codebook) as 1 when a pizza has any meat or
 seafood, but the code looked for a category `fish` that the analysis never uses (anchovies, shrimp and tuna are
 `seafood`), so it was 1 only for meat. Pizzas with seafood and no meat change from 0 to 1; nothing else changes. The
