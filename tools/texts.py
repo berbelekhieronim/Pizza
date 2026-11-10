@@ -35,6 +35,7 @@ PAGE_KEYS = [('page.consentTitle', 'Zgoda: nagłówek'), ('page.yes', 'Zgoda: pr
              ('page.declinedTitle', 'Po wybraniu NIE: nagłówek'), ('page.welcome', 'Komunikat po powrocie do badania (np. po odświeżeniu strony)'),
              ('page.saveFail', 'Komunikat: nie udało się zapisać'), ('page.offline', 'Komunikat: brak połączenia z internetem'),
              ('page.moment', 'Sprawdzanie, czy to człowiek: nagłówek'), ('page.botCheck', 'Sprawdzanie, czy to człowiek: tekst'),
+             ('page.retrying', 'Ponowne łączenie (brak połączenia lub dużo osób naraz): tekst'),
              ('page.botFailTitle', 'Sprawdzanie nieudane: nagłówek'), ('page.botFail', 'Sprawdzanie nieudane: tekst'),
              ('page.badLink', 'Zły link: nagłówek'), ('page.cantStart', 'Badanie nie może się rozpocząć (błąd połączenia)')]
 PRACTICE = [('task.promptPractice', 'Instrukcja: tekst nad pizzą')] + [('task.steps.%d' % i, 'Instrukcja: krok %d' % i) for i in range(1, 6)] + [

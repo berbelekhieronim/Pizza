@@ -4,9 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
+<!-- the pizza's colours are part of the stimulus: no automatic dark mode (Chrome, Samsung) and no Dark Reader -->
+<meta name="color-scheme" content="only light">
+<meta name="darkreader-lock">
 <title>Make a pizza</title>
 <style>
-  :root { --ink:#2a2421; --muted:#6e635b; --line:#e3dbd2; --bg:#f6f2ed; --accent:#a8361d; }
+  :root { color-scheme:only light; --ink:#2a2421; --muted:#6e635b; --line:#e3dbd2; --bg:#f6f2ed; --accent:#a8361d; }
   body { margin:0; background:var(--bg); color:var(--ink); font:17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
   .wrap { max-width:980px; margin:0 auto; padding:12px 16px; }
   .sheet { background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px 18px; }
@@ -34,7 +37,8 @@
 <div class="wrap">
   <div class="sheet">
     <p class="notice" id="notice" hidden></p>
-    <div id="stage"></div>
+    <div id="stage"><noscript><h1>JavaScript</h1><p lang="pl">To badanie działa tylko z włączonym JavaScriptem. Włącz go dla tej strony (albo otwórz link w innej przeglądarce) i odśwież stronę.</p>
+      <p lang="en">This study needs JavaScript. Turn it on for this page (or open the link in another browser) and reload.</p></noscript></div>
     <div class="next" id="next" hidden><button class="go" type="button"></button></div>
     <p class="status" id="status" aria-live="polite"></p>
   </div>
@@ -42,21 +46,28 @@
 <script src="pizza-builder.js"></script>
 <script>
 (function () {
+  if (!window.fetch || !window.Promise || !window.URLSearchParams || !window.PizzaBuilder) {    // a very old browser, or the task script was blocked
+    document.getElementById('stage').innerHTML = '<h1>Przeglądarka / Browser</h1><p lang="pl">Ta przeglądarka nie może wyświetlić badania. Otwórz link w aktualnej wersji Chrome, Edge, Firefoxa lub Safari.</p>'
+      + '<p lang="en">This browser cannot show the study. Please open the link in a current Chrome, Edge, Firefox or Safari.</p>';
+    return;
+  }
   var params = new URLSearchParams(location.search);
   var S = { pid: null, cond: '', fields: {}, stage: 'intro', study: {} };
   // the page's own words, in the study's language (study.json "lang"); the task brings its own (pizza-builder.js LANG)
   var WORDS = {
     en: { next: 'Next \u2192', saveFail: 'Could not save just now; it will try again.', offline: 'Connection lost; your answers are kept and will be sent when it is back.',
       welcome: 'Welcome back. You can carry on from the part you were on.', moment: 'One moment', botCheck: 'Checking that you are a person, not a bot (this usually takes a second).',
-      botFailTitle: 'This link does not work just now', botFail: 'The check that you are a person did not pass. Please reload the page.',
+      botFailTitle: 'This link does not work just now', botFail: 'The check that you are a person did not pass. Please reload the page. If it happens again, switch off ad blocking or privacy extensions for this page, or open the link in another browser.',
       badLink: 'This link does not work', cantStart: 'The study could not start. Please check your connection and reload the page.',
+      retrying: 'Connecting to the study\u2026 This can take a minute; please keep this page open.',
       thanks: 'Thank you', back: 'Taking you back in a moment\u2026', agree: 'I agree to take part.', consentTitle: 'Informed consent',
       yes: 'YES', no: 'NO', declinedTitle: 'Thank you', declined: 'You chose not to take part, so the study ends here. You can close this page.',
       typical: 'Now make the pizza you think a typical person taking part in this study would choose. Drag toppings onto the pizza; drag a topping off to remove it.' },
     pl: { next: 'Dalej \u2192', saveFail: 'Nie udało się teraz zapisać; spróbujemy ponownie.', offline: 'Utracono połączenie; Twoje odpowiedzi są zachowane i zostaną wysłane, gdy wróci.',
       welcome: 'Witaj ponownie. Możesz kontynuować od miejsca, w którym przerwano.', moment: 'Chwileczkę', botCheck: 'Sprawdzamy, czy jesteś osobą, a nie botem (zwykle trwa to sekundę).',
-      botFailTitle: 'Ten link chwilowo nie działa', botFail: 'Sprawdzenie nie powiodło się. Odśwież stronę.',
+      botFailTitle: 'Ten link chwilowo nie działa', botFail: 'Sprawdzenie nie powiodło się. Odśwież stronę. Jeśli to się powtórzy, wyłącz na tej stronie blokowanie reklam lub rozszerzenia prywatności albo otwórz link w innej przeglądarce.',
       badLink: 'Ten link nie działa', cantStart: 'Nie udało się rozpocząć badania. Sprawdź połączenie z internetem i odśwież stronę.',
+      retrying: 'Łączenie z badaniem\u2026 Może to potrwać do minuty; nie zamykaj tej strony.',
       thanks: 'Dziękujemy!', back: 'Za chwilę nastąpi przekierowanie\u2026', agree: 'Wyrażam zgodę na udział w badaniu.', consentTitle: 'Świadoma zgoda',
       yes: 'TAK', no: 'NIE', declinedTitle: 'Dziękujemy', declined: 'Nie wyrażono zgody na udział, więc badanie kończy się w tym miejscu. Możesz zamknąć tę stronę.',
       typical: 'Teraz zrób pizzę, którą Twoim zdaniem wybrałaby typowa osoba biorąca udział w tym badaniu. Przeciągaj składniki na pizzę; przeciągnij składnik poza pizzę, aby go usunąć.' }
@@ -67,11 +78,17 @@
     L = {}; var base = WORDS[lang] || WORDS.en;
     for (var k in base) L[k] = base[k];
     for (var key in (own || {})) if (key.indexOf('page.') === 0 && typeof own[key] === 'string' && own[key] && L[key.slice(5)] != null) L[key.slice(5)] = own[key];
-    document.documentElement.lang = WORDS[lang] ? lang : 'en'; next.querySelector('button').textContent = L.next;
+    document.documentElement.lang = ownLang = WORDS[lang] ? lang : 'en'; next.querySelector('button').textContent = L.next;
   }
   var stage = document.getElementById('stage'), next = document.getElementById('next'), status = document.getElementById('status'), notice = document.getElementById('notice');
   var widget = null, timer = null, pending = false;
+  var ownLang = null;   // the page's own language (words()); another one means the browser translated the page
   var acked = {};       // the value of each field the server last confirmed: leaving the page sends only what is newer
+  // sessionStorage keeps the participant id across a reload. With cookies blocked (Chrome, Firefox and Edge settings,
+  // some privacy extensions) even reading it throws, so every use goes through these; without storage the id goes into
+  // the address instead (see start), so a reload still resumes the same session.
+  function stored(k) { try { return window.sessionStorage.getItem(k); } catch (e) { return null; } }
+  function store(k, v) { try { window.sessionStorage.setItem(k, v); return window.sessionStorage.getItem(k) === v; } catch (e) { return false; } }
 
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
@@ -93,12 +110,27 @@
   }
   // saves that did not go through (offline, server busy): counted, so the researcher can see a session had trouble
   function failed() { S.fields.save_fails = String((+S.fields.save_fails || 0) + 1); }
-  window.addEventListener('pagehide', function () {
-    if (!S.pid || !navigator.sendBeacon) return;
-    // only the fields the server has not confirmed yet: a beacon carries at most 64 KB, and the whole record is often more
-    var fresh = {}; for (var k in S.fields) if (acked[k] !== S.fields[k]) fresh[k] = S.fields[k];
-    navigator.sendBeacon('api/save', new Blob([JSON.stringify({ pid: S.pid, stage: S.stage, fields: fresh })], { type: 'application/json' }));
-  });
+  // Leaving or hiding the page (closing the tab, switching away, the computer going to sleep): send what the server has
+  // not confirmed yet, at once. A fetch with keepalive first: ad blockers such as uBlock Origin block "beacon" requests
+  // (their "hyperlink auditing" setting, on by default), and some privacy settings remove navigator.sendBeacon. Both
+  // carry at most 64 KB, so only the unconfirmed fields go; the beacon is the fallback.
+  function flush() {
+    if (!S.pid) return;
+    var fresh = {}, any = false;
+    for (var k in S.fields) if (acked[k] !== S.fields[k]) { fresh[k] = S.fields[k]; any = true; }
+    var body = JSON.stringify({ pid: S.pid, stage: S.stage, fields: fresh });
+    function beacon() { try { return !!(navigator.sendBeacon && navigator.sendBeacon('api/save', new Blob([body], { type: 'application/json' }))); } catch (e) { return false; } }
+    if (body.length < 60000) {
+      try {
+        fetch('api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true })
+          .then(function (r) { if (r.ok) { for (var k in fresh) acked[k] = fresh[k]; } else beacon(); }, beacon);
+        return;
+      } catch (e) { /* keepalive refused: the beacon below */ }
+    }
+    if (any || S.stage) beacon();
+  }
+  window.addEventListener('pagehide', flush);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') flush(); });
   // errors in the page (a broken browser extension, an old browser): kept with the session, at most 20
   function pageError(msg) {
     if (!S.pid) return;
@@ -134,11 +166,27 @@
     try {
       var ua = navigator.userAgent || '', bo = browserOs(ua), tz = '';
       try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+      if (navigator.brave) bo[0] = bo[0].replace(/^Chrome/, 'Brave');     // Brave says it is Chrome
+      var mq = function (q) { try { return window.matchMedia(q).matches; } catch (e) { return null; } };
+      var res = timerResolution();
       var c = { ua: ua, browser: bo[0], os: bo[1], tz: tz, tzOffset: -new Date().getTimezoneOffset(), lang: navigator.language || '',
         langs: (navigator.languages || []).slice(0, 5), screen: [screen.width, screen.height], viewport: [innerWidth, innerHeight],
         dpr: window.devicePixelRatio || 1, touch: navigator.maxTouchPoints || 0, cores: navigator.hardwareConcurrency || null,
+        // what the browser allows (privacy settings, blockers, extensions) and what that means for the data
+        storage: !!S.storage, cookies: navigator.cookieEnabled !== false, beacon: typeof navigator.sendBeacon === 'function',
+        timerMs: res, webdriver: !!navigator.webdriver, brave: !!navigator.brave, gpc: navigator.globalPrivacyControl === true,
+        dnt: navigator.doNotTrack === '1' || window.doNotTrack === '1', forcedColors: mq('(forced-colors: active)'), reducedMotion: mq('(prefers-reduced-motion: reduce)'),
         at: new Date().toISOString().slice(0, 19) + 'Z' };
-      S.fields.client = JSON.stringify(c); S.fields.browser = bo[0]; S.fields.os = bo[1]; S.fields.tz = tz;
+      // the ones that change how the study runs or what its numbers mean, as a short list for the researcher page
+      var flags = [];
+      if (!c.storage) flags.push('storage-blocked');
+      if (!c.beacon) flags.push('no-beacon');
+      if (res == null || res >= 10) flags.push('coarse-timer');      // Firefox "resist fingerprinting", Tor: times in steps of 16-100 ms
+      if (c.webdriver) flags.push('automated');                      // a browser driven by a program
+      if (c.forcedColors) flags.push('forced-colors');               // Windows high contrast: colours replaced
+      if (c.brave) flags.push('brave');
+      S.flagList = flags;
+      S.fields.client = JSON.stringify(c); S.fields.browser = bo[0]; S.fields.os = bo[1]; S.fields.tz = tz; S.fields.browser_flags = flags.join(' ');
       // Chromium browsers tell Windows 11 from 10 only when asked
       if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues && bo[1] === 'Windows 10/11') {
         navigator.userAgentData.getHighEntropyValues(['platformVersion']).then(function (h) {
@@ -149,6 +197,28 @@
     } catch (e) { /* never let this break the study */ }
   }
   function onSave(k, v) { S.fields[k] = v; send(); }
+  // the smallest step of the page's clock in ms (about 0.1 normally; 16-100 with fingerprinting protection, which
+  // makes the task's timings coarse), null when it did not move within 25 ms
+  function timerResolution() {
+    try {
+      var t0 = performance.now(), t = t0, best = null, last = t0, n = 0;
+      while (t - t0 < 25 && n < 200000) { t = performance.now(); n++; if (t !== last) { var d = t - last; if (best === null || d < best) best = d; last = t; } }
+      return best === null ? null : Math.round(best * 1000) / 1000;
+    } catch (e) { return null; }
+  }
+  // the page translated by the browser (Chrome / Edge "Translate this page"): what participants read is no longer the
+  // study's wording. Recorded (browser_flags "translated", and when), not prevented.
+  try {
+    new MutationObserver(function () {
+      var h = document.documentElement;
+      if (S.translated || !S.pid) return;
+      if (/translated-(ltr|rtl)/.test(h.className) || (ownLang && h.lang && h.lang !== ownLang)) {
+        S.translated = true;
+        S.fields.translated = S.stage + ' ' + new Date().toISOString().slice(0, 19) + 'Z ' + (h.lang || '');
+        S.flagList = (S.flagList || []).concat('translated'); S.fields.browser_flags = S.flagList.join(' '); send();
+      }
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'lang'] });
+  } catch (e) { /* old browser */ }
 
   function order() {
     var o = ['intro', 'practice', 'build'];
@@ -245,20 +315,53 @@
     return;
   }
   studyInfo.then(function (st) { words((st || {}).lang, (st || {}).texts); });
-  function start(ts) {
-    return fetch('api/start?' + new URLSearchParams({ pid: link.i ? '' : (params.get('pid') || params.get('PROLIFIC_PID') || sessionStorage.getItem('pz-pid') || ''),
-      group: params.get('group') || '', cond: params.get('cond') || '', i: link.i, study: link.study, source: link.source, ts: ts || '' })).then(function (r) { return r.json(); });
+  // A start that fails for a passing reason (no connection, the server busy, too many people starting from one network
+  // at once, e.g. a computer lab) is tried again for about two minutes, with a note, before giving up.
+  function start(ts, nocheck) {
+    var q = new URLSearchParams({ pid: link.i ? '' : (params.get('pid') || params.get('PROLIFIC_PID') || stored('pz-pid') || ''),
+      group: params.get('group') || '', cond: params.get('cond') || '', i: link.i, study: link.study, source: link.source, ts: ts || '', nocheck: nocheck || '' });
+    var waits = [2, 4, 8, 15, 30, 60], n = 0;
+    function attempt() {
+      return fetch('api/start?' + q).then(function (r) {
+        if (r.status === 429 || r.status >= 500) throw new Error('busy ' + r.status);
+        return r.json();
+      }).catch(function (e) {
+        if (n >= waits.length) throw e;
+        stage.innerHTML = '<h1>' + esc(L.moment) + '</h1><p>' + esc(L.retrying) + '</p>';
+        return new Promise(function (res) { setTimeout(res, waits[n++] * 1000); }).then(attempt);
+      });
+    }
+    return attempt();
   }
   // On Cloudflare, a new session may first need Turnstile's quick check that a person (not a bot) opened the link;
   // it usually passes by itself. The Python study server never asks for it.
   function checked(res) {
     if (!res.verify) return res;
     stage.innerHTML = '<h1>' + esc(L.moment) + '</h1><p>' + esc(L.botCheck) + '</p><div id="ts"></div>';
+    // The check runs on Cloudflare's own address (challenges.cloudflare.com), which some blockers, firewalls and strict
+    // privacy settings stop, and it can fail in hardened browsers. Then the page never waits forever: when the check
+    // cannot load, errors, is unsupported or takes over 45 s, it asks the server once more with the reason (nocheck=...).
+    // The Worker decides: as it stands it still asks for the check, and the participant sees the "could not confirm"
+    // message (L.botFail) with what to do, instead of a page stuck on "one moment".
     return new Promise(function (resolve, reject) {
+      var settled = false, timer;
+      function finish(p) { clearTimeout(timer); p.then(resolve, reject); }
+      function fallback(why) { if (settled) return; settled = true; finish(start('', String(why).slice(0, 40))); }
+      function passed(token) {
+        if (settled) return; settled = true;
+        finish(start(token).then(function (r) { return r.verify ? start('', 'rejected') : r; }));
+      }
+      timer = setTimeout(function () { fallback('timeout'); }, 45000);
       var s = document.createElement('script');
       s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-      s.onload = function () { window.turnstile.render('#ts', { sitekey: res.verify, callback: function (token) { start(token).then(resolve, reject); } }); };
-      s.onerror = reject;
+      s.onload = function () {
+        try {
+          window.turnstile.render('#ts', { sitekey: res.verify, callback: passed,
+            'error-callback': function (code) { fallback('error-' + code); return true; },
+            'unsupported-callback': function () { fallback('unsupported'); }, 'timeout-callback': function () { fallback('timeout'); } });
+        } catch (e) { fallback('render'); }
+      };
+      s.onerror = function () { fallback('blocked'); };
       document.head.appendChild(s);
     });
   }
@@ -274,7 +377,10 @@
     S.study = res[0] || {};
     words(S.study.lang, S.study.texts);
     S.pid = res[1].pid; S.cond = res[1].cond || '';
-    try { sessionStorage.setItem('pz-pid', S.pid); } catch (e) {}
+    S.storage = store('pz-pid', S.pid);
+    if (!S.storage && !link.i && params.get('pid') !== S.pid) {     // no storage: the id in the address keeps a reload in this session
+      try { var u = new URL(location.href); u.searchParams.set('pid', S.pid); history.replaceState(null, '', u.toString()); } catch (e) {}
+    }
     client();
     document.title = S.study.title || document.title;
     // coming back (a reload, a closed tab, a personal link opened again): no second consent; the part they were on

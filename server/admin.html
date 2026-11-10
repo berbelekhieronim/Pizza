@@ -494,6 +494,10 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
           if (c[0] === 'inclusion') return '<td>' + inclusionCell(r) + '</td>';
           if (c[0] === 'os') {      // browser, system, time zone and trouble: recorded from study server 0.13.0 (earlier sessions: empty)
             var trouble = [];
+            // what the browser did not allow or changed (participant page): storage blocked, no beacon, coarse clock
+            // (fingerprinting protection), automated, Windows high contrast, the page machine-translated
+            var notable = (r.browser_flags || '').split(' ').filter(function (f) { return f && f !== 'brave'; });
+            if (notable.length) trouble.push('browser: ' + notable.join(', ') + (r.translated ? ' (translated at ' + r.translated + ')' : ''));
             if (+r.save_fails) trouble.push(r.save_fails + ' save' + (+r.save_fails === 1 ? '' : 's') + ' failed and were retried');
             try { var ce = JSON.parse(r.client_errors || '[]'); if (ce.length) trouble.push(ce.length + ' page error' + (ce.length === 1 ? '' : 's') + ': ' + ce.map(function (x) { return x[2]; }).join(' | ')); } catch (e) {}
             v = [r.browser, r.os].filter(Boolean).join(' · ');

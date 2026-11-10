@@ -280,6 +280,8 @@ From study server 0.13.0 the participant page also saves, when the session start
 | `client` | JSON: `ua` (the full user-agent string), `browser`, `os`, `tz`, `tzOffset` (minutes ahead of UTC), `lang`, `langs` (preferred languages), `screen` [w, h], `viewport` [w, h], `dpr`, `touch` (touch points), `cores`, `at` (when recorded) |
 | `save_fails` | saves that did not go through and were retried (offline, server busy); missing = none |
 | `client_errors` | JSON list of errors in the page, at most 20: `[time, part, message]`; missing = none |
+| `browser_flags` | (from 0.14.0) what the browser refused or changed, space-separated: `storage-blocked`, `no-beacon`, `coarse-timer` (clock steps ≥ 10 ms: fingerprinting protection, timings coarse), `automated`, `forced-colors`, `brave`, `translated`; empty = none. `client` then also has `storage`, `cookies`, `beacon`, `timerMs`, `webdriver`, `brave`, `gpc`, `dnt`, `forcedColors`, `reducedMotion`. See `docs/BROWSERS.md` |
+| `translated` | (from 0.14.0) the browser translated the page: the part, the time and the language it was translated to; missing = not translated |
 
 No IP address or location is recorded. Sessions from before 0.13.0 have none of these (NA in the downloads).
 `browser`, `os` and `tz` are also columns of `participants.csv`.

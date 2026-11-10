@@ -10,7 +10,7 @@ const SYN_SQL = "pid LIKE 'SYN-%'";               // synthetic sessions of a tes
 export const INCLUSION_VALUES = ['include', 'exclude', 'auto'];
 const INCL_SQL = "COALESCE((SELECT NULLIF(value, 'auto') FROM fields WHERE fields.pid = sessions.pid AND name = 'inclusion'), '')";
 // saved by the participant page: browser, system, time zone, trouble saving or in the page (as store.py CLIENT_SQL)
-export const CLIENT_FIELDS = ['browser', 'os', 'tz', 'save_fails', 'client_errors'];
+export const CLIENT_FIELDS = ['browser', 'os', 'tz', 'browser_flags', 'translated', 'save_fails', 'client_errors'];
 const CLIENT_SQL = CLIENT_FIELDS.map((k) => `(SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = '${k}') AS ${k}`).join(', ');
 const LEFT_OUT_SQL = `(${INCL_SQL} = 'exclude' OR (${INCL_SQL} = '' AND stage NOT IN ('typical', 'followup', 'done') AND n_pieces IS NOT NULL))`;
 const INCLUDED_SQL = `(${INCL_SQL} = 'include' OR (${INCL_SQL} = '' AND stage IN ('typical', 'followup', 'done')))`;

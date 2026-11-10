@@ -105,7 +105,7 @@ export function warsaw(t) {
   return new Date(u + (summer ? 2 : 1) * 3600000).toISOString().slice(0, 19).replace('T', ' ');
 }
 const SESSION_CSV = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'started_warsaw', 'finished_warsaw',
-  'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'analysis', 'inclusion', 'browser', 'os', 'tz', 'save_fails', 'n_client_errors'];
+  'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'analysis', 'inclusion', 'browser', 'os', 'tz', 'browser_flags', 'translated', 'save_fails', 'n_client_errors'];
 function sessionCsvRow(r0) {
   // one row of the session list download (as server.py session_csv_row): times in UTC as stored, and in Warsaw time
   const r = { ...r0, started_warsaw: r0.started ? warsaw(r0.started) : null, finished_warsaw: r0.finished ? warsaw(r0.finished) : null };

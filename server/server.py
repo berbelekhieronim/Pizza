@@ -241,7 +241,7 @@ def warsaw(t):
 
 
 SESSION_CSV = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'started_warsaw', 'finished_warsaw',
-               'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'analysis', 'inclusion', 'browser', 'os', 'tz', 'save_fails', 'n_client_errors']
+               'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'analysis', 'inclusion', 'browser', 'os', 'tz', 'browser_flags', 'translated', 'save_fails', 'n_client_errors']
 
 
 def session_csv_row(r):

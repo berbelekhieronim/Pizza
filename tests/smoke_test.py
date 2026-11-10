@@ -748,6 +748,14 @@ def main():
             nut = json.load(open(os.path.join(ROOT, 'analysis', 'nutrition.json'), encoding='utf-8'))
             embedded = re.search(r'var NUTRITION = (\{.*?\});\n', open(os.path.join(ROOT, 'pizza-builder.js'), encoding='utf-8').read())
             check(embedded and json.loads(embedded.group(1)) == nut, 'the task embeds the same nutrition table as analysis/nutrition.json')
+            # the participant page under privacy settings and blockers (the full browser runs are in docs/BROWSERS.md):
+            # storage only through the guarded helpers, unsaved fields sent on leaving without relying on sendBeacon,
+            # starts retried, the person check never left waiting, colours locked, a message without JavaScript
+            pg = open(os.path.join(ROOT, 'server', 'participate.html'), encoding='utf-8').read()
+            raw_storage = [m.start() for m in re.finditer(r'(?<!window\.)\b(sessionStorage|localStorage)\.', pg)]
+            check(not raw_storage and "addEventListener('visibilitychange'" in pg and "keepalive: true" in pg and "'error-callback'" in pg
+                  and 'name="darkreader-lock"' in pg and 'content="only light"' in pg and '<noscript>' in pg and 'r.status === 429' in pg,
+                  'participant page: works with storage blocked, saves on leaving without sendBeacon, retries busy starts, never waits forever on the person check, keeps its colours, explains when JavaScript is off')
             # Warsaw time (session list download): the EU summer-time rule in server.py (and the Worker, checked against it
             # above) agrees with the time-zone database of node / the researcher's browser, around both changes of the clock
             sys.path.insert(0, os.path.join(ROOT, 'server'))

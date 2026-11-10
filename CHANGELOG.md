@@ -5,6 +5,26 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Study server 0.14.0: browsers, privacy settings and blockers** (`docs/BROWSERS.md`). Each case run in Chromium
+before and after (`tests/browser_matrix.js`). The participant page:
+- **works with cookies / storage blocked.** Before, the page stopped on its first read of `sessionStorage` and stayed
+  blank (no session, no trace). Now storage is optional; without it the session id goes into the address, so a reload
+  still resumes.
+- **saves on leaving without relying on beacons**: unsaved fields go with `fetch(keepalive)` when the page is hidden
+  or closed (the beacon is the fallback; ad blockers can block beacons and some settings remove them). Before, without
+  `sendBeacon` the last seconds were lost.
+- **retries a start** for about two minutes when the server is busy or limits new sessions from one network (a
+  computer lab), or the connection drops, instead of "this link does not work".
+- **never waits forever on the person check** (Turnstile): when it is blocked, errors, is unsupported or takes 45 s,
+  the page asks the server again with the reason; the Worker still requires the check (unchanged), and the message
+  now says what to do (switch off ad blocking / privacy extensions for this page, or another browser).
+- **explains** instead of a blank page without JavaScript or in a very old browser; **keeps its colours** (no automatic
+  dark mode, no Dark Reader).
+- **records** what the browser refused or changed: `browser_flags` (`storage-blocked`, `no-beacon`, `coarse-timer`,
+  `automated`, `forced-colors`, `brave`, `translated`) and `translated` (when the page was machine-translated); a ⚠ on
+  the Sessions tab, in the session list download and `participants.csv`.
+- New page text `page.retrying` (texts sheet: 130 rows).
+
 **Study server 0.13.0: the device, trouble while saving, and Warsaw time.** Checked first that nothing is being lost:
 every field the task saves is accepted by both servers (string values, names the servers allow), the save rate and size
 limits are far above what a session sends, a session that goes offline keeps its answers and sends them when the

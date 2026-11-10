@@ -38,6 +38,7 @@ the toppings are drawn in SVG by the script itself.
 |---|---|
 | this README | what the task does, running it (Qualtrics or the study server), pilots, the analysis |
 | `CODEBOOK.md` | every recorded field and output table |
+| `docs/BROWSERS.md` | what participants' browsers, privacy settings and blockers may refuse, and how the participant page copes (and records it) |
 | `docs/BUILDER.md` | the pizza builder itself: the tray, sauces and cheeses (with their diet), what each build records, the version history of the builder and how to add a topping without breaking earlier data |
 | **Methods page** (`methods.html`, researcher page → *Methods*) | how every number and test is computed, with worked examples checked against the code |
 | `variables.csv` + `load_pizza.R` (written with the analysis) | the data dictionary and loader for R |

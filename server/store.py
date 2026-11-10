@@ -71,7 +71,7 @@ INCLUSION_VALUES = ('include', 'exclude', 'auto')
 INCL_SQL = "COALESCE((SELECT NULLIF(value, 'auto') FROM fields WHERE fields.pid = sessions.pid AND name = 'inclusion'), '')"
 # saved by the participant page (from 0.13.0): the browser, system and time zone, and any trouble saving or in the page;
 # listed with each session, read from the fields (no extra columns, so nothing to migrate)
-CLIENT_FIELDS = ('browser', 'os', 'tz', 'save_fails', 'client_errors')
+CLIENT_FIELDS = ('browser', 'os', 'tz', 'browser_flags', 'translated', 'save_fails', 'client_errors')
 CLIENT_SQL = ', '.join("(SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = '%s') AS %s" % (k, k) for k in CLIENT_FIELDS)
 LEFT_OUT_SQL = "(%s = 'exclude' OR (%s = '' AND stage NOT IN ('typical', 'followup', 'done') AND n_pieces IS NOT NULL))" % (INCL_SQL, INCL_SQL)
 INCLUDED_SQL = "(%s = 'include' OR (%s = '' AND stage IN ('typical', 'followup', 'done')))" % (INCL_SQL, INCL_SQL)
