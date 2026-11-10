@@ -16,7 +16,7 @@
   'use strict';
   if (global.PizzaBuilder) return;
 
-  var VERSION = '0.15.0';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
+  var VERSION = '0.16.0';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
   var VIEW = 105;        // half-width of every pizza viewBox; the pizza's outer radius is 100
   var R_SNAP = 0.9;      // with snapIn, a topping centre dropped on the crust is pulled in to this radius
   var R_OFF = 1.0;       // dropped further out than this = off the pizza
@@ -596,6 +596,7 @@
     // metryczka (Followup style 'metryczka'): the short demographic card
     metTitle: 'About you', metSub: 'Finally, a few questions about you.',
     metAge: 'How old are you?', metAgePh: 'e.g. 27', metAgeBad: 'Please enter your age in years (a number from 16 to 99).',
+    metNumberBad: 'Please enter a whole number from {min} to {max}.',
     metDx: [['no', 'No'], ['formal', 'Diagnosed by a specialist'], ['self', 'Self-diagnosed']],
     metAutism: 'Are you on the autism spectrum?', metAdhd: 'Do you have ADHD?',
     metGender: 'What is your gender?', metGenders: [['man', 'Man'], ['woman', 'Woman'], ['nonbinary', 'Non-binary'], ['pnts', 'Prefer not to say']],
@@ -646,6 +647,7 @@
         metTitle: 'Metryczka',
         metSub: 'Na koniec kilka pytań o Ciebie.',
         metAge: 'Ile masz lat?', metAgePh: 'np. 27', metAgeBad: 'Wpisz wiek w latach (liczba od 16 do 99).',
+        metNumberBad: 'Wpisz liczbę całkowitą od {min} do {max}.',
         metDx: [['no', 'nie'], ['formal', 'diagnoza postawiona przez specjalistę'], ['self', 'autodiagnoza']],
         metAutism: 'Czy jesteś na spektrum autyzmu?', metAdhd: 'Czy masz ADHD?',
         metGender: 'Jakiej jesteś płci?', metGenders: [['man', 'mężczyzna'], ['woman', 'kobieta'], ['nonbinary', 'niebinarnx'], ['pnts', 'nie chcę odpowiadać']],
@@ -1368,6 +1370,8 @@
     // style 'strong': one tappable list ("strong feelings?"), then five questions per ingredient tapped.
     // style 'ratings': every ingredient rated on scales, reasons for those left off. askPizza / askDiet default to on only there.
     style: 'strong', feelQuestions: ['feel', 'about', 'safe', 'sameway', 'crave'],
+    // style 'metryczka': the study's own post-pizza questions (survey: a list of questions, see surveyQuestions)
+    survey: null,
     counts: null, countsFrom: 'pz_', askPizza: null, askDiet: null, askReasons: true, askIdentity: true, force: true,
     // 'About you', the last card: who the participant is, so patterns can be explored across many kinds of people.
     // 'diet' is asked here only when the separate diet card is off. Set askAbout: false if the survey asks these itself.
@@ -1660,36 +1664,77 @@
   // The short demographic card of a study (style 'metryczka'): age in years, autism and ADHD (no / diagnosed by a
   // specialist / self-diagnosed), gender, transgender, special diets (any number, or none, with a free-text box). The
   // answers are kept as given (res.met) and also written where the analysis reads them (res.about, res.diet, res.health).
+  // The post-pizza survey of a study (style 'metryczka'): a list of questions, by default the metryczka below. A study
+  // sets its own in study.json ("survey"); each question is
+  //   {id, type: 'number' | 'single' | 'multi' | 'text', text, options: [[code, label], ...], required, min, max, other}
+  // id: a short name in lower case (it names the answer in the data, met.<id>, and the column q_<id> in the analysis).
+  // The questions of the metryczka (age, autism, adhd, gender, trans, diet) take their wording from the texts (metAge,
+  // metDx ...) unless the study gives its own; any other question brings its wording ("text", option labels), as a
+  // string or {pl: ..., en: ...}. number: min / max (whole numbers); single: one answer; multi: several or none, and
+  // "other": the option that opens a box to type in (kept as met.<id>Other); text: a short free answer. Required:
+  // number and single questions by default, multi and text not.
+  var SURVEY = [{ id: 'age', type: 'number', min: 16, max: 99 }, { id: 'autism', type: 'single' }, { id: 'adhd', type: 'single' },
+    { id: 'gender', type: 'single' }, { id: 'trans', type: 'single' }, { id: 'diet', type: 'multi', other: 'other' }];
+  function surveyQuestions(T, list, lang) {
+    lang = lang || 'en';
+    function word(w) { return w == null ? '' : typeof w === 'object' ? (w[lang] != null ? w[lang] : w.en != null ? w.en : w[Object.keys(w)[0]]) : String(w); }
+    var builtin = { age: [T.metAge], autism: [T.metAutism, T.metDx], adhd: [T.metAdhd, T.metDx], gender: [T.metGender, T.metGenders],
+      trans: [T.metTrans, T.metTransOpts], diet: [T.metDiet, T.metDiets] };
+    return (list && list.length ? list : SURVEY).filter(function (q) { return q && /^[a-z][a-z0-9_]{0,30}$/.test(q.id || ''); }).map(function (q) {
+      var b = builtin[q.id] || [];
+      var opts = (q.options || b[1] || []).map(function (op) { return Array.isArray(op) ? [String(op[0]), word(op[1])] : [String(op), String(op)]; });
+      var type = ['number', 'single', 'multi', 'text'].indexOf(q.type) >= 0 ? q.type : (opts.length ? 'single' : 'text');
+      return { id: q.id, type: type, text: q.text != null ? word(q.text) : (b[0] || q.id), options: opts, min: q.min != null ? q.min : 0, max: q.max != null ? q.max : 999,
+        placeholder: q.placeholder != null ? word(q.placeholder) : q.id === 'age' ? T.metAgePh : q.id === 'diet' ? T.metDietPh : '',
+        bad: q.id === 'age' && (q.min == null || q.min === 16) && (q.max == null || q.max === 99) ? T.metAgeBad : (T.metNumberBad || '').replace('{min}', q.min != null ? q.min : 0).replace('{max}', q.max != null ? q.max : 999),
+        other: q.other || null, required: q.required != null ? !!q.required : (type === 'number' || type === 'single') };
+    });
+  }
   Followup.prototype._met = function () {
     var T = this.T, r = this.res, self = this, card = el('div', 'pzb-card pzb-about'), upd;
-    var m = r.met = { age: null, autism: null, adhd: null, gender: null, trans: null, diet: [], dietOther: '', t: {} };
+    var qs = surveyQuestions(T, this.o.survey, this.o.lang);
+    var m = r.met = { t: {} };
+    r.survey = qs.map(function (q) { return { id: q.id, type: q.type }; });      // what was asked, for the analysis
+    qs.forEach(function (q) { m[q.id] = q.type === 'multi' ? [] : null; if (q.other) m[q.id + 'Other'] = ''; });
+    if (m.diet !== undefined) m.dietOther = m.dietOther || '';
     function stamp(k) { if (m.t[k] == null) m.t[k] = Math.round(now() - self.cardT); }
     card.appendChild(el('h3', null, esc(T.metTitle)));
     card.appendChild(el('p', 'pzb-sub', esc(T.metSub)));
-    var qa = el('div', 'pzb-q'); qa.appendChild(el('p', null, esc(T.metAge)));
-    var age = el('input', 'pzb-other pzb-age'); age.type = 'number'; age.min = '16'; age.max = '99'; age.step = '1'; age.inputMode = 'numeric'; age.placeholder = T.metAgePh;
-    age.style.maxWidth = '8em';
-    var bad = el('p', 'pzb-sub', esc(T.metAgeBad)); bad.style.display = 'none';
-    age.oninput = function () {
-      var v = age.value.trim(), n = /^\d{1,2}$/.test(v) ? parseInt(v, 10) : NaN;
-      m.age = n >= 16 && n <= 99 ? n : null; bad.style.display = v && m.age == null ? '' : 'none'; stamp('age'); upd();
-    };
-    qa.appendChild(age); qa.appendChild(bad); card.appendChild(qa);
-    function one(key, question, opts) {
-      var q = el('div', 'pzb-q'), sel = []; q.appendChild(el('p', null, esc(question)));
-      q.appendChild(self._checks(opts, false, sel, function () { m[key] = sel[0]; stamp(key); upd(); }));
-      card.appendChild(q);
-    }
-    one('autism', T.metAutism, T.metDx);
-    one('adhd', T.metAdhd, T.metDx);
-    one('gender', T.metGender, T.metGenders);
-    one('trans', T.metTrans, T.metTransOpts);
-    var qd = el('div', 'pzb-q'); qd.appendChild(el('p', null, esc(T.metDiet)));
-    var other = el('input', 'pzb-other'); other.type = 'text'; other.placeholder = T.metDietPh; other.style.display = 'none';
-    other.oninput = function () { m.dietOther = other.value.slice(0, 200); };
-    qd.appendChild(this._checks(T.metDiets, true, m.diet, function () { other.style.display = m.diet.indexOf('other') >= 0 ? '' : 'none'; stamp('diet'); upd(); }));
-    qd.appendChild(other); card.appendChild(qd);
-    upd = this._nav(card, function () { return m.age != null && m.autism && m.adhd && m.gender && m.trans; }, T.finish);
+    qs.forEach(function (q) {
+      var box = el('div', 'pzb-q'); box.setAttribute('data-q', q.id); box.appendChild(el('p', null, esc(q.text)));
+      if (q.type === 'number') {
+        var inp = el('input', 'pzb-other pzb-num' + (q.id === 'age' ? ' pzb-age' : '')); inp.type = 'number'; inp.min = String(q.min); inp.max = String(q.max); inp.step = '1';
+        inp.inputMode = 'numeric'; inp.placeholder = q.placeholder; inp.style.maxWidth = '8em';
+        var bad = el('p', 'pzb-sub', esc(q.bad)); bad.style.display = 'none';
+        inp.oninput = function () {
+          var v = inp.value.trim(), n = /^-?\d{1,6}$/.test(v) ? parseInt(v, 10) : NaN;
+          m[q.id] = n >= q.min && n <= q.max ? n : null; bad.style.display = v && m[q.id] == null ? '' : 'none'; stamp(q.id); upd();
+        };
+        box.appendChild(inp); box.appendChild(bad);
+      } else if (q.type === 'text') {
+        var t = el('input', 'pzb-other'); t.type = 'text'; t.placeholder = q.placeholder; t.maxLength = 300;
+        t.oninput = function () { m[q.id] = t.value.trim().slice(0, 300) || null; stamp(q.id); upd(); };
+        box.appendChild(t);
+      } else if (q.type === 'single') {
+        var sel = [];
+        box.appendChild(self._checks(q.options, false, sel, function () { m[q.id] = sel[0]; stamp(q.id); upd(); }));
+      } else {
+        var other = null;
+        if (q.other) {
+          other = el('input', 'pzb-other'); other.type = 'text'; other.placeholder = q.placeholder; other.style.display = 'none'; other.maxLength = 200;
+          other.oninput = function () { m[q.id + 'Other'] = other.value.slice(0, 200); };
+        }
+        box.appendChild(self._checks(q.options, true, m[q.id], function () {
+          if (other) other.style.display = m[q.id].indexOf(q.other) >= 0 ? '' : 'none';
+          stamp(q.id); upd();
+        }));
+        if (other) box.appendChild(other);
+      }
+      card.appendChild(box);
+    });
+    upd = this._nav(card, function () {
+      return qs.every(function (q) { var v = m[q.id]; return !q.required || (q.type === 'multi' ? v.length > 0 : v != null && v !== ''); });
+    }, T.finish);
     this.w.appendChild(card);
   };
   // the metryczka in the fields the analysis already reads
@@ -1697,12 +1742,15 @@
     var m = this.res.met, r = this.res, neuro = [], dx = {};
     if (m.autism && m.autism !== 'no') { neuro.push('autistic'); dx.autistic = m.autism; }
     if (m.adhd && m.adhd !== 'no') { neuro.push('adhd'); dx.adhd = m.adhd; }
-    var band = m.age == null ? null : m.age < 25 ? '18-24' : m.age < 35 ? '25-34' : m.age < 45 ? '35-44' : m.age < 55 ? '45-54' : m.age < 65 ? '55-64' : '65+';
-    r.about = { neuro: neuro.length ? neuro : ['none'], dx: dx, eating: [], age: band, ageYears: m.age, gender: m.gender, trans: m.trans, t: m.t, ms: m.ms };
-    r.diet = m.diet.filter(function (d) { return d !== 'allergy'; });
-    if (!r.diet.length) r.diet = ['none'];
-    r.dietOther = m.dietOther;
-    r.health = m.diet.indexOf('allergy') >= 0 ? ['allergy'] : ['none'];
+    var band = m.age == null || typeof m.age !== 'number' ? null : m.age < 25 ? '18-24' : m.age < 35 ? '25-34' : m.age < 45 ? '35-44' : m.age < 55 ? '45-54' : m.age < 65 ? '55-64' : '65+';
+    var askedNd = 'autism' in m || 'adhd' in m;      // a study's own survey may leave these out: then unknown, never "none"
+    r.about = { neuro: askedNd ? (neuro.length ? neuro : ['none']) : null, dx: dx, eating: [], age: band, ageYears: m.age, gender: m.gender, trans: m.trans, t: m.t, ms: m.ms };
+    if (Array.isArray(m.diet)) {          // asked (the metryczka's diet question)
+      r.diet = m.diet.filter(function (d) { return d !== 'allergy'; });
+      if (!r.diet.length) r.diet = ['none'];
+      r.dietOther = m.dietOther;
+      r.health = m.diet.indexOf('allergy') >= 0 ? ['allergy'] : ['none'];
+    }
   };
 
   Followup.prototype._next = function () {

@@ -106,6 +106,12 @@ also written where the analysis reads it:
   finished, tTotal }
 ```
 
+From task 0.16.0 the questions are the study's own (`"survey"` in `server/study.json`, `docs/SURVEY.md`): `met.<id>`
+for each question (a number, a code, a list of codes, or text; `met.<id>Other` for a typed "other"), and
+`survey: [{id, type}]` lists what was asked. In `participants.csv` the metryczka's six questions keep their columns;
+any other question becomes `q_<id>`, `q_<id>_<code>` (1/0, several-answer questions) and `q_<id>_text`. When autism
+and ADHD were not asked, `about.neuro` is empty (unknown), not "none".
+
 The default (`style: 'strong'`):
 
 ```

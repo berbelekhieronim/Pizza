@@ -30,6 +30,7 @@ import json
 import math
 import os
 import random
+import re
 import shutil
 import sqlite3
 import statistics
@@ -1315,6 +1316,44 @@ def about_measures(about):
     return out
 
 
+# the questions of the metryczka, read into the usual columns by about_measures (age_years, dx_*, gender, transgender,
+# diet ...); a study's other post-pizza questions (study.json "survey") become columns q_<id>
+SURVEY_BUILTIN = ('age', 'autism', 'adhd', 'gender', 'trans', 'diet')
+
+
+def survey_measures(follow):
+    """A study's own post-pizza questions (follow-up style 'metryczka' with "survey"): q_<id> = the answer (a number, a
+    code, the codes of a several-answer question space-separated, or the typed text); q_<id>_text = what was typed
+    for "other". Empty for questions not asked."""
+    met = (follow or {}).get('met') or {}
+    kinds = {q.get('id'): q.get('type') for q in (follow or {}).get('survey') or [] if isinstance(q, dict)}
+    out = {}
+    for k, v in met.items():
+        if k in SURVEY_BUILTIN or k in ('t', 'ms', 'dietOther') or k.endswith('Other') or not re.match(r'^[a-z][a-z0-9_]{0,30}$', k):
+            continue
+        out['q_' + k] = ' '.join(map(str, v)) or None if isinstance(v, list) else v
+        if kinds.get(k) == 'multi' or isinstance(v, list):
+            out['_multi_' + k] = list(v or [])
+        if met.get(k + 'Other'):
+            out['q_%s_text' % k] = met[k + 'Other']
+    return out
+
+
+def survey_groupings(people):
+    """The study's own questions as Explore groupings (one answer, 2-8 different answers) and covariates (numbers)."""
+    groups, covs = [], []
+    keys = sorted({k for p in people for k in p if k.startswith('q_') and not k.endswith('_text')})
+    for k in keys:
+        vals = [p.get(k) for p in people if p.get(k) is not None]
+        if not vals or k.count('_') > 1 and k.rsplit('_', 1)[0] in keys:      # one-hot columns of a several-answer question
+            continue
+        if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in vals):
+            covs.append((k, 'Survey: ' + k[2:]))
+        elif all(isinstance(v, str) and ' ' not in v for v in vals) and 2 <= len(set(vals)) <= 8:
+            groups.append((k, 'Survey: ' + k[2:]))
+    return groups, covs
+
+
 def practice_measures(summary, events):
     if not summary:
         return {}
@@ -2114,15 +2153,19 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
   th.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sortBy(); } });
 });
 </script>"""
-    return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
+    # the strong-feelings follow-up: only when the study asked it (a study with its own survey, e.g. the metryczka, did not)
+    feelings = ('<h2 id="feelings">Strong feelings</h2><p class="muted">From the follow-up: which ingredients people have strong feelings about, and why '
+                '(texture, smell, taste, look, touching other food), whether they are safe foods, must be a certain way, or are craved.</p>'
+                + strong_feelings_chart(entries, groups) + feel_plots) if any(r.get('n_strong') is not None for r in recs) else ''
+    return (('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
             '<title>Pizza Data Preview</title><style>%s%s%s</style></head><body><div class="wrap">'
             '<h1>Overview</h1><p class="muted">%d pizzas, compared by <code>%s</code>. Every number comes from the recorded coordinates, sizes and timestamps; '
             'formulas are on the Methods page. Charts are descriptive: every participant is a dot, groups of 5 or more get a median and interquartile range '
             '(the middle half). Tests between groups are on the Explore page.</p><div class="kpis">%s</div>'
             '<nav class="toc"><a href="#check">Data check</a><a href="#diet">Diet</a><a href="#nutrition">Nutrition</a><a href="#normal">How normal</a><a href="#feelings">Strong feelings</a>'
             '<a href="#space">Space</a><a href="#size">Size and amount</a><a href="#time">Time</a><a href="#people">Every participant</a></nav>%s'
-            '<h2 id="diet">Diet: vegan, vegetarian, pescatarian or meat</h2><p class="muted">Each topping has a diet class; cheese and white sauce count as dairy, so a vegan '
-            'pizza needs no cheese. A pizza is classed by the strictest diet it fits.</p>%s%s%s%s'
+            '<h2 id="diet">Diet: vegan, vegetarian, pescatarian or meat</h2><p class="muted">Each topping has a diet class, and so does the base: dairy cheese and white sauce make a '
+            'pizza vegetarian, while tomato or BBQ sauce, vegan cheese or no cheese keep it vegan. A pizza is classed by the strictest diet it fits.</p>%s%s%s%s'
             '<h2 id="nutrition">Nutrition</h2>%s'
             '<h2 id="normal">How normal is each pizza?</h2><p class="muted">Two things are compared with the reference (%s). <b>Which toppings</b>: how surprising '
             'the set of toppings is given how often each topping appears; adding a rare topping or leaving off a near-universal one both add surprise (in bits, plotted below). '
@@ -2130,13 +2173,13 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
             'Each becomes a percentile of the reference, and the band uses the more extreme of the two: under 75 is <b>typical</b>, 75-95 <b>uncommon</b>, above 95 <b>unusual</b>.</p>'
             '<figure><figcaption>Which toppings: surprise of the topping set in bits (bars = reference, dots = this sample, line = median)</figcaption>%s</figure>%s'
             '<h3>Most unusual pizzas</h3><div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">%s</div>'
-            '<h2 id="feelings">Strong feelings</h2><p class="muted">From the follow-up: which ingredients people have strong feelings about, and why '
-            '(texture, smell, taste, look, touching other food), whether they are safe foods, must be a certain way, or are craved.</p>%s%s'
+            '%s'
             '<h2 id="space">Space</h2>%s<h2 id="size">Size and amount</h2>%s<h2 id="time">Time</h2>%s'
             '<h2 id="people">Every participant</h2><p class="muted">Click a column to sort.</p><div class="tablewrap"><table class="people"><thead>%s</thead><tbody>%s</tbody></table></div>'
             '</div>%s</body></html>'
             % (REPORT_CSS, DASH_TOKENS, DASH_CSS, len(recs), esc(group_label), kpis, data_check_html(check), legend, diet, pieces, cross, nutrition_section(recs, groups),
-               esc(ref_txt), hist, bands, examples, strong_feelings_chart(entries, groups), feel_plots, space, size, time_, head, ''.join(body), sort_js))
+               esc(ref_txt), hist, bands, examples, feelings, space, size, time_, head, ''.join(body), sort_js)
+           ).replace('<a href="#feelings">Strong feelings</a>', '<a href="#feelings">Strong feelings</a>' if feelings else ''))
 
 
 # The Data check's session links and buttons: inside the researcher page they ask it to open the session (or list the
@@ -2913,6 +2956,7 @@ EXPLORE_GROUPINGS = [
     ('neurotype', 'Neurotype (self-described)'), ('nd_any', 'Any neurodivergence (yes / no)'), ('nd_autistic', 'Autistic, incl. AuDHD (yes / no)'), ('nd_adhd', 'ADHD, incl. AuDHD (yes / no)'),
     ('nd_identified', 'Autism / ADHD: formally diagnosed or not'), ('eat_any', 'Any eating difficulty, allergy or intolerance (yes / no)'),
     ('eat_picky', 'Picky eating since childhood (yes / no)'), ('gender', 'Gender'), ('age_band', 'Age'),
+    ('transgender', 'Transgender (yes / no)'), ('diet_special', 'Special diet (vegetarian, vegan or other; yes / no)'),
     ('nutrition_panel', 'Nutrition panel shown (yes / no)'), ('nutri_revealed', 'Revealed the nutrition while building (yes / no)'), ('group', 'Recruitment group (study link)'), ('source', 'Recruitment source'), ('study', 'Study'), ('condition', 'Condition'),
 ]
 EXPLORE_COVARIATES = [('self_picky', '"I am a picky eater" (1-7)'), ('self_sensory_food', '"Food textures, smells or looks bother me" (1-7)')]
@@ -3811,6 +3855,9 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
                 rec['pz_' + k] = pz.get(k)
             rec['pizza_freq'] = follow.get('freq')
             rec.update(about_measures(follow.get('about')))
+            rec.update(survey_measures(follow))
+            # stated a special diet (vegetarian, vegan, other; from the diet question), for comparing groups
+            rec['diet_special'] = None if not diet else int(any(d not in ('none', 'pnts') for d in diet))
             rec['flag_tab_away'] = int((summary.get('hiddenMs') or 0) > 30000)
             rec['flag_fast'] = int(rec['t_finish'] is not None and rec['t_finish'] < 15000)
             rec['flag_empty'] = int(n == 0)
@@ -3927,6 +3974,17 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             p['typical_d_distinct'] = p['n_distinct'] - t['n_distinct']
 
     os.makedirs(os.path.join(out_dir, 'pizzas'), exist_ok=True)
+    # several-answer survey questions: one 1/0 column per answer given by anyone (empty for people not asked)
+    multi = {}
+    for p in people:
+        for k in [k for k in p if k.startswith('_multi_')]:
+            multi.setdefault(k[7:], set()).update(p[k])
+    for p in people:
+        for q, codes in multi.items():
+            sel = p.pop('_multi_' + q, None)
+            for c in sorted(codes):
+                if re.match(r'^[a-z0-9_]{1,30}$', str(c)):
+                    p['q_%s_%s' % (q, c)] = None if sel is None else int(c in sel)
     trays = {id(p): p.pop('_tray', None) for p in people}
     write_csv(os.path.join(out_dir, 'participants.csv'), people)
     write_csv(os.path.join(out_dir, 'ingredients_long.csv'), ing_long)
@@ -3970,7 +4028,10 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
     # explore.html: every measure screened across every way of grouping people the data allow
     groupings = [(c, dict(EXPLORE_GROUPINGS).get(c, c)) for c in (group_cols or [])]
     groupings += [g for g in EXPLORE_GROUPINGS if g[0] not in dict(groupings)]
+    s_groups, s_covs = survey_groupings([r for r, _ in own_entries])
+    groupings += [g for g in s_groups if g[0] not in dict(groupings)]       # the study's own questions (study.json "survey")
     covs = EXPLORE_COVARIATES + [(c, c) for c in covariates or [] if c not in dict(EXPLORE_COVARIATES)]
+    covs += [c for c in s_covs + [('age_years', 'Age in years')] if c[0] not in dict(covs)]
     html, tests = explore_report([r for r, _ in own_entries], toppings, groupings, covs, seed)
     with open(os.path.join(out_dir, 'explore.html'), 'w', encoding='utf-8') as f:
         f.write(flag(html))

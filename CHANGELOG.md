@@ -5,6 +5,20 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Task 0.16.0: the post-pizza survey is set per study** (`docs/SURVEY.md`). The metryczka is now a list of questions
+in the study's settings (`"survey"` in `server/study.json`: number, one answer, several answers with an optional
+"other" box, or text; required or not), so each study can ask its own. Pizza Pilot 11.2026 lists its six questions
+explicitly and asks exactly what it asked before; its data keeps the same shape (`met.<id>`), plus `survey` (what
+was asked). A study's own questions: wording in the study's language or per language, in the texts sheet for
+translation (`survey.<id>.text`, `survey.<id>.options.<code>`), checked by `tools/texts.py check`. When a survey
+leaves out the autism / ADHD questions, nobody is recorded as "not autistic". The analysis reads every other question
+into `q_<id>` (+ `q_<id>_<code>`, `q_<id>_text`).
+
+**Explore and the overview follow the study's questions**: Explore groups by the study's own one-answer questions
+and uses its number questions (and age in years) as covariates; new groupings: transgender, a stated special diet
+(`diet_special`). The overview leaves out "Strong feelings" when the study did not ask it, and its diet note now says
+that tomato / BBQ sauce and vegan cheese keep a pizza vegan.
+
 **To review, actionable; every session one click away.** The Data check's *To review* box (overview report) pulses
 until opened and lists every item with its sessions as links; browser flags (translated, coarse clock, high contrast,
 small window, automated) are among the items. In the researcher page a session link opens that session; *show … on

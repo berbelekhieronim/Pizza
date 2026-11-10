@@ -291,6 +291,7 @@
     if (name === 'followup') {
       opts.counts = S.fields.pz_counts || null; opts.askAbout = S.study.about_you !== false;
       if (S.study.followup) opts.style = S.study.followup;     // e.g. "metryczka": only the short demographic card
+      if (S.study.survey) opts.survey = S.study.survey;       // the study's own post-pizza questions (study.json "survey")
     }
     if (name === 'build' || name === 'typical') {
       ['sauces', 'sauce', 'cheeses', 'cheese'].forEach(function (k) { if (S.study[k] != null) opts[k] = S.study[k]; });   // the study's base choices

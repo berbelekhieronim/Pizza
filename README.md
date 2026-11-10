@@ -38,6 +38,7 @@ the toppings are drawn in SVG by the script itself.
 |---|---|
 | this README | what the task does, running it (Qualtrics or the study server), pilots, the analysis |
 | `CODEBOOK.md` | every recorded field and output table |
+| `docs/SURVEY.md` | a study's own post-pizza questions: setting them up, checking and translating them, how they appear in the data and in Explore |
 | `docs/BROWSERS.md` | what participants' browsers, privacy settings and blockers may refuse, and how the participant page copes (and records it) |
 | `docs/BUILDER.md` | the pizza builder itself: the tray, sauces and cheeses (with their diet), what each build records, the version history of the builder and how to add a topping without breaking earlier data |
 | **Methods page** (`methods.html`, researcher page → *Methods*) | how every number and test is computed, with worked examples checked against the code |
@@ -228,7 +229,8 @@ settings above, a study can set its own flow:
 | `lang` | language of the participant pages and the task (`pl` built in; anything missing falls back to English) | `"pl"` |
 | `intro`, `consent` | the consent text (paragraphs) and the consent sentence | the SWPS pilot consent |
 | `consent_choice` | `true`: the consent is a question with YES / NO buttons; NO ends the study (stage `declined`, with `decline_message`) | `true` |
-| `followup` | the questions after the build: `strong` (default), `ratings`, or `metryczka` (only the short demographic card: age, autism, ADHD, gender, transgender, special diets) | `"metryczka"` |
+| `followup` | the questions after the build: `strong` (default), `ratings`, or `metryczka` (the study's own short card of questions; by default age, autism, ADHD, gender, transgender, special diets) | `"metryczka"` |
+| `survey` | with `metryczka`: the study's own questions (number, one answer, several answers, text), in order; see `docs/SURVEY.md` | the metryczka's six |
 | `sauces`, `sauce`, `cheeses`, `cheese` | which sauces and cheeses are offered and which is selected at the start (`none`, `light`, `normal`, `extra`, `vegan`) | cheeses `none`, `light`, `extra`, `vegan`; `light` selected |
 | `nutrition_panel` | the nutrition table with calories under the pizza | `true` |
 | `completion_title`, `completion_message`, `bake_picture`, `show_code` | the end page: heading, text, the participant's pizza baked, and whether to show the completion code | "Dziękujemy za pomoc!", "Oto Twoja upieczona pizza:", picture on, no code |

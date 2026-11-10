@@ -4,7 +4,7 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-11-10, task version 0.15.0, server 0.14.0)
+## Snapshot (2026-11-10, task version 0.16.0, server 0.14.0)
 
 - **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
@@ -201,6 +201,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-10 | Claude Code (cloud) | 0.16.0 (task): post-pizza survey per study (study.json survey, docs/SURVEY.md), q_<id> columns, Explore groupings from it; build per study; To review links + session panel (#sessions/<id>) |
 | 2026-11-10 | Claude Code (cloud) | Counter fix (built = finished pizza, as the analysis; stage never moves back); asked/flagged/auto-excluded browser conditions; Sessions filter needs a look |
 | 2026-11-10 | Claude Code (cloud) | Server 0.14.0: browsers and blockers (docs/BROWSERS.md): storage-blocked start fixed (blank page before), leave-page save via fetch keepalive, start retries, Turnstile never hangs, colour lock, noscript; browser_flags / translated recorded; tests/browser_matrix.js. Asked the user about letting sessions start when Turnstile cannot run and raising START_LIMIT (not changed) |
 | 2026-11-10 | Claude Code (cloud) | Server 0.13.0: data-capture check (logs, save path, limits); device (browser, os, tz, client), save_fails, client_errors; whole event log kept; leaving the page sends unsaved fields only; Warsaw time on the researcher page and in the session list |

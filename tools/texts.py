@@ -130,7 +130,40 @@ def current_texts(sid, st):
         rows.append((k, where, task(parts) or ''))
     for code in NAMES:
         rows.append(('names.' + code, 'Składnik: ' + ('plaster pomidora (tylko instrukcja)' if code == 'tom' else 'nazwa na tacy'), d['names'][code]))
+    # the study's own post-pizza questions (study.json "survey"): the wording they bring themselves
+    if st.get('followup') == 'metryczka':
+        for q in st.get('survey') or []:
+            if not isinstance(q, dict) or not q.get('id'):
+                continue
+            if q.get('text') is not None:
+                rows.append(('survey.%s.text' % q['id'], 'Ankieta po pizzy: pytanie „%s”' % q['id'], survey_word(q['text'], lang)))
+            for op in q.get('options') or []:
+                if isinstance(op, list) and len(op) > 1:
+                    rows.append(('survey.%s.options.%s' % (q['id'], op[0]), 'Ankieta po pizzy: odpowiedź na „%s”' % q['id'], survey_word(op[1], lang)))
     return rows
+
+
+def survey_word(w, lang):
+    """A survey question's wording in the study's language: a string, or {pl: ..., en: ...}."""
+    if isinstance(w, dict):
+        return w.get(lang or 'en') or w.get('en') or next(iter(w.values()), '')
+    return '' if w is None else str(w)
+
+
+def set_survey_word(study, key, new, lang):
+    """survey.<id>.text / survey.<id>.options.<code> from the sheet into the study's "survey" (in its language)."""
+    parts = key.split('.')
+    for q in study.get('survey') or []:
+        if q.get('id') != parts[1]:
+            continue
+        if parts[2] == 'text':
+            q['text'] = dict(q['text'], **{lang or 'en': new}) if isinstance(q.get('text'), dict) else new
+        else:
+            for op in q.get('options') or []:
+                if isinstance(op, list) and str(op[0]) == parts[3]:
+                    op[1] = dict(op[1], **{lang or 'en': new}) if isinstance(op[1], dict) else new
+        return True
+    return False
 
 
 def write_sheet(rows, path):
@@ -200,6 +233,8 @@ def do_import(sid, path):
         if key.startswith('study.intro.'):
             intro[int(key.rsplit('.', 1)[1]) - 1] = new
             study['intro'] = intro
+        elif key.startswith('survey.'):
+            set_survey_word(study, key, new, study_settings(sid).get('lang'))
         elif key.startswith('study.'):
             study[key[6:]] = new
         else:
@@ -273,7 +308,46 @@ def check():
         for k, _w, t in current_texts(sid, st):
             if not t:
                 problems.append('%s %s: shows an empty text' % (name, k))
+        problems += ['%s survey: %s' % (name, p) for p in survey_problems(st.get('survey'))]
     return problems
+
+
+BUILTIN_QUESTIONS = ('age', 'autism', 'adhd', 'gender', 'trans', 'diet')     # worded by the task's texts (pizza-builder.js SURVEY)
+
+
+def survey_problems(survey):
+    """What is wrong with a study's post-pizza questions (study.json "survey"); [] = all well."""
+    if survey is None:
+        return []
+    if not isinstance(survey, list) or not survey:
+        return ['must be a list of questions']
+    out, seen = [], set()
+    for i, q in enumerate(survey, 1):
+        qid = q.get('id') if isinstance(q, dict) else None
+        if not isinstance(qid, str) or not re.match(r'^[a-z][a-z0-9_]{0,30}$', qid):
+            out.append('question %d: "id" must be lower-case letters, digits or _ (it names the data column q_<id>)' % i)
+            continue
+        if qid in seen:
+            out.append('%s: the id is used twice' % qid)
+        seen.add(qid)
+        kind = q.get('type')
+        if kind not in ('number', 'single', 'multi', 'text'):
+            out.append('%s: "type" must be number, single, multi or text' % qid)
+        if qid not in BUILTIN_QUESTIONS and not q.get('text'):
+            out.append('%s: needs its wording ("text")' % qid)
+        opts = q.get('options')
+        if kind in ('single', 'multi') and qid not in BUILTIN_QUESTIONS and not opts:
+            out.append('%s: needs "options": [[code, label], ...]' % qid)
+        codes = [str(o[0]) if isinstance(o, list) else str(o) for o in opts or []]
+        if any(not re.match(r'^[a-z0-9_]{1,30}$', c) for c in codes):
+            out.append('%s: answer codes must be lower-case letters, digits or _' % qid)
+        if len(set(codes)) != len(codes):
+            out.append('%s: an answer code is used twice' % qid)
+        if q.get('other') and codes and q['other'] not in codes:
+            out.append('%s: "other" must be one of its answer codes' % qid)
+        if kind == 'number' and q.get('min') is not None and q.get('max') is not None and q['min'] > q['max']:
+            out.append('%s: min is above max' % qid)
+    return out
 
 
 def diff(sid, other=None):

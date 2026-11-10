@@ -693,7 +693,9 @@ def main():
                   'Pizza Pilot 11.2026: Polish, consent yes / no, metryczka, its cheeses, nutrition table, the baked pizza at the end')
             pids = [json.loads(http('GET', base + '/api/start?study=pilot-2026-11')[1])['pid'] for _ in range(3)]
             http('POST', base + '/api/save', {'pid': pids[0], 'stage': 'declined', 'fields': {'consent': 'declined 2026-11-08T10:00:00Z'}})
-            met = {'style': 'metryczka', 'finished': True, 'met': {'age': 31, 'autism': 'self', 'adhd': 'no', 'gender': 'nonbinary', 'trans': 'yes', 'diet': ['vegan', 'allergy']},
+            met = {'style': 'metryczka', 'finished': True, 'met': {'age': 31, 'autism': 'self', 'adhd': 'no', 'gender': 'nonbinary', 'trans': 'yes', 'diet': ['vegan', 'allergy'],
+                                                                 'sleep': 'good', 'hours': 7, 'pets': ['cat', 'other'], 'petsOther': 'axolotl'},
+                   'survey': [{'id': 'age', 'type': 'number'}, {'id': 'sleep', 'type': 'single'}, {'id': 'hours', 'type': 'number'}, {'id': 'pets', 'type': 'multi'}],
                    'about': {'neuro': ['autistic'], 'dx': {'autistic': 'self'}, 'eating': [], 'age': '25-34', 'ageYears': 31, 'gender': 'nonbinary', 'trans': 'yes'},
                    'diet': ['vegan'], 'health': ['allergy'], 'dietOther': ''}
             vsum = dict(sample['pz_summary'] if isinstance(sample['pz_summary'], dict) else json.loads(sample['pz_summary']), cheese='vegan', sauce='tomato')
@@ -723,7 +725,9 @@ def main():
                   'Pizza Pilot 11.2026: a pizza from before tofu (0.14.0) still analyses; its tofu count is NA (not offered), not 0; BBQ sauce keeps it vegan')
             check(len(pcs) == 2 and pc[0]['cheese'] == 'vegan' and pc[0]['diet_class'] == 'vegan' and pc[0]['age_years'] == '31' and pc[0]['age_band'] == '25-34'
                   and pc[0]['transgender'] == '1' and pc[0]['gender'] == 'nonbinary' and pc[0]['neurotype'] == 'Autistic' and pc[0]['dx_autistic'] == 'self'
-                  and pc[0]['diet'] == 'vegan' and pc[0]['health_allergy'] == '1',
+                  and pc[0]['diet'] == 'vegan' and pc[0]['health_allergy'] == '1' and pc[0]['diet_special'] == '1'
+                  and pc[0]['q_sleep'] == 'good' and pc[0]['q_hours'] == '7' and pc[0]['q_pets'] == 'cat other' and pc[0]['q_pets_cat'] == '1'
+                  and pc[0]['q_pets_text'] == 'axolotl' and pc[0]['q_pets_other'] == '1' and 'q_age' not in pc[0],
                   'Pizza Pilot 11.2026: the analysis reads the metryczka (age, transgender, autism / ADHD, gender, diets) and vegan cheese keeps a pizza vegan')
             counting_checks(base, 'smoke-key', fields, '')
         finally:
@@ -851,13 +855,22 @@ def main():
             check(r.returncode == 0 and 'all well' in r.stdout, 'texts: every language complete and every study\'s own texts valid (tools/texts.py check)' + ('' if r.returncode == 0 else ' - ' + r.stdout[-600:]))
             bad = json.load(open(os.path.join(ROOT, 'server', 'study.json'), encoding='utf-8'))
             bad['studies']['pilot-2026-11']['texts'] = {'task.nope': 'x', 'task.promptBuild': ' ', 'task.nutri.perSlice': 'no number', 'names.pep': 'Salami'}
+            bad['studies']['pilot-2026-11']['survey'] = [{'id': 'age', 'type': 'number'}, {'id': 'Sleep', 'type': 'single'}, {'id': 'pets', 'type': 'multi', 'text': 'Pets?'},
+                                                     {'id': 'mood', 'type': 'single', 'text': {'pl': 'Nastrój?'}, 'options': [['good', 'dobry'], ['bad', 'zły']]}]
             badp = os.path.join(tmp, 'bad-study.json')
             json.dump(bad, open(badp, 'w', encoding='utf-8'), ensure_ascii=False)
             r = subprocess.run([PY, os.path.join(ROOT, 'tools', 'texts.py'), 'check'], capture_output=True, text=True, timeout=300, env=dict(os.environ, PIZZA_STUDY_JSON=badp))
             d = subprocess.run([PY, os.path.join(ROOT, 'tools', 'texts.py'), 'diff', 'pilot-2026-11'], capture_output=True, text=True, timeout=300, env=dict(os.environ, PIZZA_STUDY_JSON=badp))
             check(r.returncode == 1 and 'task.nope: unknown key' in r.stdout and 'task.promptBuild: empty' in r.stdout and 'perSlice: must keep {x}' in r.stdout
-                  and 'names.pep' not in r.stdout and 'names.pep' in d.stdout and 'Salami' in d.stdout,
-                  'texts: a study\'s unknown, empty or placeholder-losing texts are caught; diff lists what a study changed')
+                  and 'names.pep' not in r.stdout and 'names.pep' in d.stdout and 'Salami' in d.stdout
+                  and 'survey: question 2: "id" must be' in r.stdout and 'survey: pets: needs "options"' in r.stdout and 'mood' not in r.stdout.split('survey:', 1)[-1].split('\n')[0],
+                  'texts: a study\'s unknown, empty or placeholder-losing texts are caught, and a broken post-pizza survey; diff lists what a study changed')
+            tcsv2 = os.path.join(tmp, 'teksty2.csv')
+            env_bad = dict(os.environ, PIZZA_STUDY_JSON=badp)
+            subprocess.run([PY, os.path.join(ROOT, 'tools', 'texts.py'), 'export', 'pilot-2026-11', tcsv2], capture_output=True, text=True, timeout=300, env=env_bad)
+            srows = [x for x in csv.reader(open(tcsv2, encoding='utf-8-sig')) if x and x[0].startswith('survey.mood')]
+            check([x[0] for x in srows] == ['survey.mood.text', 'survey.mood.options.good', 'survey.mood.options.bad'] and srows[0][2] == 'Nastrój?',
+                  'texts: a study\'s own survey questions are in its texts sheet (wording and answers) for translation')
             g1 = FB.A.piece_grams({'ing': 'tom', 's': 1.0})
             check(abs(FB.A.piece_grams({'ing': 'tom', 's': 2.0}) - 4 * g1) < 1e-9 and abs(FB.A.piece_grams({'ing': 'tom', 's': 0.5}) - g1 / 4) < 1e-9,
                   'a piece twice as big weighs 4x (grams follow area)')

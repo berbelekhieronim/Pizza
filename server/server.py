@@ -54,7 +54,7 @@ STUDY_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 STUDY_KEYS = ('title', 'intro', 'consent', 'completion_message', 'completion_redirect', 'typical_build', 'about_you', 'conditions', 'groups',
               'nutrition_panel', 'nutrition_show', 'nutrition_base', 'nutrition_reveal', 'condition_settings', 'synthetic',
               # a study's own flow: language, consent with yes/no, the questions at the end, the base choices, the end page
-              'lang', 'consent_choice', 'decline_message', 'followup', 'sauces', 'sauce', 'cheeses', 'cheese', 'bake_picture', 'show_code', 'completion_title', 'texts')
+              'lang', 'consent_choice', 'decline_message', 'followup', 'sauces', 'sauce', 'cheeses', 'cheese', 'bake_picture', 'show_code', 'completion_title', 'texts', 'survey')
 SYNTHETIC_CHOICES = (0, 25, 50, 100, 200, 500)        # synthetic pizzas a test study can hold (study.json "synthetic" = the default)
 
 

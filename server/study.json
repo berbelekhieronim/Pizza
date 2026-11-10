@@ -74,6 +74,35 @@
       "cheese": "light",
       "typical_build": false,
       "followup": "metryczka",
+      "survey": [
+        {
+          "id": "age",
+          "type": "number",
+          "min": 16,
+          "max": 99
+        },
+        {
+          "id": "autism",
+          "type": "single"
+        },
+        {
+          "id": "adhd",
+          "type": "single"
+        },
+        {
+          "id": "gender",
+          "type": "single"
+        },
+        {
+          "id": "trans",
+          "type": "single"
+        },
+        {
+          "id": "diet",
+          "type": "multi",
+          "other": "other"
+        }
+      ],
       "completion_title": "Dziękujemy za pomoc!",
       "completion_message": "Oto Twoja upieczona pizza:",
       "bake_picture": true,
