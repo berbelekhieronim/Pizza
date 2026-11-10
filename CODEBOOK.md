@@ -23,7 +23,7 @@
 | `oni` | Red onion | veg | common | | | `nor` | Nori | seaweed | unusual | |
 | `oli` | Black olives | veg | common | | | `kim` | Kimchi | veg | unusual | |
 | `crn` | Sweetcorn (a pinch of 3 kernels) | veg | common | | | `fig` | Fig (half) | fruit | unusual | |
-| | | | | | | `par` | Pear *(not in the default tray)* | fruit | unusual | |
+| `tof` | Tofu (cube of firm tofu; from task 0.15.0) | soy | mid | | | `par` | Pear *(not in the default tray)* | fruit | unusual | |
 | `jal` | Jalapeños | veg | common | | | `ban` | Banana *(not in the default tray)* | fruit | unusual | |
 | `bas` | Basil | herb | common | | | `wal` | Walnuts *(not in the default tray)* | nut | unusual | |
 | `tom` | Tomato slice (practice only) | | | | | | | | | |
@@ -174,7 +174,7 @@ Scales run 1-7:
 
 | column | definition |
 |---|---|
-| `n_pieces`, `n_distinct`, `n_<code>` | quantity: total pieces, distinct toppings, pieces of each |
+| `n_pieces`, `n_distinct`, `n_<code>` | quantity: total pieces, distinct toppings, pieces of each (`n_<code>` is NA when that topping was not on the person's tray, e.g. `n_tof` before task 0.15.0) |
 | `shannon`, `evenness`, `simpson` | diversity over topping counts: H = -Σp ln p; H / ln(distinct); 1 - Σp² |
 | `n_categories`, `meat_or_fish` | categories used; any meat or seafood |
 | `n_distinct_common`, `_mid`, `_unusual` | distinct toppings in each a-priori tier |
@@ -203,7 +203,7 @@ Scales run 1-7:
 | `stack_same_share`, `touch_same_share` | share of stacked / touching pairs that are the same topping (piling one topping vs layering different ones) |
 | `nn_gap_mm` | median edge-to-edge distance from each piece to its nearest neighbour, in mm on a 30 cm pizza (negative = overlapping) |
 | `n_grown`, `n_shrunk`, `size_mean`, `size_min`, `size_max` | pieces made bigger / smaller by holding; mean, smallest and largest size factor |
-| `diet_class` | the strictest diet the whole pizza fits: `vegan`, `vegetarian` (dairy or egg, including any cheese except vegan cheese, or white sauce), `pescatarian` (anchovies or shrimp, no meat), `meat` |
+| `diet_class` | the strictest diet the whole pizza fits: `vegan`, `vegetarian` (dairy or egg, including any cheese except vegan cheese, or white sauce), `pescatarian` (anchovies, shrimp or tuna, no meat), `meat`. The base counts: tomato and BBQ sauce, no sauce, no cheese and vegan cheese are vegan; white sauce (béchamel) and dairy cheese are vegetarian. Tofu is vegan |
 | `n_<vegan/vegetarian/seafood/meat>_pieces`, `area_share_<...>` | pieces, and share of topping area, in each diet class. Kimchi counts as vegan (change `DIET_CLASS` if your kimchi has fish sauce) |
 | `atypicality_bits`, `composition_pct` | *which toppings*: surprisal of the pizza's set of toppings under the reference, Σ over toppings offered of −log₂ P(on or off) with P from the reference inclusion rate (+0.5 smoothing); and its percentile in the reference distribution |
 | `count_pct` | *how many*: how extreme the number of different toppings is in the reference, in both directions, as 100 × (1 − two-sided tail probability). A plain pizza or one with everything scores high |

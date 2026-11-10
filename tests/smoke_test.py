@@ -629,7 +629,7 @@ def main():
             check(pst['title'] == 'Pizza Pilot 11.2026' and pst['lang'] == 'pl' and pst['consent_choice'] is True and pst['followup'] == 'metryczka'
                   and pst['cheeses'] == ['none', 'light', 'extra', 'vegan'] and pst['nutrition_panel'] is True and pst['bake_picture'] is True and pst['show_code'] is False,
                   'Pizza Pilot 11.2026: Polish, consent yes / no, metryczka, its cheeses, nutrition table, the baked pizza at the end')
-            pids = [json.loads(http('GET', base + '/api/start?study=pilot-2026-11')[1])['pid'] for _ in range(2)]
+            pids = [json.loads(http('GET', base + '/api/start?study=pilot-2026-11')[1])['pid'] for _ in range(3)]
             http('POST', base + '/api/save', {'pid': pids[0], 'stage': 'declined', 'fields': {'consent': 'declined 2026-11-08T10:00:00Z'}})
             met = {'style': 'metryczka', 'finished': True, 'met': {'age': 31, 'autism': 'self', 'adhd': 'no', 'gender': 'nonbinary', 'trans': 'yes', 'diet': ['vegan', 'allergy']},
                    'about': {'neuro': ['autistic'], 'dx': {'autistic': 'self'}, 'eating': [], 'age': '25-34', 'ageYears': 31, 'gender': 'nonbinary', 'trans': 'yes'},
@@ -639,14 +639,27 @@ def main():
             http('POST', base + '/api/save', {'pid': pids[1], 'stage': 'done', 'fields': {'consent': '2026-11-08T10:00:00Z', 'pz_final': json.dumps(vfin),
                                                                                           'pz_summary': json.dumps(vsum), 'pz_events': sample['pz_events'] if isinstance(sample['pz_events'], str) else json.dumps(sample['pz_events']),
                                                                                           'pzf_data': json.dumps(met)}})
+            # a pizza captured before tofu was on the tray (task 0.14.0): it still analyses, with tofu NA (not offered), not 0
+            osum = dict(vsum, v='0.14.0', tray=[k for k in vsum['tray'] if k != 'tof'], sauce='bbq', cheese='none')
+            ofin = [f for f in vfin if f[1] != 'tof']
+            http('POST', base + '/api/save', {'pid': pids[2], 'stage': 'done', 'fields': {'consent': '2026-11-08T09:00:00Z', 'pz_final': json.dumps(ofin),
+                                                                                          'pz_summary': json.dumps(osum), 'pz_events': sample['pz_events'] if isinstance(sample['pz_events'], str) else json.dumps(sample['pz_events']),
+                                                                                          'pzf_data': json.dumps(met)}})
             pl = api(base, 'state', 'smoke-key', study='pilot-2026-11')
             prow = next(r for r in pl['studies'] if r['id'] == 'pilot-2026-11')
             dec = api(base, 'sessions', 'smoke-key', study='pilot-2026-11', stage='declined')
-            check(prow['title'] == 'Pizza Pilot 11.2026' and prow['n'] == 2 and prow['active'] == 0 and dec['total'] == 1 and pl['stages']['declined'],
+            check(prow['title'] == 'Pizza Pilot 11.2026' and prow['n'] == 3 and prow['active'] == 0 and dec['total'] == 1 and pl['stages']['declined'],
                   'Pizza Pilot 11.2026: listed with its title; a refusal is its own stage, never "in progress"')
             ok = run('analysis/analyse.py', os.path.join(data, 'study.db'), '--study', 'pilot-2026-11', '--out', os.path.join(tmp, 'pilot'))
-            pc = list(csv.DictReader(open(os.path.join(tmp, 'pilot', 'participants.csv'), encoding='utf-8'))) if ok else []
-            check(len(pc) == 1 and pc[0]['cheese'] == 'vegan' and pc[0]['diet_class'] == 'vegan' and pc[0]['age_years'] == '31' and pc[0]['age_band'] == '25-34'
+            pcs = {r['pid']: r for r in csv.DictReader(open(os.path.join(tmp, 'pilot', 'participants.csv'), encoding='utf-8'))} if ok else {}
+            pc = [pcs.get(pids[1], {})]
+            old, new = pcs.get(pids[2], {}), pcs.get(pids[1], {})
+            ings = list(csv.DictReader(open(os.path.join(tmp, 'pilot', 'ingredients_long.csv'), encoding='utf-8'))) if ok else []
+            check(old.get('n_tof') == 'NA' and new.get('n_tof') not in (None, '', 'NA') and old.get('diet_class') == 'vegan' and old.get('sauce') == 'bbq'
+                  and old.get('sample_norm_dev') not in (None, '', 'NA') and old.get('n_pep') == '0' and not any(r['pid'] == pids[2] and r['ing'] == 'tof' for r in ings)
+                  and any(r['pid'] == pids[1] and r['ing'] == 'tof' for r in ings),
+                  'Pizza Pilot 11.2026: a pizza from before tofu (0.14.0) still analyses; its tofu count is NA (not offered), not 0; BBQ sauce keeps it vegan')
+            check(len(pcs) == 2 and pc[0]['cheese'] == 'vegan' and pc[0]['diet_class'] == 'vegan' and pc[0]['age_years'] == '31' and pc[0]['age_band'] == '25-34'
                   and pc[0]['transgender'] == '1' and pc[0]['gender'] == 'nonbinary' and pc[0]['neurotype'] == 'Autistic' and pc[0]['dx_autistic'] == 'self'
                   and pc[0]['diet'] == 'vegan' and pc[0]['health_allergy'] == '1',
                   'Pizza Pilot 11.2026: the analysis reads the metryczka (age, transgender, autism / ADHD, gender, diets) and vegan cheese keeps a pizza vegan')
@@ -710,6 +723,36 @@ def main():
             nut = json.load(open(os.path.join(ROOT, 'analysis', 'nutrition.json'), encoding='utf-8'))
             embedded = re.search(r'var NUTRITION = (\{.*?\});\n', open(os.path.join(ROOT, 'pizza-builder.js'), encoding='utf-8').read())
             check(embedded and json.loads(embedded.group(1)) == nut, 'the task embeds the same nutrition table as analysis/nutrition.json')
+            # every topping in every table (CLAUDE.md: the tables that must stay in step), tofu included
+            js = ("global.window = global; global.document = undefined; require(%s); require(%s); var I = PizzaBuilder.ingredients;"
+                  "var cases = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
+                  "console.log(JSON.stringify({ing: Object.keys(I), tier: Object.keys(I).filter(k => I[k].tier), def: PizzaBuilder.defaultIngredients,"
+                  " cat: Object.fromEntries(Object.keys(I).map(k => [k, I[k].cat])), pl: PizzaBuilder.names('pl'), vegan: PizzaBuilder.veganSauces.sort(),"
+                  " diet: cases.map(c => PizzaPreview.dietClass(c.ps, c.summ))}));"
+                  % (json.dumps(os.path.join(ROOT, 'pizza-builder.js')), json.dumps(os.path.join(ROOT, 'preview.js'))))
+            A = FB.A
+            dcases = [{'ps': [{'ing': i} for i in ps], 'summ': {'sauce': sa, 'cheese': ch}} for ps in ([], ['tof'], ['tof', 'mus'], ['egg'], ['tun'], ['pep', 'tof'])
+                      for sa in (None, 'none', 'tomato', 'white', 'bbq') for ch in (None, 'none', 'light', 'normal', 'extra', 'vegan')]
+            out_ = subprocess.run(['node', '-e', js], input=json.dumps(dcases), capture_output=True, text=True)
+            t = json.loads(out_.stdout) if out_.returncode == 0 else {}
+            real = [k for k in t.get('ing', []) if k != 'tom']
+            pv_src = open(os.path.join(ROOT, 'preview.js'), encoding='utf-8').read()
+            pv_tables = [re.search(r'var %s = \{(.*?)\};' % n, pv_src, re.S).group(1) for n in ('NAMES', 'FOOT', 'SIZE', 'CATS')]
+            sim = {f: json.loads(re.search(r'^TRAY = (\[.*?\])$', open(os.path.join(ROOT, f), encoding='utf-8').read(), re.M).group(1).replace("'", '"'))
+                   for f in ('examples/simulate.py', 'analysis/synthetic.py')}
+            missing = [k for k in real if not (k in A.CATS and k in A.NAMES and k in A.TIER and k in A.SIZE and k in A.FOOT and k in A.COLORS
+                                               and k in nut['toppings'] and k in t['tier'] and t['pl'].get(k) and all(re.search(r'\b%s:' % k, tb) for tb in pv_tables)
+                                               and ('%s' % k) in open(os.path.join(ROOT, 'CODEBOOK.md'), encoding='utf-8').read())]
+            check(out_.returncode == 0 and 'tof' in real and not missing and set(t['def']) <= set(real) and 'tof' in t['def']
+                  and all(sim[n] == t['def'] for n in sim) and all(A.CATS[k] == t['cat'][k] or (A.CATS[k], t['cat'][k]) in (('seafood', 'fish'),) for k in real),
+                  'every topping (tofu too) is in every table: task, analysis, preview, nutrition, Polish names, codebook, both simulators%s'
+                  % (' - missing: ' + ', '.join(missing) if missing else '' if out_.returncode == 0 else ' - ' + out_.stderr[-200:]))
+            pyc = [A.pizza_diet_class(c['ps'], c['summ']) for c in dcases]
+            check(t.get('vegan') == sorted(k for k, v in A.SAUCE_DIET.items() if v == 'vegan' and k != 'none') == ['bbq', 'tomato']
+                  and t.get('diet') == pyc and A.pizza_diet_class([{'ing': 'tof'}], {'sauce': 'bbq', 'cheese': 'vegan'}) == 'vegan'
+                  and A.pizza_diet_class([{'ing': 'tof'}], {'sauce': 'white', 'cheese': 'none'}) == 'vegetarian'
+                  and A.pizza_diet_class([], {'sauce': 'tomato', 'cheese': 'light'}) == 'vegetarian',
+                  'sauces: the ones marked vegan in the task (tomato, BBQ) are the vegan ones in the analysis; the diet of the whole pizza (toppings, sauce, cheese) agrees between preview.js and analyse.py (%d bases and toppings)' % len(dcases))
             # a study's own wording (tools/texts.py): every text exported, overrides applied without touching the defaults
             tcsv = os.path.join(tmp, 'teksty.csv')
             ok = run('tools/texts.py', 'export', 'pilot-2026-11', tcsv)

@@ -38,6 +38,7 @@ the toppings are drawn in SVG by the script itself.
 |---|---|
 | this README | what the task does, running it (Qualtrics or the study server), pilots, the analysis |
 | `CODEBOOK.md` | every recorded field and output table |
+| `docs/BUILDER.md` | the pizza builder itself: the tray, sauces and cheeses (with their diet), what each build records, the version history of the builder and how to add a topping without breaking earlier data |
 | **Methods page** (`methods.html`, researcher page → *Methods*) | how every number and test is computed, with worked examples checked against the code |
 | `variables.csv` + `load_pizza.R` (written with the analysis) | the data dictionary and loader for R |
 | `CHANGELOG.md` | what changed in each version (the version is stored with every pizza) |
@@ -71,10 +72,12 @@ python3 tests/smoke_test.py           # check that everything works on this mach
 1. **Practice** (`practice.js`, ~40 s). Five guided steps with a practice-only tomato slice: drop one into a target
    circle, add two more, move one, change one's size, drag one off. This teaches the controls before the real choice and
    records each person's **motor baseline** (drag speed, targeting error) on their own device.
-2. **Build** (`build.js`). Choose sauce (none / tomato / white / BBQ) and cheese (none / light / normal / extra), then drag
-   toppings onto the pizza, one piece at a time. The default tray has 20 toppings in three a-priori tiers of conventionality:
+2. **Build** (`build.js`). Choose sauce (none / tomato / white / BBQ; tomato and BBQ carry a small green "vegan" mark)
+   and cheese (none / light / normal / extra, and vegan where a study offers it), then drag
+   toppings onto the pizza, one piece at a time. The default tray has 21 toppings in three a-priori tiers of conventionality
+   (tofu was added in task 0.15.0; see `docs/BUILDER.md`):
    - *common*: pepperoni, ham, chicken, tuna, mushrooms, green pepper, red onion, black olives, sweetcorn, jalapeños, basil
-   - *mid*: anchovies, pineapple, shrimp, egg, blue cheese
+   - *mid*: anchovies, pineapple, shrimp, egg, blue cheese, tofu
    - *unusual*: nori, kimchi, kangaroo (exotic meat), fig (sweet-savoury fruit). Pear, banana and walnuts are also drawn;
      add them with `ingredients`
 
@@ -426,6 +429,7 @@ The Methods page shows the calculation for a small, a standard and a big tomato.
 | Kimchi | Cabbage,Kimchi (11118) | 5 | 15 |  |
 | Kangaroo | Game Meat,Deer,Ckd,Rstd (17165) | 6 | 158 | stand-in: SR28 has no kangaroo; venison (deer, roasted) is the closest lean red game meat |
 | Fig | Figs,Raw (09089) | 10 | 74 | half a fig |
+| Tofu | Tofu,Raw,Firm,Prep W/Ca Sulfate (16426) | 3 | 144 | one cube of firm tofu, about 1.4 cm a side |
 | Pear | Pears,Raw (09252) | 6 | 57 |  |
 | Banana | Bananas,Raw (09040) | 5 | 89 |  |
 | Walnuts | Walnuts,English (12155) | 2 | 654 | half a walnut |
@@ -457,7 +461,7 @@ Set in the `PizzaBuilder.mount(box, { ... })` call:
 |---|---|---|
 | `prompt` | built-in text | instruction shown above the pizza; `''` hides it |
 | `condition` | `''` | any label, stored with the data (e.g. piped from the Survey Flow) |
-| `ingredients` | the 20 above | which toppings to offer, by code (see CODEBOOK). Use the same list in the build and the follow-up |
+| `ingredients` | the 21 above | which toppings to offer, by code (see CODEBOOK). Use the same list in the build and the follow-up |
 | `shuffle` | `true` | randomise the tray order per participant |
 | `sauce`, `cheese` | `'tomato'`, `'normal'` | starting base. These defaults can act as a status-quo anchor, so keep them the same across conditions |
 | `baseChoices` | `true` | show the sauce/cheese choices |

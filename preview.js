@@ -16,16 +16,16 @@
 
   var NAMES = { pep: 'Pepperoni', ham: 'Ham', chk: 'Chicken', anc: 'Anchovies', mus: 'Mushrooms', grp: 'Green pepper', oni: 'Red onion',
     oli: 'Black olives', crn: 'Sweetcorn', pin: 'Pineapple', jal: 'Jalapeños', bas: 'Basil', shr: 'Shrimp', egg: 'Egg', gor: 'Blue cheese',
-    nor: 'Nori', kim: 'Kimchi', par: 'Pear', ban: 'Banana', wal: 'Walnuts', tom: 'Tomato slice', tun: 'Tuna', kan: 'Kangaroo', fig: 'Fig' };
+    nor: 'Nori', kim: 'Kimchi', par: 'Pear', ban: 'Banana', wal: 'Walnuts', tom: 'Tomato slice', tun: 'Tuna', kan: 'Kangaroo', fig: 'Fig', tof: 'Tofu' };
   var DIET = { pep: 'meat', ham: 'meat', chk: 'meat', kan: 'meat', anc: 'seafood', shr: 'seafood', tun: 'seafood', egg: 'vegetarian', gor: 'vegetarian' };
-  var TIER = { anc: 'mid', pin: 'mid', shr: 'mid', egg: 'mid', gor: 'mid', nor: 'unusual', kim: 'unusual', par: 'unusual', ban: 'unusual', wal: 'unusual', kan: 'unusual', fig: 'unusual' };
+  var TIER = { anc: 'mid', pin: 'mid', shr: 'mid', egg: 'mid', gor: 'mid', nor: 'unusual', kim: 'unusual', par: 'unusual', ban: 'unusual', wal: 'unusual', kan: 'unusual', fig: 'unusual', tof: 'mid' };
   var FOOT = { pep: [0, 13], ham: [1, 6.4], chk: [1.5, 6.5], anc: [12, 2.8], mus: [0, 11], grp: [11, 3], oni: [10, 2], oli: [0, 6.1], crn: [0, 4.7],
     pin: [0, 6.5], jal: [0, 5.6], bas: [9.5, 5], shr: [0, 8], egg: [1, 7.2], gor: [0, 5], nor: [1.5, 6.3], kim: [2, 5.8], par: [8, 4], ban: [0, 6.2],
-    wal: [0.6, 5.8], tom: [0, 10], tun: [1, 6], kan: [7, 4.2], fig: [0, 9] };
+    wal: [0.6, 5.8], tom: [0, 10], tun: [1, 6], kan: [7, 4.2], fig: [0, 9], tof: [0, 5] };
   var SIZE = { pep: 13, ham: 10, chk: 8.5, anc: 15, mus: 12, grp: 13.5, oni: 12.5, oli: 6.2, crn: 6, pin: 8.6, jal: 6, bas: 12, shr: 9.5, egg: 8.5, gor: 6.5,
-    nor: 9.5, kim: 9, par: 12, ban: 6.5, wal: 7, tom: 10, tun: 8, kan: 11, fig: 10 };
+    nor: 9.5, kim: 9, par: 12, ban: 6.5, wal: 7, tom: 10, tun: 8, kan: 11, fig: 10, tof: 6.8 };
   var CATS = { pep: 'meat', ham: 'meat', chk: 'meat', anc: 'seafood', shr: 'seafood', mus: 'veg', grp: 'veg', oni: 'veg', oli: 'veg', crn: 'veg',
-    jal: 'veg', kim: 'veg', pin: 'fruit', par: 'fruit', ban: 'fruit', bas: 'herb', egg: 'egg', gor: 'dairy', nor: 'seaweed', wal: 'nut', tun: 'seafood', kan: 'meat', fig: 'fruit' };
+    jal: 'veg', kim: 'veg', pin: 'fruit', par: 'fruit', ban: 'fruit', bas: 'herb', egg: 'egg', gor: 'dairy', nor: 'seaweed', wal: 'nut', tun: 'seafood', kan: 'meat', fig: 'fruit', tof: 'soy' };
   var CLASS_LABEL = { vegan: 'Vegan', vegetarian: 'Vegetarian', pescatarian: 'Pescatarian', meat: 'Contains meat' };
 
   function J(v, d) { try { return v ? JSON.parse(v) : d; } catch (e) { return d; } }
@@ -319,7 +319,7 @@
 
   // ---- small pictures of the pizza with an analysis drawn on top
   var COLORS = { pep: '#a8281e', ham: '#e59a94', chk: '#e6cc9c', anc: '#5d3d2f', mus: '#d9c3a1', grp: '#3f8a2e', oni: '#93357a', oli: '#25231f', crn: '#f2c63a',
-    pin: '#f3cf55', jal: '#6ea548', bas: '#2f7d32', shr: '#ef8a5f', egg: '#f6f1df', gor: '#d9d6c6', nor: '#1f2a1d', kim: '#d4542b', par: '#e8e2b8', ban: '#f5eab8', wal: '#9a6a3c', tom: '#d8432c', tun: '#bf7a64', kan: '#7a2e24', fig: '#6b2f5c' };
+    pin: '#f3cf55', jal: '#6ea548', bas: '#2f7d32', shr: '#ef8a5f', egg: '#f6f1df', gor: '#d9d6c6', nor: '#1f2a1d', kim: '#d4542b', par: '#e8e2b8', ban: '#f5eab8', wal: '#9a6a3c', tom: '#d8432c', tun: '#bf7a64', kan: '#7a2e24', fig: '#6b2f5c', tof: '#f1e4bf' };
   function glyph(p, extra) {
     var c = capsule(p), col = COLORS[p.ing] || '#888';
     if (c[0][0] === c[1][0] && c[0][1] === c[1][1]) return '<circle cx="' + (c[0][0] * 100).toFixed(1) + '" cy="' + (-c[0][1] * 100).toFixed(1) + '" r="' + (c[2] * 100).toFixed(1) + '" fill="' + col + '"' + (extra || '') + '/>';
@@ -384,11 +384,14 @@
   }
   function areaCm2(p) { var f = FOOT[p.ing] || [0, 8]; return (Math.PI * f[1] * f[1] + 4 * f[0] * f[1]) * p.s * p.s * 0.0225; }
 
+  var VEGAN_BASE = { sauce: { none: 1, tomato: 1, bbq: 1 }, cheese: { none: 1, vegan: 1 } };
   function dietClass(ps, summ) {
     var k = {}; ps.forEach(function (p) { k[DIET[p.ing] || 'vegan'] = 1; });
     if (k.meat) return 'meat';
     if (k.seafood) return 'pescatarian';
-    if (k.vegetarian || (summ.cheese && summ.cheese !== 'none') || summ.sauce === 'white') return 'vegetarian';
+    // the base, as in analyse.py (SAUCE_DIET, CHEESE_DIET): white sauce and dairy cheese are vegetarian; tomato, BBQ,
+    // no sauce, no cheese and vegan cheese are vegan; a base not chosen (no value) changes nothing
+    if (k.vegetarian || (summ.cheese && !VEGAN_BASE.cheese[summ.cheese]) || (summ.sauce && !VEGAN_BASE.sauce[summ.sauce])) return 'vegetarian';
     return 'vegan';
   }
   // Same as analyse.py: 'which toppings' (surprise in bits, as a percentile of the reference) and 'how many'
@@ -546,5 +549,5 @@
     el.innerHTML = html;
   }
 
-  global.PizzaPreview = { render: render, reference: REF, faceDetect: faceDetect, symmetry: symmetry };
+  global.PizzaPreview = { render: render, reference: REF, faceDetect: faceDetect, symmetry: symmetry, dietClass: dietClass };
 })(typeof window !== 'undefined' ? window : this);

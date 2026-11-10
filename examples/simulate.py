@@ -11,9 +11,9 @@ Writes one demo-format JSON file per participant, which analysis/analyse.py read
 import os
 import json, math, random, sys
 R = random.Random(int(sys.argv[2]) if len(sys.argv) > 2 else 5)
-TRAY = ['pep', 'ham', 'chk', 'tun', 'anc', 'mus', 'grp', 'oni', 'oli', 'crn', 'pin', 'jal', 'bas', 'shr', 'egg', 'gor', 'nor', 'kim', 'kan', 'fig']
+TRAY = ['pep', 'ham', 'chk', 'tun', 'anc', 'mus', 'grp', 'oni', 'oli', 'crn', 'pin', 'jal', 'bas', 'shr', 'egg', 'gor', 'nor', 'kim', 'kan', 'fig', 'tof']
 BASE = {'pep': .68, 'ham': .3, 'chk': .25, 'anc': .07, 'mus': .5, 'grp': .35, 'oni': .4, 'oli': .35, 'crn': .2, 'pin': .2, 'jal': .2,
-        'bas': .3, 'shr': .1, 'egg': .07, 'gor': .1, 'nor': .03, 'kim': .04, 'tun': .22, 'kan': .03, 'fig': .05}
+        'bas': .3, 'shr': .1, 'egg': .07, 'gor': .1, 'nor': .03, 'kim': .04, 'tun': .22, 'kan': .03, 'fig': .05, 'tof': .08}
 MEAT, FISH, ANIMAL = {'pep', 'ham', 'chk', 'kan'}, {'anc', 'shr', 'tun'}, {'egg', 'gor'}
 UNUSUAL = {'nor', 'kim', 'kan', 'fig'}
 def person(style, pid):

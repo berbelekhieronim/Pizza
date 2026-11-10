@@ -35,7 +35,7 @@ SECTIONS = [
         ('pid, build, condition, finished, group', 'As recorded: participant, which build (pz = own pizza, pzt = "typical" pizza), condition, finished (1/0), group from the study link.', 'analyse'),
         ('study, source', 'Study server: the study the participant\'s link belongs to (study.json "studies"), and the recruitment source written on their invite link (or ?source= on an open link).', 'analyse'),
         ('sauce, cheese', 'The base chosen: sauce none / tomato / white / bbq; cheese none / light / normal / extra.', 'analyse'),
-        ('n_pieces, n_{ing}', 'Pieces on the finished pizza, in total and per topping.', 'analyse'),
+        ('n_pieces, n_{ing}', 'Pieces on the finished pizza, in total and per topping. n_{ing} is NA when that topping was not on the person\'s tray (e.g. tofu before task 0.15.0), so “not offered” never reads as “left off”.', 'analyse'),
         ('n_ev_{ev}', 'Number of events of that type in the log (pick, add, reject, tap, grab, move, remove, resize, abort, undo, clear, hover).', 'analyse'),
         ('pointer, coarse, layout, pizzaPx, vw, vh, dpr, hiddenMs, hides', 'Device record: pointer used first (mouse / touch / pen), coarse pointer (1/0), task layout, pizza width in px, window size, pixel ratio, ms the tab was hidden, times hidden.', 'analyse'),
         ('pid, build, t_ms, type, a, b, x, y, drag_ms, snapped', '<b>events_long.csv</b>: one row per logged event: time since the task started (ms), event type, its first two fields (topping, piece id), drop position, drag duration, snapped (0/1).', 'analyse'),
@@ -53,7 +53,7 @@ SECTIONS = [
         ('first_topping, meat_before_veg', 'First topping placed. Mean placement rank of veg minus of meat, ranks scaled 0-1 (> 0: meat placed earlier).', 'order_measures'),
     ]),
     ('Diet', None, [
-        ('diet_class, diet_rank', 'Strictest diet the pizza fits: meat if any meat; else pescatarian if any seafood; else vegetarian if egg, blue cheese, any cheese except vegan cheese, or white sauce; else vegan. Rank 0 = vegan … 3 = meat.', 'pizza_diet_class'),
+        ('diet_class, diet_rank', 'Strictest diet the pizza fits: meat if any meat; else pescatarian if any seafood; else vegetarian if egg, blue cheese, a vegetarian base (white sauce, or any cheese except vegan cheese: SAUCE_DIET, CHEESE_DIET); else vegan. Tomato and BBQ sauce, no sauce, no cheese, vegan cheese and tofu keep a pizza vegan. Rank 0 = vegan … 3 = meat.', 'pizza_diet_class'),
         ('n_{class}_pieces, area_share_{class}', 'Pieces of each diet class; their outline area / total topping area.', 'analyse'),
         ('diet, diet_other', 'Stated diets (follow-up), space-separated; "prefer not to say" is left out.', 'analyse'),
         ('diet_conflict', '<b>ingredients_long</b>: 1 if the stated diets usually exclude this topping (table DIET_EXCLUDES); empty if no diet stated.', 'ingredient_rows'),
@@ -64,8 +64,8 @@ SECTIONS = [
         ('count_pct', '100 × (1 − t), t = min(1, 2 × min(P(≤ d), P(≥ d))), d = n_distinct, P from the reference with +0.5 / (N + 1) smoothing (two-sided).', 'count_extremeness'),
         ('atypicality_pct, normality_band', 'max(composition_pct, count_pct); band typical &lt; 75 ≤ uncommon &lt; 95 ≤ unusual.', 'normality'),
         ('unusual_elements', 'Text: an extreme count (count_pct ≥ 75) and the up to 3 toppings contributing ≥ 2 bits.', 'normality'),
-        ('sample_norm_dev, sample_count_dev', 'Leave-one-out against the rest of the sample: mean over toppings of |included − inclusion rate|; Σ |count − mean count|.', 'analyse'),
-        ('ingredient_rarity, combo_rarity, profile_uniqueness', 'Mean (1 − rate) of the toppings used; mean (1 − co-occurrence rate) over pairs used; 1 − mean Jaccard similarity of the topping set to every other pizza.', 'analyse'),
+        ('sample_norm_dev, sample_count_dev', 'Leave-one-out against the rest of the sample, over the toppings on this person\'s tray, each compared with the others who were offered it: mean over toppings of |included − inclusion rate|; Σ |count − mean count|. (Before task 0.15.0 the mean also ran over pear, banana and walnuts, never offered, so earlier values were 20/23 of today\'s.)', 'analyse'),
+        ('ingredient_rarity, combo_rarity, profile_uniqueness', 'Mean (1 − rate) of the toppings used; mean (1 − co-occurrence rate) over pairs used (among the others offered both); 1 − mean Jaccard similarity of the topping set to every other pizza. Rates as in sample_norm_dev: among the others offered the topping.', 'analyse'),
         ('typical_jaccard, typical_count_dev, typical_d_pieces, typical_d_distinct', 'Own pizza vs the "typical participant" pizza (if built): Jaccard of topping sets; Σ |count difference|; difference in n; in n_distinct.', 'analyse'),
     ]),
     ('Symmetry', 'Three worked examples follow this table.', [

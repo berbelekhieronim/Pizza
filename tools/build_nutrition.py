@@ -28,7 +28,7 @@ FOODS = {
     'shr': ('15271', 6.0, ''), 'egg': ('01129', 8.0, 'one slice of a hard-boiled egg'), 'gor': ('01004', 2.0, ''),
     'nor': ('11446', 0.5, 'nori = laver; SR28 lists it raw'), 'kim': ('11118', 5.0, ''),
     'kan': ('17165', 6.0, 'stand-in: SR28 has no kangaroo; venison (deer, roasted) is the closest lean red game meat'),
-    'fig': ('09089', 10.0, 'half a fig'), 'par': ('09252', 6.0, ''), 'ban': ('09040', 5.0, ''), 'wal': ('12155', 2.0, 'half a walnut'),
+    'fig': ('09089', 10.0, 'half a fig'), 'tof': ('16426', 3.0, 'one cube of firm tofu, about 1.4 cm a side'), 'par': ('09252', 6.0, ''), 'ban': ('09040', 5.0, ''), 'wal': ('12155', 2.0, 'half a walnut'),
     'tom': ('11529', 12.0, 'practice only'),
 }
 # the base of a 30 cm pizza: grams for each choice

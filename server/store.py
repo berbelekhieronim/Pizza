@@ -306,7 +306,11 @@ class Store:
         w, a = self.where(f)
         r = self.db().execute('SELECT COUNT(*), MAX(updated), MAX((SELECT updated FROM fields WHERE fields.pid = sessions.pid AND name = ?)) FROM sessions'
                               + w, [INCLUSION] + a).fetchone()
-        return '%d|%s' % (r[0], max(r[1] or '', r[2] or ''))
+        # and how many sessions are excluded / included by hand: times have one-second steps, so a choice undone within
+        # the same second would otherwise leave the signature (and the stale reports) as they were
+        c = self.db().execute('SELECT COALESCE(SUM(v = ?), 0), COALESCE(SUM(v = ?), 0) FROM (SELECT (SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = ?) AS v FROM sessions'
+                              + w + ')', ['exclude', 'include', INCLUSION] + a).fetchone()
+        return '%d|%s|x%d,i%d' % (r[0], max(r[1] or '', r[2] or ''), c[0], c[1])
 
     def set_inclusion(self, pid, value, study=None):
         """The researcher's choice for a session: 'include', 'exclude' or 'auto'. study: only a session of this study (a

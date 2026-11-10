@@ -5,6 +5,35 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Task 0.15.0: tofu, and a vegan mark on the tomato and BBQ sauces (every study).** Described in full in the new
+`docs/BUILDER.md` (the builder: tray, sauces, cheeses, the diet of a pizza, what a build records, its version history,
+and how to add a topping without breaking earlier data).
+- **Tofu** (`tof`): a cube of firm tofu, on the default tray of every study (21 toppings), tier *mid*, category `soy`,
+  vegan; Polish *Tofu*. Nutrition: USDA SR28 16426 (tofu, raw, firm, with calcium sulfate), 3 g per cube.
+- **Vegan mark**: a small green leaf with *vegan* (*wegański*) under the tomato and BBQ sauce names. Information for the
+  participant only; nothing new is recorded. Its word is a text of its own (`task.vegan`), in the texts sheet
+  (`docs/texts/teksty-pilot-2026-11.xlsx`, now 129 rows: also `names.tof`).
+- **Earlier pizzas stay valid.** Every pizza stores its tray and the task version, so pizzas from before tofu are
+  recognised: `n_<topping>` is now **NA when that topping was not on the person's tray** (was 0; this also turns
+  `n_par`, `n_ban`, `n_wal` into NA where they were not offered), they have no tofu row in `ingredients_long.csv`, and
+  topping popularity in the reports is a share of the people offered the topping. `sample_norm_dev`,
+  `sample_count_dev`, `ingredient_rarity` and `combo_rarity` compare each topping only with the others who were offered
+  it. `sample_norm_dev` therefore averages over the offered toppings only: before, its mean also ran over pear,
+  banana and walnuts (never offered, always 0), so earlier values were 20/23 of today's. The other columns are
+  unchanged for pizzas without tofu.
+- **The diet of the whole pizza takes the base into account explicitly** (`SAUCE_DIET`, `CHEESE_DIET` in
+  `analyse.py`): tomato and BBQ sauce, no sauce, no cheese and vegan cheese keep a pizza vegan; white sauce and dairy
+  cheese make it vegetarian; an unknown value counts as vegetarian, never vegan. This is how the analysis already
+  worked (no `diet_class` changes); the **demo preview** (`preview.js`) had counted vegan cheese as dairy and is fixed.
+  The smoke test checks that the sauces marked vegan in the task are the vegan ones in the analysis, and that the
+  preview and the analysis agree on 180 combinations of base and toppings.
+- The simulated participants (`examples/simulate.py`) and the test study's synthetic data (`analysis/synthetic.py`,
+  version 3, regenerated on the next start) offer tofu too; the example reports are rebuilt.
+
+**Reports rebuilt when an inclusion choice is undone within the same second** (Codespace server): the reports'
+signature now also counts the sessions excluded and included by hand, so excluding a session and putting it back
+within one second no longer leaves the reports built without it.
+
 **The R download holds analysed sessions only.** Its `raw/` folder used to hold every session of the study
 (excluded, declined and unfinished ones too); it now holds the same participants as `participants.csv`, on both
 servers. `excluded.csv` still lists the left-out ids with the reason. The session list, the raw sessions zip and the

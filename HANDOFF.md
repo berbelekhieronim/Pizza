@@ -4,7 +4,7 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-11-08, task version 0.14.0, server 0.12.1)
+## Snapshot (2026-11-10, task version 0.15.0, server 0.12.1)
 
 - **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
@@ -58,6 +58,7 @@ preview.js: the demo's live summary; re-implements face detection, symmetry and 
 | `server/admin.html` | the researcher page (study chooser, one view per study with tabs), served by both servers |
 | `server/store.py` | the SQLite store: schema, saving, filters/sorting, personal and researcher links, per-study copies, import of the old JSON files |
 | `preview.js`, `index.html` | demo page and its captured-data preview |
+| `docs/BUILDER.md` | the builder for researchers: tray, sauces, cheeses, diet of a pizza, what is recorded, version history, adding a topping |
 | `qualtrics/*.js` | paste-in code per survey page (practice, build, build-typical, follow-up) |
 | `examples/` | simulator and the reports built from simulated data |
 | `tests/smoke_test.py` | end-to-end checks (analysis, server, R, JS, face benchmark). `tests/face_benchmark.py` measures face detection |
@@ -136,6 +137,16 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 ## Known limitations and open questions
 
+- **Tofu and the pilot.** Pizza Pilot 11.2026 had participants before tofu and the vegan mark (task 0.14.0) and has
+  them after (0.15.0). Their pizzas are analysed together (tofu NA where not offered; `docs/BUILDER.md`), but the
+  stimulus differs: compare or control for `summary.v` (task version) before pooling sauce choice or vegan share.
+- **Taller tray.** 21 toppings make a sixth tray row: "I'm done" now ends ~870 px from the top of the page (was ~785),
+  so screens under ~900 px tall scroll a little more to reach it (1366×768 laptops already had to).
+- **Demo reference.** `preview.js`'s simulated `REF` has no tofu (it was made by an earlier simulator and cannot be
+  rebuilt the same way), so the demo's normality score leaves tofu out. The analysis is unaffected.
+- **`meat_or_fish`** checks the categories `meat` and `fish`, but the analysis calls anchovies and tuna `seafood`, so
+  the column only flags meat. Left as it is (changing it changes recorded results); decide before using it.
+
 - **Faces.** Two different eye toppings are found only 51% of the time, and faces with eyebrows or hair 70%. Validate
   `face_detected` against human coding on pilot pizzas before using it.
 - **Chance level.** Symmetry chance comes from 12 random layouts per pizza (fixed seed), so it is slightly noisy, and the
@@ -185,6 +196,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-10 | Claude Code (cloud) | 0.15.0 (task): tofu on every tray, vegan mark on tomato and BBQ sauces; n_<topping> NA when not offered, sample comparisons over offered toppings; explicit sauce/cheese diet tables (preview fixed for vegan cheese); docs/BUILDER.md; reports signature counts inclusion choices |
 | 2026-11-08 | Claude Code (cloud) | R download: raw/ now holds only the analysed sessions (excluded, declined and unfinished ones left out), both servers; smoke check |
 |---|---|---|
 | 2026-11-08 | Claude Code (cloud) | tools/texts.py: export / import every participant-facing text of a study (xlsx/csv); study "texts" overrides on the page and in the task |

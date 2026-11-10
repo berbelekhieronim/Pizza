@@ -44,6 +44,7 @@ PRACTICE = [('task.promptPractice', 'Instrukcja: tekst nad pizzą')] + [('task.s
 BUILD = [('task.promptBuild', 'Robienie pizzy: instrukcja nad pizzą'), ('task.toppings', 'Robienie pizzy (i instrukcja): nagłówek nad składnikami'),
          ('task.sauce', 'Robienie pizzy: etykieta „Sos”'), ('task.cheese', 'Robienie pizzy: etykieta „Ser”')] + [
     ('task.sauceNames.%s' % k, 'Robienie pizzy: sos „%s”' % k) for k in ('none', 'tomato', 'white', 'bbq')] + [
+    ('task.vegan', 'Robienie pizzy: znaczek „wegański” na przyciskach sosów pomidorowego i BBQ')] + [
     ('task.cheeseNames.%s' % k, 'Robienie pizzy: ser „%s”' % k) for k in ('none', 'light', 'normal', 'extra', 'vegan')] + [
     ('task.undo', 'Robienie pizzy: przycisk Cofnij'), ('task.clear', 'Robienie pizzy: przycisk Zacznij od nowa'), ('task.done', 'Robienie pizzy: przycisk Gotowe'),
     ('task.growTapHint', 'Podpowiedź po kliknięciu składnika na pizzy (jak zmienić rozmiar)'), ('task.holdTip', 'Dymek przy zmianie rozmiaru'),
@@ -64,7 +65,7 @@ MET = [('task.metTitle', 'Metryczka: nagłówek'), ('task.metSub', 'Metryczka: t
     ('task.metDiets.%s' % k, 'Metryczka: odpowiedź o dietę') for k in ('vegetarian', 'vegan', 'allergy', 'other')] + [
     ('task.metDietPh', 'Metryczka: podpowiedź w polu „inna”'), ('task.finish', 'Metryczka: przycisk Zakończ')]
 DESKTOP = [('task.desktopTitle', 'Telefon lub tablet: nagłówek'), ('task.desktopBody', 'Telefon lub tablet: tekst')]
-NAMES = ['pep', 'ham', 'chk', 'tun', 'anc', 'mus', 'grp', 'oni', 'oli', 'crn', 'pin', 'jal', 'bas', 'shr', 'egg', 'gor', 'nor', 'kim', 'kan', 'fig', 'tom']
+NAMES = ['pep', 'ham', 'chk', 'tun', 'anc', 'mus', 'grp', 'oni', 'oli', 'crn', 'pin', 'jal', 'bas', 'shr', 'egg', 'gor', 'nor', 'kim', 'kan', 'fig', 'tof', 'tom']
 
 
 def load_all():
@@ -221,7 +222,7 @@ class Built(OrderedDict):
 
 ALL_SAUCES, ALL_CHEESES = ['none', 'tomato', 'white', 'bbq'], ['none', 'light', 'normal', 'extra', 'vegan']
 # texts that may read the same in English and another language (brand-like names, codes): not "untranslated"
-SAME_OK = {'task.sauceNames.bbq', 'task.cheeseNames.light', 'names.pep', 'names.kim', 'names.nor', 'task.metAgePh'}
+SAME_OK = {'task.sauceNames.bbq', 'task.cheeseNames.light', 'names.pep', 'names.kim', 'names.nor', 'names.tof', 'task.metAgePh'}
 
 
 def built_in(lang):

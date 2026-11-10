@@ -39,27 +39,27 @@ from collections import Counter
 CATS = {'pep': 'meat', 'ham': 'meat', 'chk': 'meat', 'anc': 'seafood', 'mus': 'veg', 'grp': 'veg', 'oni': 'veg',
         'oli': 'veg', 'crn': 'veg', 'pin': 'fruit', 'jal': 'veg', 'bas': 'herb', 'shr': 'seafood', 'egg': 'egg',
         'gor': 'dairy', 'nor': 'seaweed', 'kim': 'veg', 'par': 'fruit', 'ban': 'fruit', 'wal': 'nut',
-        'tun': 'seafood', 'kan': 'meat', 'fig': 'fruit'}
+        'tun': 'seafood', 'kan': 'meat', 'fig': 'fruit', 'tof': 'soy'}
 NAMES = {'pep': 'Pepperoni', 'ham': 'Ham', 'chk': 'Chicken', 'anc': 'Anchovies', 'mus': 'Mushrooms', 'grp': 'Green pepper',
          'oni': 'Red onion', 'oli': 'Black olives', 'crn': 'Sweetcorn', 'pin': 'Pineapple', 'jal': 'Jalapenos', 'bas': 'Basil',
          'shr': 'Shrimp', 'egg': 'Egg', 'gor': 'Blue cheese', 'nor': 'Nori', 'kim': 'Kimchi', 'par': 'Pear', 'ban': 'Banana', 'wal': 'Walnuts',
-         'tun': 'Tuna', 'kan': 'Kangaroo', 'fig': 'Fig'}
+         'tun': 'Tuna', 'kan': 'Kangaroo', 'fig': 'Fig', 'tof': 'Tofu'}
 # a-priori conventionality (same as the task script); validate it against the sample's own norm ratings
 TIER = {'pep': 'common', 'ham': 'common', 'chk': 'common', 'mus': 'common', 'grp': 'common', 'oni': 'common', 'oli': 'common',
         'crn': 'common', 'jal': 'common', 'bas': 'common', 'anc': 'mid', 'pin': 'mid', 'shr': 'mid', 'egg': 'mid', 'gor': 'mid',
         'nor': 'unusual', 'kim': 'unusual', 'par': 'unusual', 'ban': 'unusual', 'wal': 'unusual',
-        'tun': 'common', 'kan': 'unusual', 'fig': 'unusual'}
+        'tun': 'common', 'kan': 'unusual', 'fig': 'unusual', 'tof': 'mid'}
 # toppings that spoil quickly or carry a food-safety risk (meat, seafood, egg, soft dairy) - for the dietary-vigilance account
 PERISHABLE = {'pep', 'ham', 'chk', 'anc', 'shr', 'egg', 'gor', 'tun', 'kan'}
 SIZE = {'pep': 13, 'ham': 10, 'chk': 8.5, 'anc': 15, 'mus': 12, 'grp': 13.5, 'oni': 12.5, 'oli': 6.2, 'crn': 6, 'pin': 8.6,
         'jal': 6, 'bas': 12, 'shr': 9.5, 'egg': 8.5, 'gor': 6.5, 'nor': 9.5, 'kim': 9, 'par': 12, 'ban': 6.5, 'wal': 7, 'tom': 10,
-        'tun': 8, 'kan': 11, 'fig': 10}
+        'tun': 8, 'kan': 11, 'fig': 10, 'tof': 6.8}
 # each topping's outline as a capsule: half-length along its long axis and half-width, in pizza units before scaling
 # (pizza radius = 100 units ~ 15 cm, so 1 unit ~ 1.5 mm). Round toppings have half-length 0.
 FOOT = {'pep': (0, 13), 'ham': (1, 6.4), 'chk': (1.5, 6.5), 'anc': (12, 2.8), 'mus': (0, 11), 'grp': (11, 3), 'oni': (10, 2),
         'oli': (0, 6.1), 'crn': (0, 4.7), 'pin': (0, 6.5), 'jal': (0, 5.6), 'bas': (9.5, 5), 'shr': (0, 8), 'egg': (1, 7.2),
         'gor': (0, 5), 'nor': (1.5, 6.3), 'kim': (2, 5.8), 'par': (8, 4), 'ban': (0, 6.2), 'wal': (0.6, 5.8), 'tom': (0, 10),
-        'tun': (1, 6), 'kan': (7, 4.2), 'fig': (0, 9)}
+        'tun': (1, 6), 'kan': (7, 4.2), 'fig': (0, 9), 'tof': (0, 5)}
 MM_PER_UNIT = 1.5
 # nutrients per 100 g and grams per standard piece, from USDA SR28 (tools/build_nutrition.py); the task uses the same table
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'nutrition.json'), encoding='utf-8') as _f:
@@ -82,19 +82,29 @@ DIET_CLASS = {'pep': 'meat', 'ham': 'meat', 'chk': 'meat', 'kan': 'meat', 'anc':
 PIZZA_CLASSES = [('vegan', 'Vegan'), ('vegetarian', 'Vegetarian'), ('pescatarian', 'Pescatarian'), ('meat', 'Contains meat')]
 
 
+# what the base means for a diet. Tomato and BBQ sauce are vegan (the task marks them so on their buttons:
+# VEGAN_SAUCES in pizza-builder.js); white sauce (bechamel, with butter and milk) and every cheese but vegan cheese are
+# vegetarian. A value not listed here counts as vegetarian (never call an unknown base vegan); no value (the base was
+# not chosen) changes nothing.
+SAUCE_DIET = {'none': 'vegan', 'tomato': 'vegan', 'bbq': 'vegan', 'white': 'vegetarian'}
+CHEESE_DIET = {'none': 'vegan', 'vegan': 'vegan', 'light': 'vegetarian', 'normal': 'vegetarian', 'extra': 'vegetarian'}
+
+
 def topping_diet(ing):
     return DIET_CLASS.get(ing, 'vegan')
 
 
 def pizza_diet_class(pieces, summary):
-    """Strictest diet the whole pizza fits: cheese (but not vegan cheese) and white sauce count as dairy."""
+    """Strictest diet the whole pizza fits: the toppings, then the base (SAUCE_DIET, CHEESE_DIET): white sauce and
+    dairy cheese make it vegetarian; tomato, BBQ, no sauce, no cheese and vegan cheese keep it vegan."""
     kinds = {topping_diet(p['ing']) for p in pieces}
     if 'meat' in kinds:
         return 'meat'
     if 'seafood' in kinds:
         return 'pescatarian'
     cheese, sauce = (summary or {}).get('cheese'), (summary or {}).get('sauce')
-    if 'vegetarian' in kinds or (cheese not in (None, 'none', 'vegan')) or sauce == 'white':
+    base = [SAUCE_DIET.get(sauce, 'vegetarian') if sauce else 'vegan', CHEESE_DIET.get(cheese, 'vegetarian') if cheese else 'vegan']
+    if 'vegetarian' in kinds or 'vegetarian' in base:
         return 'vegetarian'
     return 'vegan'
 
@@ -1415,7 +1425,7 @@ def corr(a, b):
 COLORS = {'pep': '#a8281e', 'ham': '#e59a94', 'chk': '#e6cc9c', 'anc': '#5d3d2f', 'mus': '#d9c3a1', 'grp': '#3f8a2e',
           'oni': '#93357a', 'oli': '#25231f', 'crn': '#f2c63a', 'pin': '#f3cf55', 'jal': '#6ea548', 'bas': '#2f7d32', 'tom': '#d8432c',
           'shr': '#ef8a5f', 'egg': '#f6f1df', 'gor': '#d9d6c6', 'nor': '#1f2a1d', 'kim': '#d4542b', 'par': '#e8e2b8', 'ban': '#f5eab8',
-          'wal': '#9a6a3c', 'tun': '#bf7a64', 'kan': '#7a2e24', 'fig': '#6b2f5c'}
+          'wal': '#9a6a3c', 'tun': '#bf7a64', 'kan': '#7a2e24', 'fig': '#6b2f5c', 'tof': '#f1e4bf'}
 SAUCE = {'none': '#ecd3a0', 'tomato': '#b8321f', 'white': '#ece2cc', 'bbq': '#6b2614'}
 CHEESE = {'none': 0, 'light': 0.35, 'normal': 0.65, 'extra': 0.9}
 LONG = {'anc': (1, 0.22), 'grp': (0.95, 0.3), 'oni': (0.9, 0.25), 'bas': (0.9, 0.45), 'mus': (0.9, 0.8)}
@@ -1714,7 +1724,10 @@ def strong_feelings_chart(entries, groups):
 def topping_rates(recs, groups, toppings):
     """Share of pizzas in each group that include each topping, coloured by the topping's diet class."""
     W, left, right, rowh = 680, 130, 50, 14 * max(1, len(groups)) + 8
-    order = sorted(toppings, key=lambda k: -sum(r['n_' + k] > 0 for r in recs))
+    def share(rs, k):       # among the pizzas whose tray had the topping
+        rs = [r for r in rs if r.get('n_' + k) is not None]
+        return sum(r['n_' + k] > 0 for r in rs) / len(rs) if rs else 0
+    order = sorted(toppings, key=lambda k: -share(recs, k))
     H = 30 + rowh * len(order)
     s = ['<svg viewBox="0 0 %d %d" class="dots" role="img" aria-label="Topping popularity">' % (W, H)]
     for t in range(6):
@@ -1725,7 +1738,7 @@ def topping_rates(recs, groups, toppings):
         s.append('<text class="lab" x="%d" y="%d" text-anchor="end">%s</text>' % (left - 8, y + rowh / 2 + 2, esc(NAMES.get(k, k))))
         for gi, g in enumerate(groups):
             rs = [r for r in recs if r['_group'] == g]
-            rate = sum(r['n_' + k] > 0 for r in rs) / len(rs) if rs else 0
+            rate = share(rs, k)
             w = (W - left - right) * rate
             s.append('<rect class="%s" x="%d" y="%.1f" width="%.1f" height="11" rx="2" opacity="%s"/>' % (topping_diet(k), left, y + gi * 14, w, '1' if gi == 0 else '.55'))
             s.append('<text class="val" x="%.1f" y="%.1f">%d%%%s</text>' % (left + w + 4, y + gi * 14 + 9.5, round(rate * 100), (' ' + esc(g)) if len(groups) > 1 and i == 0 else ''))
@@ -2149,7 +2162,7 @@ def normality(own_recs, ref_sets_external, toppings):
     """Scores every pizza against the reference distribution. Without an external reference each pizza is scored
     against all the others (leave one out). Two views: which toppings (composition_pct, from atypicality_bits) and how
     many different toppings (count_pct). atypicality_pct and normality_band take whichever is more extreme."""
-    sets = [frozenset(k for k in toppings if r['n_' + k] > 0) for r in own_recs]
+    sets = [frozenset(k for k in toppings if (r['n_' + k] or 0) > 0) for r in own_recs]
     if ref_sets_external:
         ref = list(ref_sets_external)
         ref_scores = [atypicality(ref[i], ref[:i] + ref[i + 1:], toppings)[0] for i in range(len(ref))]
@@ -3000,7 +3013,7 @@ def explore_measures(recs, tray):
     for ing in tray:
         k = 'inc_' + ing
         defs.append(('Toppings used', k, NAMES.get(ing, ing)))
-        vals[k] = [int((r.get('n_' + ing) or 0) > 0) for r in recs]
+        vals[k] = [None if r.get('n_' + ing) is None else int(r['n_' + ing] > 0) for r in recs]   # NA: not offered
     for sign, word in (('neg', 'negative'), ('pos', 'positive')):
         for ing in tray:
             k = '%s_%s' % (sign, ing)
@@ -3638,8 +3651,8 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
                    'n_categories': len(set(CATS.get(p['ing']) for p in pieces)),
                    'meat_or_fish': int(any(CATS.get(p['ing']) in ('meat', 'fish') for p in pieces)),
                    'sauce': summary.get('sauce'), 'cheese': summary.get('cheese')}
-            for k in CATS:
-                rec['n_' + k] = counts.get(k, 0)
+            for k in CATS:      # NA where the topping was not on this person's tray (e.g. tofu before task 0.15.0)
+                rec['n_' + k] = counts.get(k, 0) if k in tray else None
             picked = set(e[2] for e in events if e[1] == 'pick')
             inc = [k for k in tray if counts.get(k, 0) > 0]
             for tier in ('common', 'mid', 'unusual'):
@@ -3790,16 +3803,22 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
         others = [q for q in own if q['pid'] != p['pid']]
         if not others:
             continue
-        rate = {k: sum(q['n_' + k] > 0 for q in others) / len(others) for k in CATS}
-        mean_n = {k: statistics.mean(q['n_' + k] for q in others) for k in CATS}
-        p['sample_norm_dev'] = statistics.mean(abs(int(p['n_' + k] > 0) - rate[k]) for k in CATS)
-        p['sample_count_dev'] = sum(abs(p['n_' + k] - mean_n[k]) for k in CATS)
-        mine = [k for k in CATS if p['n_' + k] > 0]
+        # each topping is compared only with the others who were offered it (trays can differ: tofu from 0.15.0)
+        offered = {k: [q for q in others if q['n_' + k] is not None] for k in CATS if p['n_' + k] is not None}
+        offered = {k: qs for k, qs in offered.items() if qs}
+        rate = {k: sum(q['n_' + k] > 0 for q in qs) / len(qs) for k, qs in offered.items()}
+        mean_n = {k: statistics.mean(q['n_' + k] for q in qs) for k, qs in offered.items()}
+        if rate:
+            p['sample_norm_dev'] = statistics.mean(abs(int(p['n_' + k] > 0) - rate[k]) for k in rate)
+            p['sample_count_dev'] = sum(abs(p['n_' + k] - mean_n[k]) for k in rate)
+        mine = [k for k in rate if p['n_' + k] > 0]
         p['ingredient_rarity'] = statistics.mean(1 - rate[k] for k in mine) if mine else None
         pairs = [(a, b) for i, a in enumerate(mine) for b in mine[i + 1:]]
+        both = {(a, b): [q for q in offered[a] if q['n_' + b] is not None] for a, b in pairs}
+        pairs = [ab for ab in pairs if both[ab]]
         if pairs:
-            p['combo_rarity'] = statistics.mean(1 - sum(q['n_' + a] > 0 and q['n_' + b] > 0 for q in others) / len(others) for a, b in pairs)
-        sets = [{k for k in CATS if q['n_' + k] > 0} for q in others]
+            p['combo_rarity'] = statistics.mean(1 - sum(q['n_' + a] > 0 and q['n_' + b] > 0 for q in both[(a, b)]) / len(both[(a, b)]) for a, b in pairs)
+        sets = [{k for k in CATS if (q['n_' + k] or 0) > 0} for q in others]
         jac = [len(set(mine) & t) / len(set(mine) | t) for t in sets if set(mine) | t]
         p['profile_uniqueness'] = 1 - statistics.mean(jac) if jac else None
     # how normal or unusual each pizza's composition is, against a reference distribution of pizzas
@@ -3825,10 +3844,10 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             t = by.get((p['pid'], builds[1].rstrip('_')))
             if not t:
                 continue
-            a = {k for k in CATS if p['n_' + k] > 0}
-            b = {k for k in CATS if t['n_' + k] > 0}
+            a = {k for k in CATS if (p['n_' + k] or 0) > 0}
+            b = {k for k in CATS if (t['n_' + k] or 0) > 0}
             p['typical_jaccard'] = len(a & b) / len(a | b) if a | b else None
-            p['typical_count_dev'] = sum(abs(p['n_' + k] - t['n_' + k]) for k in CATS)
+            p['typical_count_dev'] = sum(abs((p['n_' + k] or 0) - (t['n_' + k] or 0)) for k in CATS)
             p['typical_d_pieces'] = p['n_pieces'] - t['n_pieces']
             p['typical_d_distinct'] = p['n_distinct'] - t['n_distinct']
 

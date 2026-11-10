@@ -519,6 +519,30 @@
     "salt": 0.0025
    }
   },
+  "tof": {
+   "ndb": "16426",
+   "food": "TOFU,RAW,FIRM,PREP W/CA SULFATE",
+   "grams": 3.0,
+   "note": "one cube of firm tofu, about 1.4 cm a side",
+   "per100": {
+    "kcal": 144.0,
+    "protein": 17.27,
+    "fat": 8.72,
+    "carbs": 2.78,
+    "fibre": 2.3,
+    "sugars": 0.0,
+    "calcium": 683.0,
+    "iron": 2.66,
+    "potassium": 237.0,
+    "vitC": 0.2,
+    "folate": 29.0,
+    "vitB12": 0.0,
+    "vitA": 0.0,
+    "vitD": 0.0,
+    "satfat": 1.261,
+    "salt": 0.035
+   }
+  },
   "par": {
    "ndb": "09252",
    "food": "PEARS,RAW",
