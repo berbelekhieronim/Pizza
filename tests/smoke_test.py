@@ -322,6 +322,10 @@ def client_checks(base, key, pid, label):
           and c.get('started_warsaw') == SRV.warsaw(c.get('started')) and c.get('started_warsaw') not in (None, '', 'NA')
           and all(r.get('browser') == 'NA' for r in rows if r['pid'] != pid),
           label + 'Sessions tab and session list (.csv): browser, system, time zone, retried saves, page errors, times in Warsaw time (NA where not recorded)')
+    one = api(base, 'session', key, pid=pid) or {}
+    listed = api(base, 'sessions', key, study='all', pids=pid + ',nosuchone')['rows']
+    check(one.get('record', {}).get('browser') == 'Chrome 130' and one.get('row', {}).get('pid') == pid and [r['pid'] for r in listed] == [pid],
+          label + 'one session opens with every field (the session panel, #sessions/<id>); a report\'s list of ids filters the Sessions tab')
 
 
 def counting_checks(base, key, fields, label):
@@ -366,6 +370,8 @@ def inclusion_checks(base, key, skey, study, other_pid, label):
           label + 'the session list download says what the analysis does with each session, and the researcher\'s choice')
     code, _ = post_form(base + '/admin/api/inclusion?key=' + skey, {'pid': other_pid, 'value': 'include'})
     check(code == 404, label + 'a study\'s researcher link cannot change a session of another study')
+    check(http('GET', base + '/admin/api/session?' + urllib.parse.urlencode({'key': skey, 'pid': other_pid}))[0] == 404,
+          label + 'a study\'s researcher link cannot open a session of another study')
     code, _ = post_form(base + '/admin/api/inclusion?key=' + skey, {'pid': pid, 'value': 'auto'})
     check(code == 200 and find()['inclusion'] == '', label + 'back to automatic')
 

@@ -250,6 +250,9 @@ class Store:
             sql.append("(' ' || neuro || ' ') LIKE ?"); args.append('%% %s %%' % f['neuro'])
         if f.get('q'):
             sql.append('pid LIKE ?'); args.append('%%%s%%' % f['q'])
+        ids = [x for x in re.split(r'[\s,]+', f.get('pids') or '') if x][:90]   # D1 takes at most 100 values a query
+        if ids:
+            sql.append('pid IN (%s)' % ', '.join('?' * len(ids))); args.extend(ids)
         if f.get('since'):
             sql.append('started >= ?'); args.append(f['since'])
         if f.get('until'):

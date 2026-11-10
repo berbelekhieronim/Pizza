@@ -133,6 +133,8 @@ export class Store {
     for (const col of ['grp', 'source', 'stage', 'cond']) if (f[col] && !(col === 'stage' && (ACTIVITY.includes(f[col]) || ANALYSIS.includes(f[col])))) { sql.push(col + ' = ?'); args.push(f[col]); }
     if (f.neuro) { sql.push("(' ' || neuro || ' ') LIKE ?"); args.push(`% ${f.neuro} %`); }
     if (f.q) { sql.push('pid LIKE ?'); args.push(`%${f.q}%`); }
+    const ids = String(f.pids || '').split(/[\s,]+/).filter(Boolean).slice(0, 90);   // D1 takes at most 100 values a query
+    if (ids.length) { sql.push(`pid IN (${ids.map(() => '?').join(', ')})`); args.push(...ids); }
     if (f.since) { sql.push('started >= ?'); args.push(f.since); }
     if (f.until) { sql.push('started < ?'); args.push(f.until + 'T99'); }
     return [sql.length ? ' WHERE ' + sql.join(' AND ') : '', args];

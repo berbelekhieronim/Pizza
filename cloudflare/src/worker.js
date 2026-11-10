@@ -146,7 +146,7 @@ class Request_ {
 
   filters(scope) {
     const f = {};
-    for (const k of FILTER_KEYS) f[k] = this.arg(k).trim().slice(0, 80);
+    for (const k of FILTER_KEYS) f[k] = this.arg(k).trim().slice(0, k === 'pids' ? 3000 : 80);
     if (scope[0] === 'study') f.study = scope[1];
     else if (f.study === '' || f.study === 'all' || !(f.study === 'main' || STUDY_RE.test(f.study))) f.study = null;
     else f.study = f.study === 'main' ? '' : f.study;
@@ -319,6 +319,13 @@ class Request_ {
     if (this.req.method === 'POST') return this.post(route, scope, f);
     if (route === '/admin') return html(ADMIN_HTML);
     if (route === '/admin/api/state') return json(await adminState(this, scope, f));
+    if (route === '/admin/api/session') {
+      // one session with every field (the Sessions tab's session panel); a study's researchers see their own study only
+      const rec = await st.get(this.arg('pid'));
+      if (!rec || (scope[0] === 'study' && (rec.study || '') !== scope[1])) return json({ error: 'no such session' }, 404);
+      const { rows } = await st.query({ study: null, pids: rec.pid }, 'started', true, 1, 0);
+      return json({ record: rec, row: rows[0] || {} });
+    }
     if (route === '/admin/api/sessions') {
       const page = Math.max(1, parseInt(this.arg('page', '1'), 10) || 1);
       const { rows, total, done } = await st.query(f, this.arg('sort', 'started'), this.arg('dir', 'desc') !== 'asc', 100, (page - 1) * 100);

@@ -1580,6 +1580,17 @@ p { max-width: 70ch; } .muted { color: var(--muted); }
 .key { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .88rem; color: var(--muted); align-items: center; }
 .key i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid; margin-right: 5px; vertical-align: -2px; }
 .check .ok { color: var(--ok); font-weight: 600; } .check .bad { color: #b3261e; font-weight: 600; } .check li { margin: 4px 0; }
+.check a.pid { display: inline-block; padding: 0 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent, #a8361d) 12%, transparent); color: inherit; text-decoration: none; font-variant-numeric: tabular-nums; }
+.check a.pid:hover, .check a.pid:focus-visible { background: color-mix(in srgb, var(--accent, #a8361d) 28%, transparent); }
+.check button.showall { font: inherit; font-size: .8rem; margin-left: 6px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line, #ddd); background: transparent; color: inherit; cursor: pointer; }
+.check li.review { list-style: none; margin: 10px 0 10px -18px; padding: 8px 12px; border-radius: 10px; border: 1px solid color-mix(in srgb, #d08a12 55%, transparent); background: color-mix(in srgb, #d08a12 9%, transparent); }
+.check li.review summary { cursor: pointer; }
+.check li.review .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #d08a12; margin-right: 8px; vertical-align: 1px; animation: pzpulse 1.6s ease-in-out infinite; }
+.check li.review.seen .dot { animation: none; opacity: .5; }
+@keyframes pzpulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, #d08a12 60%, transparent); } 50% { box-shadow: 0 0 0 6px transparent; } }
+table.people tr:target td { animation: pzflash 2.4s ease-out 1; }
+@keyframes pzflash { 0%, 30% { background: color-mix(in srgb, #d08a12 30%, transparent); } 100% { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .check li.review .dot, table.people tr:target td { animation: none; } }
 .key .ok { border-color: var(--ok); } .key .near { border-color: var(--near); } .key .miss { border-color: var(--miss); }
 .key .ln { width: 18px; height: 0; border-radius: 0; border-width: 2px 0 0; }
 figure { margin: 0 0 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; overflow-x: auto; }
@@ -1905,6 +1916,7 @@ def data_check(rows, builds, people, left_out):
            'flags': {k: sorted(p['pid'] for p in mine if p.get(k)) for k in ('flag_fast', 'flag_empty', 'flag_tab_away')},
            'restarted': sorted(p['pid'] for p in mine if p.get('restarts')),
            'versions': dict(Counter(str(p.get('task_version') or '?') for p in mine)),
+           'version_pids': {v: sorted(p['pid'] for p in mine if str(p.get('task_version') or '?') == v) for v in {str(p.get('task_version') or '?') for p in mine}},
            'test_sessions': sum((r.get('study') or '') == 'tests' for r in rows),
            'synthetic': sum(1 for p in mine if p.get('synthetic'))}
     if staged:
@@ -1922,6 +1934,18 @@ def data_check(rows, builds, people, left_out):
     return out
 
 
+def pid_links(pids):
+    """Session ids as links: in the researcher page they open the session (the page listens for these clicks); in a
+    report opened on its own they go to the participant's row of "Every participant"."""
+    return ', '.join('<a class="pid" href="#p-%s" data-pid="%s">%s</a>' % (esc(p), esc(p), esc(p)) for p in pids)
+
+
+def show_all(pids):
+    """A button that lists these sessions on the researcher page's Sessions tab."""
+    return (' <button type="button" class="showall" data-pids="%s">show %s on the Sessions tab</button>' % (esc(','.join(pids)), 'it' if len(pids) == 1 else 'all %d' % len(pids))
+            if pids else '')
+
+
 def data_check_html(c):
     """The Data check section of the overview: where every session went, and what to look at before excluding anything."""
     if not c:
@@ -1937,19 +1961,13 @@ def data_check_html(c):
         if c['left_out_unfinished']:
             parts.append('%d saved part-way, but the participant stopped before "I\'m done", so the pizza is not a finished choice' % c['left_out_unfinished'])
         if c['left_out_researcher']:
-            parts.append('%d left out by the researcher (%s)' % (c['left_out_researcher'], esc(', '.join(c['researcher_excluded']))))
+            parts.append('%d left out by the researcher (%s)' % (c['left_out_researcher'], pid_links(c['researcher_excluded'])))
         if c.get('left_out_browser'):
             parts.append('%d left out automatically because a program drove the browser (browser flag <code>automated</code>: not a participant)' % c['left_out_browser'])
         items.append(li('<b>%d builds left out</b>: %s. They are listed in <code>excluded.csv</code>; change this per session on the Sessions tab of '
                         'the researcher page.' % (c['left_out'], '; '.join(parts))))
-    if c.get('browser_flags'):
-        what = {'translated': 'the browser translated the page (they read a machine translation)', 'coarse-timer': 'a coarse clock (fingerprinting protection: timings in steps of 10 ms or more)',
-                'forced-colors': 'Windows high contrast (the colours were replaced)', 'small-window': 'a window too small for the task at some point',
-                'automated': 'a browser driven by a program'}
-        items.append(li('<b>Browser flags to look at</b> (Sessions tab, filter "needs a look"; <code>browser_flags</code> in participants.csv): '
-                        + '; '.join('%s: %s' % (what.get(f, f), esc(', '.join(p))) for f, p in c['browser_flags'].items()) + '.'))
     if c['researcher_included']:
-        items.append(li('Kept in by the researcher (overriding the automatic rule): %s.' % esc(', '.join(c['researcher_included']))))
+        items.append(li('Kept in by the researcher (overriding the automatic rule): %s.' % pid_links(c['researcher_included'])))
     if c['no_pizza']:
         items.append(li('%d sessions never placed a topping on their own pizza (stopped in the intro or practice, or just opened the link).' % c['no_pizza']))
     if c['typical'] or c['left_out_typical']:
@@ -1961,23 +1979,32 @@ def data_check_html(c):
         else:
             bad = []
             if c['built_without_pizza']:
-                bad.append('past the build but no finished pizza: ' + esc(', '.join(c['built_without_pizza'])))
+                bad.append('expected in the analysis but no finished pizza: ' + pid_links(c['built_without_pizza']))
             if c['pizza_without_built']:
-                bad.append('finished pizza but the session is still at an earlier stage: ' + esc(', '.join(c['pizza_without_built'])))
+                bad.append('analysed but not expected: ' + pid_links(c['pizza_without_built']))
             items.append(li('<span class="bad">✗ Check:</span> %d own pizzas analysed, %d sessions got past the build. %s'
                             % (c['own'], c['built_sessions'], '; '.join(bad))))
     flags = [(k, l) for k, l in (('flag_fast', 'finished in under 15 s'), ('flag_empty', 'no toppings'), ('flag_tab_away', 'tab hidden for over 30 s while building')) if c['flags'][k]]
-    review = ['%s: %s' % (l, esc(', '.join(c['flags'][k]))) for k, l in flags]
+    review = ['<b>%s</b>: %s%s' % (l, pid_links(c['flags'][k]), show_all(c['flags'][k])) for k, l in flags]
     if c['restarted']:
-        review.append('came back mid-study (reload or new visit), so their build started again: ' + esc(', '.join(c['restarted'])))
+        review.append('<b>came back mid-study</b> (reload or new visit), so their build started again: ' + pid_links(c['restarted']) + show_all(c['restarted']))
     if len(c['versions']) > 1:
-        review.append('pizzas from different task versions (%s); see the Changelog for what changed between them'
-                      % esc(', '.join('%s: %d' % kv for kv in sorted(c['versions'].items()))))
+        by_v = c.get('version_pids') or {}
+        review.append('<b>pizzas from different task versions</b>: %s; see the Changelog for what changed between them'
+                      % '; '.join('%s: %d%s' % (v, n, show_all(by_v.get(v) or [])) for v, n in sorted(c['versions'].items())))
     if c['test_sessions'] and c['test_sessions'] < c['sessions']:
         review.append('%d sessions from the <code>tests</code> study are mixed in with real ones' % c['test_sessions'])
+    what = {'translated': 'the browser translated the page (they read a machine translation)', 'coarse-timer': 'coarse clock (fingerprinting protection: timings in steps of 10 ms or more)',
+            'forced-colors': 'Windows high contrast (the colours were replaced)', 'small-window': 'window too small for the task at some point',
+            'automated': 'browser driven by a program (left out automatically)'}
+    for f, p in (c.get('browser_flags') or {}).items():
+        review.append('<b>%s</b>: %s%s' % (what.get(f, f), pid_links(p), show_all(p)))
     if review:
-        items.append(li('<b>To review</b> (kept in; decide before the confirmatory analysis whether to exclude, ideally in the preregistration): <ul>%s</ul>'
-                        % ''.join(li(r) for r in review)))
+        # the part that needs a decision: drawn so it is noticed (a slow pulse until it is opened), every session a link
+        items.append('<li class="review"><details><summary><span class="dot" aria-hidden="true"></span><b>To review: %d item%s</b> '
+                     '<span class="muted">(kept in; decide before the confirmatory analysis whether to exclude, ideally in the preregistration; '
+                     'click a session to open it)</span></summary><ul>%s</ul></details></li>'
+                     % (len(review), '' if len(review) == 1 else 's', ''.join(li(r) for r in review)))
     return '<h2 id="check">Data check</h2><ul class="check">%s</ul>' % ''.join(items)
 
 
@@ -2066,8 +2093,8 @@ def dashboard_report(entries, ref_info, group_label, check=None):
                 cells.append('<td data-v="%s">%.1f</td>' % (v, v / 1000))
             else:
                 cells.append('<td data-v="%s">%s</td>' % (v, f % v))
-        body.append('<tr><td>%s</td><td class="l" data-v="%s">%s</td><td class="l" data-v="%s">%s</td>%s</tr>' % (thumb(p, {}), esc(r['pid']), esc(r['pid']), esc(r['_group']), esc(r['_group']), ''.join(cells)))
-    sort_js = """<script>
+        body.append('<tr id="p-%s"><td>%s</td><td class="l" data-v="%s">%s</td><td class="l" data-v="%s">%s</td>%s</tr>' % (esc(r['pid']), thumb(p, {}), esc(r['pid']), esc(r['pid']), esc(r['_group']), esc(r['_group']), ''.join(cells)))
+    sort_js = REVIEW_JS + """<script>
 document.querySelectorAll('table.people th').forEach(function (th, i) {
   if (i === 0) return;
   th.tabIndex = 0;
@@ -2110,6 +2137,24 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
             '</div>%s</body></html>'
             % (REPORT_CSS, DASH_TOKENS, DASH_CSS, len(recs), esc(group_label), kpis, data_check_html(check), legend, diet, pieces, cross, nutrition_section(recs, groups),
                esc(ref_txt), hist, bands, examples, strong_feelings_chart(entries, groups), feel_plots, space, size, time_, head, ''.join(body), sort_js))
+
+
+# The Data check's session links and buttons: inside the researcher page they ask it to open the session (or list the
+# sessions on the Sessions tab); a report opened on its own goes to the row in "Every participant", which flashes.
+REVIEW_JS = """<script>
+(function () {
+  var inPage = window.parent && window.parent !== window;
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest('a.pid'), b = e.target.closest('button.showall');
+    if (b && inPage) { window.parent.postMessage({ pizza: 'sessions', pids: b.dataset.pids.split(',') }, location.origin); return; }
+    if (!a) return;
+    if (inPage) { e.preventDefault(); window.parent.postMessage({ pizza: 'session', pid: a.dataset.pid }, location.origin); }
+  });
+  if (!inPage) document.querySelectorAll('button.showall').forEach(function (b) { b.hidden = true; });
+  var d = document.querySelector('li.review details');
+  if (d) d.addEventListener('toggle', function () { d.parentNode.classList.add('seen'); });
+})();
+</script>"""
 
 
 def fmtv(v, f='%.2f'):

@@ -211,7 +211,7 @@ class Study:
         return when, n, {k: check[k] for k in ('sessions', 'typical', 'left_out', 'built_sessions', 'ok') if k in check} or None
 
 
-FILTER_KEYS = ('study', 'grp', 'source', 'stage', 'neuro', 'cond', 'q', 'since', 'until')
+FILTER_KEYS = ('study', 'grp', 'source', 'stage', 'neuro', 'cond', 'q', 'since', 'until', 'pids')   # pids: a list of ids (the reports' To review links)
 
 
 def analysed_pids(folder):
@@ -356,7 +356,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def filters(self, scope):
         """The session filter from the query; a study researcher always sees their own study only."""
         q = self.query()
-        f = {k: q.get(k, [''])[0].strip()[:80] for k in FILTER_KEYS}
+        f = {k: q.get(k, [''])[0].strip()[:3000 if k == 'pids' else 80] for k in FILTER_KEYS}
         if scope[0] == 'study':
             f['study'] = scope[1]
         elif f['study'] in ('', 'all') or not (f['study'] == 'main' or STUDY_RE.match(f['study'])):
@@ -449,6 +449,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 page = 1
             rows, total, done = st.query(f, self.arg('sort', 'started'), self.arg('dir', 'desc') != 'asc', PAGE, (page - 1) * PAGE)
             return self.send(200, json.dumps({'rows': rows, 'total': total, 'done': done, 'page': page, 'pages': max(1, -(-total // PAGE))}), 'application/json')
+        if route == '/admin/api/session':                  # one session with every field (the Sessions tab's session panel)
+            rec = st.get(self.arg('pid', ''))
+            if not rec or (scope[0] == 'study' and (rec.get('study') or '') != scope[1]):
+                return self.send(404, json.dumps({'error': 'no such session'}), 'application/json')
+            row = next(iter(st.query({'study': None, 'pids': rec['pid']}, limit=1)[0]), {})
+            return self.send(200, json.dumps({'record': rec, 'row': row}), 'application/json')
         if route == '/admin/sessions.csv':                 # the session list as shown (filtered, sorted), quick: no analysis
             rows, _, _ = st.query(f, self.arg('sort', 'started'), self.arg('dir', 'desc') != 'asc', limit=10 ** 9)
             buf = io.StringIO()

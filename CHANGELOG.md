@@ -5,6 +5,15 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**To review, actionable; every session one click away.** The Data check's *To review* box (overview report) pulses
+until opened and lists every item with its sessions as links; browser flags (translated, coarse clock, high contrast,
+small window, automated) are among the items. In the researcher page a session link opens that session; *show … on
+the Sessions tab* lists those sessions there (new filter `pids`). Opened on its own, a report jumps to the
+participant's row, which flashes. On the Sessions tab every participant id opens the **session panel**: the pizza,
+where they got to, times (Warsaw), device and browser flags, the answers, every saved field, and the analysis choice;
+each session has its own address (`#sessions/<id>`), so a session can be linked to and opened directly. Both servers
+(`/admin/api/session`, within the link's scope).
+
 **"Build reports" builds the study you are looking at** (Cloudflare): pressed on a study's page it analyses that
 study's data only (`tools/cloud_sync.py --only <study>`, workflow input `only`), not "all" and the other studies (for
 the pilot: its own sessions, not the test study's synthetic ones). Builds started by a finished session or by hand

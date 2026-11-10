@@ -75,6 +75,18 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
 .pill.on{border-color:var(--ok);color:var(--ok)}
 .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}
 @media (max-width:600px){.bar select{margin-left:0}iframe.report{height:80vh}}
+/* one session, opened from the Sessions tab or a report's link; its own address: #sessions/<id> */
+#drawer{position:fixed;top:0;right:0;bottom:0;width:min(600px,100%);background:var(--panel,#fff);border-left:1px solid var(--line);box-shadow:-8px 0 30px rgba(0,0,0,.12);
+  overflow:auto;padding:16px 18px 30px;z-index:20;transform:translateX(0);transition:transform .22s ease-out}
+#drawer[hidden]{display:block;transform:translateX(105%);visibility:hidden}
+#drawer h2{margin:0 0 4px;font-size:1.2rem} #drawer .close{float:right}
+#drawer dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:10px 0} #drawer dt{color:var(--muted)} #drawer dd{margin:0;word-break:break-word}
+#drawer .pic{display:flex;justify-content:center;margin:8px 0} #drawer pre{max-height:240px;overflow:auto;font-size:12px;background:var(--bg);padding:8px;border-radius:8px}
+#drawer .warn{background:color-mix(in srgb,#d08a12 12%,transparent);border-radius:8px;padding:6px 10px;margin:8px 0}
+a.pidlink{color:inherit;text-decoration:underline dotted;cursor:pointer}
+tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{background:color-mix(in srgb,#d08a12 30%,transparent)}100%{background:transparent}}
+.pidsnote{background:color-mix(in srgb,#d08a12 10%,transparent);border-radius:8px;padding:6px 10px;margin:8px 0}
+@media (prefers-reduced-motion:reduce){#drawer{transition:none} tr.flash td{animation:none}}
 </style>
 </head>
 <body>
@@ -129,6 +141,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
           <label>Participant id<br><input name="q" size="10"></label>
           <button type="submit">Show</button><button type="reset" class="alt">Clear</button>
         </form>
+        <p class="pidsnote" id="pidsnote" hidden></p>
         <p style="margin:10px 0 4px"><span id="count"></span> <a id="csv" class="small">Download this list (.csv)</a></p>
         <div class="tablewrap"><table id="table"></table></div>
         <div class="row" id="pager"></div>
@@ -174,6 +187,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
   </section>
 </div>
 
+<aside id="drawer" hidden aria-label="Session"></aside>
 <script>
 (function () {
   var P = new URLSearchParams(location.search);
@@ -445,6 +459,9 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
   }
 
   function show(tab) {
+    var m = /^sessions\/(.+)$/.exec(tab || ''), open = m ? decodeURIComponent(m[1]) : null;    // #sessions/<id>: that session open
+    if (m) tab = 'sessions';
+    if (!open) closeDrawer(true);
     if (!document.querySelector('[data-panel="' + tab + '"]')) tab = 'overview';
     [].forEach.call(document.querySelectorAll('#tabs button'), function (b) { b.setAttribute('aria-selected', String(b.dataset.tab === tab)); });
     [].forEach.call(document.querySelectorAll('.panel'), function (p) { p.hidden = p.dataset.panel !== tab; });
@@ -460,12 +477,61 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
       }
     }
     if (tab === 'sessions') sessions();
-    setUrl(S.study, tab);
+    setUrl(S.study, open ? 'sessions/' + encodeURIComponent(open) : tab);
+    if (open) openSession(open);
+  }
+
+  // ---- one session: everything recorded, the pizza, the device and flags, and the analysis choice
+  function closeDrawer(quiet) {
+    var d = $('drawer'); if (!d || d.hidden) return;
+    d.hidden = true;
+    if (!quiet && /^#sessions\//.test(location.hash)) setUrl(S.study, 'sessions');
+  }
+  function builderScript() {
+    if (window.PizzaBuilder) return Promise.resolve();
+    return new Promise(function (res) { var s = document.createElement('script'); s.src = '/pizza-builder.js'; s.onload = res; s.onerror = res; document.head.appendChild(s); });
+  }
+  function openSession(pid) {
+    var d = $('drawer');
+    d.hidden = false; d.innerHTML = '<button class="alt small close" type="button">Close</button><h2>' + esc(pid) + '</h2><p class="muted">Loading…</p>';
+    Promise.all([api('api/session', { pid: pid }), builderScript()]).then(function (res) {
+      var x = res[0], rec = x.record, r = x.row || {};
+      if (!rec) { d.innerHTML = '<button class="alt small close" type="button">Close</button><h2>' + esc(pid) + '</h2><p>No such session here.</p>'; return; }
+      var J = function (k) { try { return JSON.parse(rec[k] || 'null'); } catch (e) { return null; } };
+      var summ = J('pz_summary') || {}, fol = J('pzf_data') || {}, cl = J('client') || {}, errs = J('client_errors') || [];
+      var flags = (rec.browser_flags || '').split(' ').filter(Boolean);
+      var dl = function (rows) { return '<dl>' + rows.filter(function (x) { return x[1] !== undefined && x[1] !== null && x[1] !== ''; })
+        .map(function (x) { return '<dt>' + esc(x[0]) + '</dt><dd>' + (x[2] ? x[1] : esc(x[1])) + '</dd>'; }).join('') + '</dl>'; };
+      var answers = fol.met ? Object.keys(fol.met).filter(function (k) { return k !== 't' && k !== 'ms'; }).map(function (k) { return [k, JSON.stringify(fol.met[k]).replace(/^"|"$/g, '')]; })
+        : fol.about ? Object.keys(fol.about).map(function (k) { return [k, JSON.stringify(fol.about[k]).replace(/^"|"$/g, '')]; }) : [];
+      var html = '<button class="alt small close" type="button">Close</button><h2>' + esc(rec.pid) + '</h2>'
+        + '<p class="muted">' + esc((rec.study || 'main') + ' · ' + (S.stages[rec.stage] || rec.stage || '')) + ' · <a href="#sessions/' + encodeURIComponent(rec.pid) + '">link to this session</a></p>'
+        + '<p>' + (r.analysis === 'no_pizza' ? '<span class="incl none">No pizza</span>' : inclusionCell(r)) + '</p>'
+        + (flags.length || errs.length ? '<div class="warn">' + (flags.length ? 'Browser: ' + esc(flags.join(', ')) + (rec.translated ? ' (translated: ' + esc(rec.translated) + ')' : '') + (rec.small_window ? ' (smallest window ' + esc(rec.small_window) + ')' : '') : '')
+          + (errs.length ? (flags.length ? '<br>' : '') + errs.length + ' page error(s): ' + esc(errs.map(function (e) { return e[2]; }).join(' | ')) : '') + '</div>' : '')
+        + '<div class="pic" id="drawerpic"></div>'
+        + dl([['Started', when(rec.started)], ['Last saved', when(rec.updated)], ['Finished', rec.finished ? when(rec.finished) : ''], ['Time taken', rec.seconds != null ? mins(rec.seconds) : ''],
+              ['Came back', rec.restarts ? rec.restarts + '×' : ''], ['Group / source', [rec.group, rec.source].filter(Boolean).join(' / ')], ['Condition', rec.cond],
+              ['Pizza', rec.pz_final ? (J('pz_final') || []).length + ' pieces, ' + new Set((J('pz_final') || []).map(function (x) { return x[1]; })).size + ' toppings, sauce ' + (summ.sauce || '–') + ', cheese ' + (summ.cheese || '–') + (summ.finished === false ? ' (not finished)' : '') : ''],
+              ['Task version', summ.v], ['Device', [rec.browser, rec.os].filter(Boolean).join(' · ') + (rec.tz ? ' · ' + rec.tz : '')],
+              ['Screen / window', cl.screen ? cl.screen.join('×') + ' / ' + (cl.viewport || []).join('×') : ''], ['Saves retried', rec.save_fails], ['Consent', rec.consent]])
+        + (answers.length ? '<h3>Answers</h3>' + dl(answers) : '')
+        + '<details><summary>Every saved field</summary><pre>' + esc(Object.keys(rec).sort().map(function (k) { var v = String(rec[k] == null ? '' : rec[k]); return k + ': ' + (v.length > 300 ? v.slice(0, 300) + '… (' + v.length + ' characters)' : v); }).join('\n')) + '</pre></details>';
+      d.innerHTML = html;
+      if (rec.pz_final && window.PizzaBuilder && PizzaBuilder.picture) {
+        try { $('drawerpic').appendChild(PizzaBuilder.picture(rec.pz_final, rec.pz_summary, 300)); } catch (e) {}
+      }
+      var row = document.querySelector('#table a.pidlink[href="#sessions/' + encodeURIComponent(rec.pid) + '"]');
+      if (row) { row = row.closest('tr'); row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); row.scrollIntoView({ block: 'nearest' }); }
+    }).catch(function () { d.innerHTML = '<button class="alt small close" type="button">Close</button><p>Could not load this session.</p>'; });
   }
 
   function sessions() {
     var extra = Object.assign({ sort: view.sort, dir: view.dir, page: view.page }, view.filters);
     api('api/sessions', extra).then(function (d) {
+      var ids = view.filters.pids ? view.filters.pids.split(',') : null;
+      $('pidsnote').hidden = !ids;
+      if (ids) $('pidsnote').innerHTML = 'Showing the ' + ids.length + ' session' + (ids.length === 1 ? '' : 's') + ' picked in a report. <button type="button" class="alt small">Show all sessions</button>';
       $('count').innerHTML = '<b>' + d.total + ' session' + (d.total === 1 ? '' : 's') + ' match</b>, ' + d.done + ' finished.';
       $('csv').href = '/admin/sessions.csv?' + q(Object.assign({ sort: view.sort, dir: view.dir }, view.filters));
       var cols = [['pid', 'Participant'], ['inclusion', 'Analysis'], ['study', 'Study'], ['grp', 'Group'], ['source', 'Source'], ['neuro', 'Says they are'], ['cond', 'Condition'],
@@ -483,6 +549,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
         return '<tr>' + cols.map(function (c) {
           var v = r[c[0]];
           if (c[0] === 'study') v = v || 'main';
+          if (c[0] === 'pid' && String(v).indexOf('SYN-') !== 0) return '<td><a class="pidlink" href="#sessions/' + encodeURIComponent(v) + '">' + esc(v) + '</a></td>';
           if (c[0] === 'pid' && String(v).indexOf('SYN-') === 0) return '<td>' + esc(v) + '<span class="syn" title="Synthetic test data (simulated), not a participant">synthetic</span></td>';
           if (c[0] === 'stage') {
             var idle = r.stage !== 'done' && r.stage !== 'declined' && r.updated && Date.now() - Date.parse(r.updated) > (S.idle_minutes || 30) * 60000;
@@ -565,13 +632,27 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     [].forEach.call(this.elements, function (el) { if (el.name && el.value) view.filters[el.name] = el.value; });
     sessions();
   };
-  $('filters').onreset = function () { setTimeout(function () { view.filters = {}; view.page = 1; sessions(); }, 0); };
+  $('filters').onreset = function () { setTimeout(function () { if (!view.filters.pids) { view.filters = {}; view.page = 1; sessions(); } }, 0); };
+  $('pidsnote').onclick = function (e) { if (e.target.closest('button')) { view.filters = {}; view.page = 1; sessions(); } };
   $('table').onclick = function (e) {
     var a = e.target.closest('a[data-sort]'); if (!a) return;
     view.dir = view.sort === a.dataset.sort && view.dir === 'desc' ? 'asc' : 'desc'; view.sort = a.dataset.sort; view.page = 1; sessions();
   };
   $('pager').onclick = function (e) { var b = e.target.closest('button[data-page]'); if (b) { view.page = +b.dataset.page; sessions(); } };
   window.addEventListener('hashchange', function () { if (S && S.study) show(location.hash.slice(1)); });
+  document.addEventListener('click', function (e) { if (e.target.closest('#drawer .close')) closeDrawer(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDrawer(); });
+  $('drawer').addEventListener('change', function (e) { var sel = e.target.closest('select[data-incl]'); if (sel) $('table').onchange(e); });
+  // the reports' Data check: a session link opens that session; "show … on the Sessions tab" lists those sessions
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin || !e.data || !S || !S.study) return;
+    if (e.data.pizza === 'session' && e.data.pid) location.hash = 'sessions/' + encodeURIComponent(String(e.data.pid));
+    if (e.data.pizza === 'sessions' && e.data.pids) {
+      view.filters = { pids: [].concat(e.data.pids).join(',') }; view.page = 1;
+      $('filters').reset();
+      if (location.hash === '#sessions') sessions(); else location.hash = 'sessions';
+    }
+  });
 
   load(P.get('study') || '').catch(function () { $('denied').hidden = false; });
 })();

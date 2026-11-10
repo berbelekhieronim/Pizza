@@ -7,7 +7,7 @@ export const STUDY_KEYS = ['title', 'intro', 'consent', 'completion_message', 'c
   // a study's own flow: language, consent with yes/no, the questions at the end, the base choices, the end page
   'lang', 'consent_choice', 'decline_message', 'followup', 'sauces', 'sauce', 'cheeses', 'cheese', 'bake_picture', 'show_code', 'completion_title', 'texts'];
 export const SYNTHETIC_CHOICES = [0, 25, 50, 100, 200, 500];   // synthetic pizzas a test study can hold (study.json "synthetic" = the default)
-export const FILTER_KEYS = ['study', 'grp', 'source', 'stage', 'neuro', 'cond', 'q', 'since', 'until'];
+export const FILTER_KEYS = ['study', 'grp', 'source', 'stage', 'neuro', 'cond', 'q', 'since', 'until', 'pids'];   // pids: a list of ids (the reports' To review links)
 
 export function loadStudy(id = '') {
   // study.json; with a study id, that study's settings ("studies": {id: {...}}) override the main ones
