@@ -240,6 +240,7 @@ def cloudflare_checks(tmp, fields):
               and api(base, 'state', key, study='pilot-asd')['reports']['fresh'],
               'an inclusion choice marks the reports out of date; the next build redoes only the studies it touches')
         post_form(base + '/admin/api/inclusion?key=' + key, {'pid': pid, 'value': 'auto'})
+        counting_checks(base, key, fields, 'Worker: ')
     finally:
         os.killpg(srv.pid, 15)
         srv.wait(timeout=20)
@@ -316,6 +317,31 @@ def client_checks(base, key, pid, label):
           and c.get('started_warsaw') == SRV.warsaw(c.get('started')) and c.get('started_warsaw') not in (None, '', 'NA')
           and all(r.get('browser') == 'NA' for r in rows if r['pid'] != pid),
           label + 'Sessions tab and session list (.csv): browser, system, time zone, retried saves, page errors, times in Warsaw time (NA where not recorded)')
+
+
+def counting_checks(base, key, fields, label):
+    """The "built a pizza" counter, the Sessions tab and the analysis use one rule: the own pizza was finished (its
+    summary), not the stage the session was left at; a late, older save never moves a session back; a program-driven
+    browser is left out automatically."""
+    def built():
+        return next(x for x in api(base, 'state', key)['studies'] if x['id'] == 'main')['built']
+    before = built()
+    pids = [json.loads(http('GET', base + '/api/start?pid=CNT%d' % i)[1])['pid'] for i in range(4)]
+    unfinished = dict(fields, pz_summary=json.dumps(dict(json.loads(fields['pz_summary']), finished=False)))
+    http('POST', base + '/api/save', {'pid': pids[0], 'stage': 'build', 'fields': fields})                    # finished, tab closed while baking
+    http('POST', base + '/api/save', {'pid': pids[1], 'stage': 'build', 'fields': unfinished})                # still building
+    http('POST', base + '/api/save', {'pid': pids[2], 'stage': 'followup', 'fields': fields})
+    http('POST', base + '/api/save', {'pid': pids[2], 'stage': 'build', 'fields': {}})                        # an older save arriving late
+    http('POST', base + '/api/save', {'pid': pids[3], 'stage': 'done', 'fields': dict(fields, browser_flags='automated')})
+    rows = {r['pid']: r for r in api(base, 'sessions', key, study='main')['rows']}
+    check(built() - before == 2 and rows[pids[0]]['analysis'] == 'included' and rows[pids[1]]['analysis'] == 'left_out'
+          and rows[pids[2]]['stage'] == 'followup' and rows[pids[2]]['analysis'] == 'included' and rows[pids[3]]['analysis'] == 'left_out',
+          label + '"built a pizza" counts the finished pizzas the reports analyse (one closed while baking counts, one still being built does not); '
+          'a late older save does not move a session back; a program-driven browser is left out automatically')
+    flagged = {r['pid'] for r in api(base, 'sessions', key, study='main', stage='flagged')['rows']}
+    check(pids[3] in flagged and pids[0] not in flagged, label + 'Sessions tab: the "needs a look" filter finds browser flags')
+    for p_ in pids:
+        post_form(base + '/admin/api/inclusion?key=' + key, {'pid': p_, 'value': 'exclude'})   # out of the way of later counts
 
 
 def inclusion_checks(base, key, skey, study, other_pid, label):
@@ -688,6 +714,7 @@ def main():
                   and pc[0]['transgender'] == '1' and pc[0]['gender'] == 'nonbinary' and pc[0]['neurotype'] == 'Autistic' and pc[0]['dx_autistic'] == 'self'
                   and pc[0]['diet'] == 'vegan' and pc[0]['health_allergy'] == '1',
                   'Pizza Pilot 11.2026: the analysis reads the metryczka (age, transgender, autism / ADHD, gender, diets) and vegan cheese keeps a pizza vegan')
+            counting_checks(base, 'smoke-key', fields, '')
         finally:
             srv.terminate()
             srv.wait(timeout=10)

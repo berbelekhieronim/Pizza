@@ -61,7 +61,7 @@ SORTABLE = ('pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces
 STAGES = ('intro', 'practice', 'build', 'typical', 'followup', 'done', 'declined')   # declined: said no to the consent
 IDLE_MINUTES = 30            # an unfinished session with no save for this long counts as stopped (it can still resume)
 ACTIVITY = ('active', 'stopped')   # extra values of the "where" filter, from the time of the last save
-ANALYSIS = ('included', 'left_out', 'synthetic', 'real')  # ... from whether the session's pizza is analysed, or is synthetic
+ANALYSIS = ('included', 'left_out', 'flagged', 'synthetic', 'real')  # ... from whether the session's pizza is analysed, needs a look, or is synthetic
 SYN_SQL = "pid LIKE 'SYN-%'"        # synthetic sessions of a test study (analysis/synthetic.py): ids SYN-001 ...
 # The researcher's choice for a session (field 'inclusion', never taken from a participant's save): 'include',
 # 'exclude' or 'auto' (kept, so that going back to automatic also rebuilds the reports); no field = automatic: a session past the build (its own pizza finished) is analysed, one that stopped
@@ -73,8 +73,22 @@ INCL_SQL = "COALESCE((SELECT NULLIF(value, 'auto') FROM fields WHERE fields.pid 
 # listed with each session, read from the fields (no extra columns, so nothing to migrate)
 CLIENT_FIELDS = ('browser', 'os', 'tz', 'browser_flags', 'translated', 'save_fails', 'client_errors')
 CLIENT_SQL = ', '.join("(SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = '%s') AS %s" % (k, k) for k in CLIENT_FIELDS)
-LEFT_OUT_SQL = "(%s = 'exclude' OR (%s = '' AND stage NOT IN ('typical', 'followup', 'done') AND n_pieces IS NOT NULL))" % (INCL_SQL, INCL_SQL)
-INCLUDED_SQL = "(%s = 'include' OR (%s = '' AND stage IN ('typical', 'followup', 'done')))" % (INCL_SQL, INCL_SQL)
+# The automatic rule, the same as analysis/analyse.py: a session's own pizza is analysed when it was finished (the
+# participant pressed "I'm done": its summary is not "finished": false; the stage is not used, because a tab closed
+# while the pizza bakes, or two saves arriving out of order, can leave a finished pizza at stage "build"), unless the
+# browser was driven by a program (browser_flags in AUTO_EXCLUDE_FLAGS). The researcher's choice overrides both.
+AUTO_EXCLUDE_FLAGS = ('automated',)
+FINISHED_SQL = ("(COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'pz_summary'), '') NOT LIKE '%\"finished\":false%' "
+                "AND COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'pz_summary'), '') NOT LIKE '%\"finished\": false%')")
+FLAGGED_OUT_SQL = '(' + ' OR '.join("(' ' || COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'browser_flags'), '') || ' ') LIKE '%% %s %%'" % f
+                                    for f in AUTO_EXCLUDE_FLAGS) + ')'
+AUTO_IN_SQL = '(n_pieces IS NOT NULL AND ' + FINISHED_SQL + ' AND NOT ' + FLAGGED_OUT_SQL + ')'
+LEFT_OUT_SQL = '(' + INCL_SQL + " = 'exclude' OR (" + INCL_SQL + " = '' AND n_pieces IS NOT NULL AND NOT " + AUTO_IN_SQL + '))'
+INCLUDED_SQL = '(' + INCL_SQL + " = 'include' OR (" + INCL_SQL + " = '' AND " + AUTO_IN_SQL + '))'
+# browser trouble worth a look before analysing (participant page, docs/BROWSERS.md): the "needs a look" filter
+REVIEW_FLAGS = ('translated', 'coarse-timer', 'forced-colors', 'small-window', 'automated')
+REVIEW_SQL = '(' + ' OR '.join("(' ' || COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'browser_flags'), '') || ' ') LIKE '%% %s %%'" % f
+                               for f in REVIEW_FLAGS) + " OR EXISTS (SELECT 1 FROM fields WHERE fields.pid = sessions.pid AND name = 'client_errors'))"
 # what the analysis does with a session: included / left_out / no_pizza (shown on the Sessions tab and in sessions.csv)
 ANALYSIS_SQL = "CASE WHEN n_pieces IS NULL THEN 'no_pizza' WHEN %s THEN 'included' ELSE 'left_out' END" % INCLUDED_SQL
 
@@ -92,6 +106,20 @@ def iso_seconds(a, b):
         return time.mktime(time.strptime(b[:19], '%Y-%m-%dT%H:%M:%S')) - time.mktime(time.strptime(a[:19], '%Y-%m-%dT%H:%M:%S'))
     except (TypeError, ValueError):
         return None
+
+
+STAGE_RANK = {'intro': 0, 'practice': 1, 'build': 2, 'typical': 3, 'followup': 4, 'done': 5, 'declined': 5}
+
+
+def later_stage(old, new):
+    """The stage a save leaves a session at: never an earlier one. Saves can arrive out of order (the save at the end of
+    a part and the first of the next go out together; a closing tab's save comes late), and an older one must not move
+    a finished session back to 'build'. 'done' and 'declined' are final. (Same as laterStage in the Worker.)"""
+    if new not in STAGES:
+        return old
+    if old not in STAGE_RANK:
+        return new
+    return new if STAGE_RANK[new] > STAGE_RANK[old] else old
 
 
 def summary_columns(fields):
@@ -184,7 +212,7 @@ class Store:
             db.executemany('INSERT INTO fields (pid, name, value, updated) VALUES (?, ?, ?, ?) '
                            'ON CONFLICT(pid, name) DO UPDATE SET value = excluded.value, updated = excluded.updated',
                            [(pid, k, v, t) for k, v in clean.items()])
-            st = stage if stage in STAGES else row['stage']
+            st = later_stage(row['stage'], stage)
             finished = row['finished'] or (t if st == 'done' else None)
             cols = dict(summary_columns(clean), stage=st, updated=t, finished=finished,
                         seconds=iso_seconds(row['started'], finished or t))
@@ -207,6 +235,8 @@ class Store:
             sql.append(INCLUDED_SQL)
         elif f.get('stage') == 'left_out':
             sql.append(LEFT_OUT_SQL)
+        elif f.get('stage') == 'flagged':
+            sql.append(REVIEW_SQL)
         elif f.get('stage') == 'synthetic':
             sql.append(SYN_SQL)
         elif f.get('stage') == 'real':
@@ -231,7 +261,7 @@ class Store:
         sort = sort if sort in SORTABLE else 'started'
         db = self.db()
         total = db.execute("SELECT COUNT(*), SUM(stage = 'done') FROM sessions" + w, a).fetchone()
-        rows = db.execute('SELECT *, ' + INCL_SQL + ' AS inclusion, ' + ANALYSIS_SQL + ' AS analysis, ' + CLIENT_SQL + ' FROM sessions%s ORDER BY %s %s, pid LIMIT ? OFFSET ?' % (w, sort, 'DESC' if desc else 'ASC'),
+        rows = db.execute('SELECT *, ' + INCL_SQL + ' AS inclusion, ' + ANALYSIS_SQL + ' AS analysis, ' + AUTO_IN_SQL + ' AS auto_in, ' + FINISHED_SQL + ' AS pz_finished, ' + CLIENT_SQL + ' FROM sessions%s ORDER BY %s %s, pid LIMIT ? OFFSET ?' % (w, sort, 'DESC' if desc else 'ASC'),
                           a + [limit, offset]).fetchall()
         return [dict(r) for r in rows], total[0], total[1] or 0
 
@@ -254,8 +284,9 @@ class Store:
         """{study: (sessions, finished, built a pizza, in progress now, synthetic)} of the real sessions (the synthetic
         ones are counted apart); the rest of the unfinished real ones have stopped."""
         return {r['study']: (r['n'] or 0, r['done'] or 0, r['built'] or 0, r['active'] or 0, r['syn'] or 0) for r in self.db().execute(
-            "SELECT study, SUM(NOT %s) n, SUM(NOT %s AND stage = 'done') done, SUM(NOT %s AND stage IN ('typical', 'followup', 'done')) built, "
-            "SUM(NOT %s AND stage NOT IN ('done', 'declined') AND updated >= ?) active, SUM(%s) syn FROM sessions GROUP BY study" % ((SYN_SQL,) * 5), (idle_cutoff(),))}
+            "SELECT study, SUM(NOT %s) n, SUM(NOT %s AND stage = 'done') done, SUM(NOT %s AND n_pieces IS NOT NULL AND %s) built, "
+            "SUM(NOT %s AND stage NOT IN ('done', 'declined') AND updated >= ?) active, SUM(%s) syn FROM sessions GROUP BY study"
+            % (SYN_SQL, SYN_SQL, SYN_SQL, INCLUDED_SQL, SYN_SQL, SYN_SQL), (idle_cutoff(),))}   # built = their pizza is in the reports
 
     # ---- settings kept in the database
     def meta(self, k):

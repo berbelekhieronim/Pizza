@@ -1845,6 +1845,24 @@ STAGE_LABELS = [('intro', 'reading the intro'), ('practice', 'practice'), ('buil
                 ('followup', 'questions'), ('done', 'finished')]
 
 
+# browser flags (participant page, docs/BROWSERS.md) that leave a session's pizza out automatically, as AUTO_EXCLUDE_FLAGS
+# in server/store.py and cloudflare/src/store.js: a browser driven by a program is not a participant
+AUTO_EXCLUDE_FLAGS = ('automated',)
+REVIEW_FLAGS = ('translated', 'coarse-timer', 'forced-colors', 'small-window', 'automated')
+
+
+def browser_flags(row):
+    return set((field(row, 'browser_flags') or '').split())
+
+
+def auto_reason(row, summary):
+    """Why the automatic rule leaves this pizza out, or None: unfinished (still building, or stopped), or a flagged browser."""
+    if summary.get('finished') is False:
+        return 'not finished'
+    bad = sorted(browser_flags(row) & set(AUTO_EXCLUDE_FLAGS))
+    return 'browser: ' + ', '.join(bad) if bad else None
+
+
 def inclusion_choice(row):
     """'include' or 'exclude' when a researcher chose it for this session on the Sessions tab, else '' (automatic)."""
     v = (field(row, 'inclusion') or '').strip()
@@ -1878,7 +1896,9 @@ def data_check(rows, builds, people, left_out):
            'left_out': sum(x['build'] == own for x in left_out), 'left_out_typical': sum(x['build'] == typ for x in left_out),
            'researcher_excluded': sorted(p for p, c in choices.items() if c == 'exclude'),
            'left_out_unfinished': sum(x['build'] == own and x['reason'] == 'not finished' for x in left_out),
-           'left_out_researcher': sum(x['build'] == own and x['reason'] != 'not finished' for x in left_out),
+           'left_out_researcher': sum(x['build'] == own and x['reason'] == 'excluded by the researcher' for x in left_out),
+           'left_out_browser': sum(x['build'] == own and x['reason'].startswith('browser') for x in left_out),
+           'browser_flags': {f: sorted(r['_pid'] for r in rows if f in browser_flags(r)) for f in REVIEW_FLAGS if any(f in browser_flags(r) for r in rows)},
            'researcher_included': sorted(p for p, c in choices.items() if c == 'include'),
            'no_pizza': sum(1 for r in rows if loads(field(r, builds[0] + 'final')) is None),
            'stages': {k: stages.get(k, 0) for k, _ in STAGE_LABELS if stages.get(k)},
@@ -1890,8 +1910,10 @@ def data_check(rows, builds, people, left_out):
     if staged:
         # the sessions whose own pizza should be in the analysis: past the build, or kept in by the researcher; less those
         # the researcher left out
+        # (the same rule as the analysis and the study servers: the pizza's own "finished", not the stage)
         has_pizza = {r['_pid'] for r in rows if loads(field(r, builds[0] + 'final')) is not None}
-        expected = {r['_pid'] for r in staged if choices[r['_pid']] != 'exclude' and (r['stage'] in LATER_STAGES or (choices[r['_pid']] == 'include' and r['_pid'] in has_pizza))}
+        expected = {r['_pid'] for r in staged if r['_pid'] in has_pizza and choices[r['_pid']] != 'exclude'
+                    and (choices[r['_pid']] == 'include' or not auto_reason(r, loads(field(r, builds[0] + 'summary'), {}) or {}))}
         mine_ids = {p['pid'] for p in mine}
         out['built_sessions'] = len(expected)
         out['ok'] = expected == mine_ids and len(staged) == len(rows)
@@ -1916,8 +1938,16 @@ def data_check_html(c):
             parts.append('%d saved part-way, but the participant stopped before "I\'m done", so the pizza is not a finished choice' % c['left_out_unfinished'])
         if c['left_out_researcher']:
             parts.append('%d left out by the researcher (%s)' % (c['left_out_researcher'], esc(', '.join(c['researcher_excluded']))))
+        if c.get('left_out_browser'):
+            parts.append('%d left out automatically because a program drove the browser (browser flag <code>automated</code>: not a participant)' % c['left_out_browser'])
         items.append(li('<b>%d builds left out</b>: %s. They are listed in <code>excluded.csv</code>; change this per session on the Sessions tab of '
                         'the researcher page.' % (c['left_out'], '; '.join(parts))))
+    if c.get('browser_flags'):
+        what = {'translated': 'the browser translated the page (they read a machine translation)', 'coarse-timer': 'a coarse clock (fingerprinting protection: timings in steps of 10 ms or more)',
+                'forced-colors': 'Windows high contrast (the colours were replaced)', 'small-window': 'a window too small for the task at some point',
+                'automated': 'a browser driven by a program'}
+        items.append(li('<b>Browser flags to look at</b> (Sessions tab, filter "needs a look"; <code>browser_flags</code> in participants.csv): '
+                        + '; '.join('%s: %s' % (what.get(f, f), esc(', '.join(p))) for f, p in c['browser_flags'].items()) + '.'))
     if c['researcher_included']:
         items.append(li('Kept in by the researcher (overriding the automatic rule): %s.' % esc(', '.join(c['researcher_included']))))
     if c['no_pizza']:
@@ -3631,7 +3661,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
                 continue
             summary = loads(field(row, prefix + 'summary'), {}) or {}
             choice = inclusion_choice(row)                # the researcher's choice on the Sessions tab, if any
-            reason = 'excluded by the researcher' if choice == 'exclude' else 'not finished' if summary.get('finished') is False and choice != 'include' else None
+            reason = 'excluded by the researcher' if choice == 'exclude' else None if choice == 'include' else auto_reason(row, summary)
             if reason:
                 left_out.append({'pid': pid, 'build': prefix.rstrip('_'), 'reason': reason, 'stage': row.get('stage') or None,
                                  'n_pieces': len(final), 'last_saved': row.get('updated') or None, 'study': row.get('study') or None})

@@ -201,6 +201,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-10 | Claude Code (cloud) | Counter fix (built = finished pizza, as the analysis; stage never moves back); asked/flagged/auto-excluded browser conditions; Sessions filter needs a look |
 | 2026-11-10 | Claude Code (cloud) | Server 0.14.0: browsers and blockers (docs/BROWSERS.md): storage-blocked start fixed (blank page before), leave-page save via fetch keepalive, start retries, Turnstile never hangs, colour lock, noscript; browser_flags / translated recorded; tests/browser_matrix.js. Asked the user about letting sessions start when Turnstile cannot run and raising START_LIMIT (not changed) |
 | 2026-11-10 | Claude Code (cloud) | Server 0.13.0: data-capture check (logs, save path, limits); device (browser, os, tz, client), save_fails, client_errors; whole event log kept; leaving the page sends unsaved fields only; Warsaw time on the researcher page and in the session list |
 | 2026-11-10 | Claude Code (cloud) | meat_or_fish fixed (seafood was never flagged); smoke check against diet_class |

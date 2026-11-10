@@ -26,6 +26,10 @@
   .status:empty { display:none; }   /* no empty line under the task: the page fits the window */
   .notice { background:#f4efe9; border-radius:10px; padding:8px 12px; margin:0 0 10px; font-size:.95rem; }
   .notice[hidden] { display:none; }
+  /* a request the participant can act on (switch the translation off, enlarge the window); never translated itself */
+  .ask { background:#fff4d6; border:1px solid #e8c56a; border-radius:10px; padding:8px 12px; margin:0 0 10px; font-size:.95rem; }
+  .ask[hidden] { display:none; }
+  .ask p { margin:2px 0; }
   .choice { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin:18px 0 4px; max-width:62ch; }
   .choice p { margin:0; font-weight:600; flex-basis:100%; }
   .choice button { min-width:7em; }
@@ -37,6 +41,7 @@
 <div class="wrap">
   <div class="sheet">
     <p class="notice" id="notice" hidden></p>
+    <div class="ask" id="ask" hidden translate="no" role="status"></div>
     <div id="stage"><noscript><h1>JavaScript</h1><p lang="pl">To badanie działa tylko z włączonym JavaScriptem. Włącz go dla tej strony (albo otwórz link w innej przeglądarce) i odśwież stronę.</p>
       <p lang="en">This study needs JavaScript. Turn it on for this page (or open the link in another browser) and reload.</p></noscript></div>
     <div class="next" id="next" hidden><button class="go" type="button"></button></div>
@@ -197,6 +202,33 @@
     } catch (e) { /* never let this break the study */ }
   }
   function onSave(k, v) { S.fields[k] = v; send(); }
+  // Requests the participant can act on at once, shown above the task until done; written in both languages and marked
+  // translate="no", so they stay readable whatever the browser does to the page
+  var ASK = {
+    translated: '<p lang="pl"><b>Przeglądarka przetłumaczyła tę stronę.</b> Prosimy o powrót do oryginału (w pasku przeglądarki: „Pokaż oryginał” / ikona tłumaczenia), aby wszyscy widzieli te same słowa.</p>'
+      + '<p lang="en"><b>Your browser has translated this page.</b> Please switch back to the original ("Show original" in the browser\'s translate menu) so that everyone sees the same wording.</p>',
+    small: '<p lang="pl"><b>Okno przeglądarki jest za małe na to zadanie.</b> Powiększ je (np. dwuklik na pasku tytułu albo F11) lub pomniejsz stronę (Ctrl i minus).</p>'
+      + '<p lang="en"><b>The browser window is too small for this task.</b> Please make it bigger (e.g. double-click the title bar, or F11), or zoom out (Ctrl and minus).</p>'
+  };
+  var asks = {};
+  function asking(kind, on) {
+    asks[kind] = on;
+    var box = document.getElementById('ask'), html = Object.keys(asks).filter(function (k) { return asks[k]; }).map(function (k) { return ASK[k]; }).join('');
+    box.innerHTML = html; box.hidden = !html;
+  }
+  // The task needs room: the pizza and the tray side by side. A window smaller than 900 x 600 while building is asked to
+  // grow (flag small-window and the smallest size seen, field small_window, so the researcher can look at it).
+  function windowCheck() {
+    if (!S.pid || ['practice', 'build', 'typical'].indexOf(S.stage) < 0) { if (asks.small) asking('small', false); return; }
+    var w = window.innerWidth, h = window.innerHeight, small = w < 900 || h < 600;
+    if (small) {
+      var prev = (S.fields.small_window || '').split('x'), mw = Math.min(w, +prev[0] || w), mh = Math.min(h, +prev[1] || h);
+      if (S.fields.small_window !== mw + 'x' + mh) { S.fields.small_window = mw + 'x' + mh; send(); }
+      if (S.flagList && S.flagList.indexOf('small-window') < 0) { S.flagList.push('small-window'); S.fields.browser_flags = S.flagList.join(' '); send(); }
+    }
+    if (!!asks.small !== small) asking('small', small);
+  }
+  window.addEventListener('resize', function () { clearTimeout(windowCheck.t); windowCheck.t = setTimeout(windowCheck, 400); });
   // the smallest step of the page's clock in ms (about 0.1 normally; 16-100 with fingerprinting protection, which
   // makes the task's timings coarse), null when it did not move within 25 ms
   function timerResolution() {
@@ -211,11 +243,18 @@
   try {
     new MutationObserver(function () {
       var h = document.documentElement;
-      if (S.translated || !S.pid) return;
-      if (/translated-(ltr|rtl)/.test(h.className) || (ownLang && h.lang && h.lang !== ownLang)) {
-        S.translated = true;
-        S.fields.translated = S.stage + ' ' + new Date().toISOString().slice(0, 19) + 'Z ' + (h.lang || '');
-        S.flagList = (S.flagList || []).concat('translated'); S.fields.browser_flags = S.flagList.join(' '); send();
+      if (!S.pid) return;
+      var now = /translated-(ltr|rtl)/.test(h.className) || (ownLang && h.lang && h.lang !== ownLang);
+      var t = new Date().toISOString().slice(0, 19) + 'Z';
+      if (now && !S.translatedNow) {
+        S.translatedNow = true;
+        S.fields.translated = (S.fields.translated ? S.fields.translated + '; ' : '') + S.stage + ' ' + t + ' ' + (h.lang || '');
+        if (!S.translated) { S.translated = true; S.flagList = (S.flagList || []).concat('translated'); S.fields.browser_flags = S.flagList.join(' '); }
+        asking('translated', true); send();
+      } else if (!now && S.translatedNow) {       // back to the original: thank you, and when
+        S.translatedNow = false;
+        S.fields.translated += ' - original again ' + t;
+        asking('translated', false); send();
       }
     }).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'lang'] });
   } catch (e) { /* old browser */ }
@@ -237,7 +276,8 @@
     if (name === 'intro') return intro();
     if (name === 'done') return done();
     if (name === 'declined') return declined();
-    if (S.resumed) S.resumed = false; else notice.hidden = true;   // the "welcome back" note shows on the part they came back to only
+    if (S.resumed) S.resumed = false; else notice.hidden = true;
+    setTimeout(windowCheck, 50);   // the "welcome back" note shows on the part they came back to only
     var box = document.createElement('div');
     stage.appendChild(box);
     var opts = { mode: name === 'typical' ? 'build' : name, onSave: onSave, condition: S.cond, onFinish: function () { send(true); go(o[i + 1]); } };

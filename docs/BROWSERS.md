@@ -39,6 +39,20 @@ after the change: `tests/browser_matrix.js` (how to run it is at its top; rerun 
 | Fingerprinting protection (coarse clock) | timings in steps of 16-100 ms, silently | recorded: flag `coarse-timer` (clock step ≥ 10 ms); `client.timerMs` has the step |
 | A program driving the browser | not visible | recorded: flag `automated` (`navigator.webdriver`) |
 
+## Asked of the participant, flagged, or left out
+
+| what | what happens |
+|---|---|
+| the page translated by the browser | **asked**: a note above the task, in Polish and English and never translated itself, asks to switch back to the original; it goes when they do. Flag `translated`; the field `translated` has when it was translated and when it was back to the original |
+| a window smaller than 900 × 600 while practising or building | **asked**: a note asks to make the window bigger or zoom out; it goes when it is big enough. Flag `small-window`; field `small_window` = the smallest size seen |
+| the person check blocked | **asked**: the message says to switch off ad blocking / privacy extensions for the page, or use another browser |
+| coarse clock, Windows high contrast | **flagged** (not easily changed, or needed by the person): ⚠ on the Sessions tab, filter *needs a look*, Data check in the reports |
+| storage blocked, no beacon, Brave, retried saves | **for information** (the page works around them): ℹ on the Sessions tab |
+| a browser driven by a program (`automated`) | **left out automatically** (not a participant): Sessions tab "Excluded: automated browser (auto)", `excluded.csv` reason `browser: automated`; a researcher can include it. The list of such flags is `AUTO_EXCLUDE_FLAGS` in `server/store.py`, `cloudflare/src/store.js` and `analysis/analyse.py` (keep the three the same) |
+
+The rest (translated, coarse clock, high contrast, small window, page errors) stay in the analysis: decide before the
+confirmatory analysis whether to exclude them, ideally in the preregistration, and set it on the Sessions tab.
+
 ## Where the flags show
 
 - Session field `browser_flags` (space-separated, see above; `brave` marks Brave, which reports itself as Chrome and

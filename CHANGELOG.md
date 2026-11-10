@@ -5,6 +5,20 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**The "built a pizza" counter agrees with the reports.** The counter, the Sessions tab and the session list decided by
+the stage a session was last saved at; the analysis by the pizza itself (finished = the participant pressed "I'm
+done"). A participant who closed the tab while the pizza was baking, or whose last saves arrived out of order, has a
+finished pizza at stage "build": the reports analysed it, the counter did not count it and the Sessions tab said
+"Excluded: not finished". All of them now use the analysis's rule (both servers, `AUTO_IN_SQL`), and a save never moves
+a session back to an earlier part (an older save arriving late no longer turns "questions" into "building"; "done"
+and "declined" are final).
+
+**Asked, flagged or left out** (`docs/BROWSERS.md`): the participant page asks the participant to switch a browser
+translation back to the original and to enlarge a window that is too small for the task (flags `translated`,
+`small-window`; fields `translated`, `small_window`); a browser driven by a program (flag `automated`) is left out
+automatically (both servers and the analysis; a researcher can include it); the rest are flagged: ⚠ for what needs a
+look (filter *needs a look* on the Sessions tab, and the Data check), ℹ for information only.
+
 **Study server 0.14.0: browsers, privacy settings and blockers** (`docs/BROWSERS.md`). Each case run in Chromium
 before and after (`tests/browser_matrix.js`). The participant page:
 - **works with cookies / storage blocked.** Before, the page stopped on its first read of `sessionStorage` and stayed

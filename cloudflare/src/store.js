@@ -4,7 +4,7 @@
 export const SORTABLE = ['pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces', 'started', 'seconds', 'restarts'];
 export const STAGES = ['intro', 'practice', 'build', 'typical', 'followup', 'done', 'declined'];   // declined: said no to the consent
 export const ACTIVITY = ['active', 'stopped'];     // extra "where" filter values, from the time of the last save
-export const ANALYSIS = ['included', 'left_out', 'synthetic', 'real'];  // ... from whether the session's pizza is analysed, or is synthetic
+export const ANALYSIS = ['included', 'left_out', 'flagged', 'synthetic', 'real'];  // ... from whether the session's pizza is analysed, needs a look, or is synthetic
 const SYN_SQL = "pid LIKE 'SYN-%'";               // synthetic sessions of a test study (analysis/synthetic.py), as in store.py
 // The researcher's choice for a session (field 'inclusion', never taken from a participant's save), as in store.py
 export const INCLUSION_VALUES = ['include', 'exclude', 'auto'];
@@ -12,8 +12,29 @@ const INCL_SQL = "COALESCE((SELECT NULLIF(value, 'auto') FROM fields WHERE field
 // saved by the participant page: browser, system, time zone, trouble saving or in the page (as store.py CLIENT_SQL)
 export const CLIENT_FIELDS = ['browser', 'os', 'tz', 'browser_flags', 'translated', 'save_fails', 'client_errors'];
 const CLIENT_SQL = CLIENT_FIELDS.map((k) => `(SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = '${k}') AS ${k}`).join(', ');
-const LEFT_OUT_SQL = `(${INCL_SQL} = 'exclude' OR (${INCL_SQL} = '' AND stage NOT IN ('typical', 'followup', 'done') AND n_pieces IS NOT NULL))`;
-const INCLUDED_SQL = `(${INCL_SQL} = 'include' OR (${INCL_SQL} = '' AND stage IN ('typical', 'followup', 'done')))`;
+// The automatic rule (as store.py and analysis/analyse.py): the own pizza is analysed when it was finished (its summary
+// is not "finished": false; not the stage, which a tab closed while baking or saves out of order can leave at "build"),
+// unless the browser was driven by a program; the researcher's choice overrides both
+export const AUTO_EXCLUDE_FLAGS = ['automated'];
+const SUMMARY = "COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'pz_summary'), '')";
+const FINISHED_SQL = `(${SUMMARY} NOT LIKE '%"finished":false%' AND ${SUMMARY} NOT LIKE '%"finished": false%')`;
+const FLAGS = "(' ' || COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'browser_flags'), '') || ' ')";
+const FLAGGED_OUT_SQL = '(' + AUTO_EXCLUDE_FLAGS.map((f) => `${FLAGS} LIKE '% ${f} %'`).join(' OR ') + ')';
+const AUTO_IN_SQL = `(n_pieces IS NOT NULL AND ${FINISHED_SQL} AND NOT ${FLAGGED_OUT_SQL})`;
+const LEFT_OUT_SQL = `(${INCL_SQL} = 'exclude' OR (${INCL_SQL} = '' AND n_pieces IS NOT NULL AND NOT ${AUTO_IN_SQL}))`;
+const INCLUDED_SQL = `(${INCL_SQL} = 'include' OR (${INCL_SQL} = '' AND ${AUTO_IN_SQL}))`;
+// browser trouble worth a look before analysing (docs/BROWSERS.md): the "needs a look" filter, as store.py REVIEW_SQL
+export const REVIEW_FLAGS = ['translated', 'coarse-timer', 'forced-colors', 'small-window', 'automated'];
+const REVIEW_SQL = '(' + REVIEW_FLAGS.map((f) => `${FLAGS} LIKE '% ${f} %'`).join(' OR ')
+  + " OR EXISTS (SELECT 1 FROM fields WHERE fields.pid = sessions.pid AND name = 'client_errors'))";
+const STAGE_RANK = { intro: 0, practice: 1, build: 2, typical: 3, followup: 4, done: 5, declined: 5 };
+export function laterStage(old, stage) {
+  // a save never moves a session back to an earlier part (saves can arrive out of order); done and declined are final
+  // (as store.py later_stage)
+  if (!STAGES.includes(stage)) return old;
+  if (!(old in STAGE_RANK)) return stage;
+  return STAGE_RANK[stage] > STAGE_RANK[old] ? stage : old;
+}
 // what the analysis does with a session: included / left_out / no_pizza (shown on the Sessions tab and in sessions.csv)
 const ANALYSIS_SQL = `CASE WHEN n_pieces IS NULL THEN 'no_pizza' WHEN ${INCLUDED_SQL} THEN 'included' ELSE 'left_out' END`;
 export const IDLE_MINUTES = 30;                    // an unfinished session with no save for this long counts as stopped
@@ -85,7 +106,7 @@ export class Store {
     const row = await this.db.prepare('SELECT started, finished, stage FROM sessions WHERE pid = ?').bind(pid).first();
     if (!row) return { ok: false };
     const t = now();
-    const st = STAGES.includes(stage) ? stage : row.stage;
+    const st = laterStage(row.stage, stage);
     const finished = row.finished || (st === 'done' ? t : null);
     const cols = { ...summaryColumns(clean), stage: st, updated: t, finished, seconds: isoSeconds(row.started, finished || t) };
     const upsert = this.db.prepare('INSERT INTO fields (pid, name, value, updated) VALUES (?, ?, ?, ?) '
@@ -106,6 +127,7 @@ export class Store {
     if (f.stage === 'stopped') { sql.push("stage != 'done' AND (stage = 'declined' OR updated IS NULL OR updated < ?)"); args.push(idleCutoff()); }   // a refusal is not "in progress"
     if (f.stage === 'included') sql.push(INCLUDED_SQL);
     if (f.stage === 'left_out') sql.push(LEFT_OUT_SQL);
+    if (f.stage === 'flagged') sql.push(REVIEW_SQL);
     if (f.stage === 'synthetic') sql.push(SYN_SQL);
     if (f.stage === 'real') sql.push('NOT ' + SYN_SQL);
     for (const col of ['grp', 'source', 'stage', 'cond']) if (f[col] && !(col === 'stage' && (ACTIVITY.includes(f[col]) || ANALYSIS.includes(f[col])))) { sql.push(col + ' = ?'); args.push(f[col]); }
@@ -121,7 +143,7 @@ export class Store {
     sort = SORTABLE.includes(sort) ? sort : 'started';
     const [total, rows] = await this.db.batch([
       this.db.prepare(`SELECT COUNT(*) AS n, SUM(stage = 'done') AS done FROM sessions${w}`).bind(...a),
-      this.db.prepare(`SELECT *, ${INCL_SQL} AS inclusion, ${ANALYSIS_SQL} AS analysis, ${CLIENT_SQL} FROM sessions${w} ORDER BY ${sort} ${desc ? 'DESC' : 'ASC'}, pid LIMIT ? OFFSET ?`).bind(...a, limit, offset),
+      this.db.prepare(`SELECT *, ${INCL_SQL} AS inclusion, ${ANALYSIS_SQL} AS analysis, ${AUTO_IN_SQL} AS auto_in, ${FINISHED_SQL} AS pz_finished, ${CLIENT_SQL} FROM sessions${w} ORDER BY ${sort} ${desc ? 'DESC' : 'ASC'}, pid LIMIT ? OFFSET ?`).bind(...a, limit, offset),
     ]);
     return { rows: rows.results, total: total.results[0].n, done: total.results[0].done || 0 };
   }
@@ -159,7 +181,7 @@ export class Store {
     // {study: [sessions, finished, built a pizza, in progress now, synthetic]} of the real sessions (the synthetic ones
     // are counted apart); the rest of the unfinished real ones have stopped
     const { results } = await this.db.prepare(`SELECT study, SUM(NOT ${SYN_SQL}) AS n, SUM(NOT ${SYN_SQL} AND stage = 'done') AS done, `
-      + `SUM(NOT ${SYN_SQL} AND stage IN ('typical', 'followup', 'done')) AS built, SUM(NOT ${SYN_SQL} AND stage NOT IN ('done', 'declined') AND updated >= ?) AS active, `
+      + `SUM(NOT ${SYN_SQL} AND n_pieces IS NOT NULL AND ${INCLUDED_SQL}) AS built, SUM(NOT ${SYN_SQL} AND stage NOT IN ('done', 'declined') AND updated >= ?) AS active, `
       + `SUM(${SYN_SQL}) AS syn FROM sessions GROUP BY study`).bind(idleCutoff()).all();
     return Object.fromEntries(results.map((r) => [r.study, [r.n || 0, r.done || 0, r.built || 0, r.active || 0, r.syn || 0]]));
   }

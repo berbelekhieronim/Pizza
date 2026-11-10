@@ -308,9 +308,9 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
       sel.innerHTML = '<option value="">any</option>' + vals.map(function (v) { return '<option value="' + esc(v) + '">' + esc((names || {})[v] || v) + '</option>'; }).join('');
     }
     opts(f.grp, S.options.grp); opts(f.source, S.options.source); opts(f.cond, S.options.cond);
-    opts(f.stage, Object.keys(S.stages).concat(['active', 'stopped', 'included', 'left_out', 'real', 'synthetic']),
+    opts(f.stage, Object.keys(S.stages).concat(['active', 'stopped', 'included', 'left_out', 'flagged', 'real', 'synthetic']),
       Object.assign({}, S.stages, { active: 'in progress now', stopped: 'stopped (no activity ' + (S.idle_minutes || 30) + ' min)',
-        included: 'pizza in the analysis', left_out: 'pizza left out of the analysis', synthetic: 'synthetic (simulated) only', real: 'real participants only' })); opts(f.neuro, Object.keys(S.neuro), S.neuro);
+        included: 'pizza in the analysis', left_out: 'pizza left out of the analysis', flagged: 'needs a look (browser flags, page errors)', synthetic: 'synthetic (simulated) only', real: 'real participants only' })); opts(f.neuro, Object.keys(S.neuro), S.neuro);
     copyButtons();
     show(location.hash.slice(1) || 'overview');
   }
@@ -493,16 +493,19 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
           if (c[0] === 'seconds') v = v == null ? '' : mins(v);
           if (c[0] === 'inclusion') return '<td>' + inclusionCell(r) + '</td>';
           if (c[0] === 'os') {      // browser, system, time zone and trouble: recorded from study server 0.13.0 (earlier sessions: empty)
-            var trouble = [];
-            // what the browser did not allow or changed (participant page): storage blocked, no beacon, coarse clock
-            // (fingerprinting protection), automated, Windows high contrast, the page machine-translated
-            var notable = (r.browser_flags || '').split(' ').filter(function (f) { return f && f !== 'brave'; });
-            if (notable.length) trouble.push('browser: ' + notable.join(', ') + (r.translated ? ' (translated at ' + r.translated + ')' : ''));
-            if (+r.save_fails) trouble.push(r.save_fails + ' save' + (+r.save_fails === 1 ? '' : 's') + ' failed and were retried');
-            try { var ce = JSON.parse(r.client_errors || '[]'); if (ce.length) trouble.push(ce.length + ' page error' + (ce.length === 1 ? '' : 's') + ': ' + ce.map(function (x) { return x[2]; }).join(' | ')); } catch (e) {}
+            // ⚠: worth a look before analysing (translated, coarse clock, high contrast, small window, automated, page
+            // errors); ℹ: for information only (storage blocked, no beacon, Brave, retried saves: the data arrived)
+            var REVIEW = ['translated', 'coarse-timer', 'forced-colors', 'small-window', 'automated'];
+            var fl = (r.browser_flags || '').split(' ').filter(Boolean), review = [], info = [];
+            fl.forEach(function (x) { (REVIEW.indexOf(x) >= 0 ? review : info).push(x); });
+            if (review.length) review = ['browser: ' + review.join(', ') + (r.translated ? ' (translated: ' + r.translated + ')' : '')];
+            try { var ce = JSON.parse(r.client_errors || '[]'); if (ce.length) review.push(ce.length + ' page error' + (ce.length === 1 ? '' : 's') + ': ' + ce.map(function (x) { return x[2]; }).join(' | ')); } catch (e) {}
+            if (info.length) info = ['browser: ' + info.join(', ')];
+            if (+r.save_fails) info.push(r.save_fails + ' save' + (+r.save_fails === 1 ? '' : 's') + ' failed and were retried (the data arrived)');
             v = [r.browser, r.os].filter(Boolean).join(' · ');
             return '<td' + (r.tz ? ' title="time zone ' + esc(r.tz) + '"' : '') + '>' + esc(v)
-              + (trouble.length ? ' <span class="syn" title="' + esc(trouble.join('; ')) + '">⚠</span>' : '') + '</td>';
+              + (review.length ? ' <span class="syn" title="' + esc(review.concat(info).join('; ')) + '">⚠</span>'
+                : info.length ? ' <span class="muted" title="' + esc(info.join('; ')) + '">ℹ</span>' : '') + '</td>';
           }
           return '<td>' + esc(v == null ? '' : v) + '</td>';
         }).join('') + '</tr>';
@@ -520,11 +523,13 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
     // one dropdown that is also the indicator: its colour and text say whether the pizza is analysed. Auto shows what
     // the automatic rule decided; Included / Excluded are the researcher's choice.
     if (r.analysis === 'no_pizza') return '<span class="incl none">No pizza</span>';      // nothing to analyse
+    // what the automatic rule decides (as the servers and the analysis): a finished pizza is analysed, unless a program
+    // drove the browser (browser flag "automated"); the row says whether the pizza was finished (auto_in, pz_finished)
     var c = r.inclusion || '', state = r.analysis === 'included' ? 'in' : 'out';
-    var auto = c ? (r.stage === 'typical' || r.stage === 'followup' || r.stage === 'done' ? 'Included' : 'Excluded: not finished')
-      : (state === 'in' ? 'Included' : 'Excluded: not finished');
+    var robot = (' ' + (r.browser_flags || '') + ' ').indexOf(' automated ') >= 0;
+    var auto = +r.auto_in ? 'Included' : robot && +r.pz_finished ? 'Excluded: automated browser' : 'Excluded: not finished';
     return '<select class="incl ' + state + '" data-incl="' + esc(r.pid) + '" aria-label="Is ' + esc(r.pid) + ' analysed?" title="Auto = the automatic rule: '
-      + 'included once they pressed &quot;I\'m done&quot;. Choose Included or Excluded to override it.">'
+      + 'included once they pressed &quot;I\'m done&quot; on their pizza, unless a program drove the browser. Choose Included or Excluded to override it.">'
       + [['', auto + ' (auto)'], ['include', 'Included (your choice)'], ['exclude', 'Excluded (your choice)']].map(function (o) {
         return '<option value="' + o[0] + '"' + (o[0] === c ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
       }).join('') + '</select>';
