@@ -13,7 +13,7 @@ session**: the snapshot, anything decided, and the open items.
 - **Next milestone:** a pilot with an authentic autistic group, run from the study server as study `pilot-asd` with
   personal invite links (README → *Running a pilot with a specific group*).
 - **Where it runs:**
-  - **Qualtrics:** `qualtrics/*.js` load `pizza-builder.js` from jsDelivr, pinned to commit `f1764cb` (0.15.0). Re-pin after every
+  - **Qualtrics:** `qualtrics/*.js` load `pizza-builder.js` from jsDelivr, pinned to commit `0b81bcd` (0.16.0). Re-pin after every
     change to the task.
   - **Study server:** `server/server.py` in a GitHub Codespace (`.devcontainer` starts it). Data is in the SQLite
     database `server/data/study.db` (`server/store.py`). The owner's researcher page is `/admin?key=…` (key in
