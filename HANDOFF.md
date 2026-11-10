@@ -144,9 +144,6 @@ push, check the GitHub Actions run, and republish the demo artifact.
   so screens under ~900 px tall scroll a little more to reach it (1366×768 laptops already had to).
 - **Demo reference.** `preview.js`'s simulated `REF` has no tofu (it was made by an earlier simulator and cannot be
   rebuilt the same way), so the demo's normality score leaves tofu out. The analysis is unaffected.
-- **`meat_or_fish`** checks the categories `meat` and `fish`, but the analysis calls anchovies and tuna `seafood`, so
-  the column only flags meat. Left as it is (changing it changes recorded results); decide before using it.
-
 - **Faces.** Two different eye toppings are found only 51% of the time, and faces with eyebrows or hair 70%. Validate
   `face_detected` against human coding on pilot pizzas before using it.
 - **Chance level.** Symmetry chance comes from 12 random layouts per pizza (fixed seed), so it is slightly noisy, and the
@@ -196,6 +193,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-10 | Claude Code (cloud) | meat_or_fish fixed (seafood was never flagged); smoke check against diet_class |
 | 2026-11-10 | Claude Code (cloud) | 0.15.0 (task): tofu on every tray, vegan mark on tomato and BBQ sauces; n_<topping> NA when not offered, sample comparisons over offered toppings; explicit sauce/cheese diet tables (preview fixed for vegan cheese); docs/BUILDER.md; reports signature counts inclusion choices |
 | 2026-11-08 | Claude Code (cloud) | R download: raw/ now holds only the analysed sessions (excluded, declined and unfinished ones left out), both servers; smoke check |
 |---|---|---|

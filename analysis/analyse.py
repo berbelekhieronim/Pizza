@@ -2797,7 +2797,7 @@ def r4(v):
 
 # Measures screened in explore.html beyond the profile measures: (area, key, label).
 EXPLORE_EXTRA = [
-    ('Composition', 'meat_or_fish', 'Any meat or fish'), ('Composition', 'n_categories', 'Food categories'),
+    ('Composition', 'meat_or_fish', 'Any meat or seafood'), ('Composition', 'n_categories', 'Food categories'),
     ('Composition', 'evenness', 'Even amounts of each topping'), ('Normality', 'ingredient_rarity', 'Rare toppings (in this sample)'),
     ('Normality', 'profile_uniqueness', 'Unlike the other pizzas'), ('Space', 'angular_regularity', 'Even angles round the centre'),
     ('Figurative', 'face_detected', 'Made a face'),
@@ -3649,7 +3649,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
                    'shannon': shannon(cvec), 'evenness': (shannon(cvec) / math.log(sum(c > 0 for c in cvec))) if sum(c > 0 for c in cvec) > 1 else None,
                    'simpson': (1 - sum((c / n) ** 2 for c in cvec)) if n else None,
                    'n_categories': len(set(CATS.get(p['ing']) for p in pieces)),
-                   'meat_or_fish': int(any(CATS.get(p['ing']) in ('meat', 'fish') for p in pieces)),
+                   'meat_or_fish': int(any(CATS.get(p['ing']) in ('meat', 'seafood') for p in pieces)),
                    'sauce': summary.get('sauce'), 'cheese': summary.get('cheese')}
             for k in CATS:      # NA where the topping was not on this person's tray (e.g. tofu before task 0.15.0)
                 rec['n_' + k] = counts.get(k, 0) if k in tray else None

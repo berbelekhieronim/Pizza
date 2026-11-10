@@ -5,6 +5,11 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**`meat_or_fish` now flags seafood.** It is defined (Methods page, codebook) as 1 when a pizza has any meat or
+seafood, but the code looked for a category `fish` that the analysis never uses (anchovies, shrimp and tuna are
+`seafood`), so it was 1 only for meat. Pizzas with seafood and no meat change from 0 to 1; nothing else changes. The
+smoke test checks it against `diet_class` (1 exactly for meat and pescatarian pizzas).
+
 **Task 0.15.0: tofu, and a vegan mark on the tomato and BBQ sauces (every study).** Described in full in the new
 `docs/BUILDER.md` (the builder: tray, sauces, cheeses, the diet of a pizza, what a build records, its version history,
 and how to add a topping without breaking earlier data).

@@ -447,6 +447,10 @@ def main():
                     'mv_straight', 'mv_pauses', 'mv_dwell', 'group', 'nut_kcal', 'nut_salt_g', 'top_kcal', 'nutrition_panel', 'n_adjustments',
                     'n_adj_symmetry', 'adj_symmetry_excess', 'revision_rate', 'nutri_revealed', 'n_changed_mind', 'post_nutri_d_kcal', 'post_nutri_direction'):
             check(col in rows[0], 'column ' + col)
+        own_rows = [r for r in rows if r['build'] == 'pz']
+        check(own_rows and all(r['meat_or_fish'] == str(int(r['diet_class'] in ('meat', 'pescatarian'))) for r in own_rows)
+              and any(r['diet_class'] == 'pescatarian' for r in own_rows),
+              'meat_or_fish is 1 exactly for pizzas with meat or seafood (anchovies, shrimp, tuna count)')
         # the nutrition-reveal setting (every other simulated participant): columns filled only where it was on, and the
         # replay that finds the pizza at the moment the nutrition was seen ends with exactly the finished pizza
         on = [r for r in rows if r['nutrition_reveal'] == '1']

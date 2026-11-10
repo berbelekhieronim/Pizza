@@ -45,7 +45,7 @@ SECTIONS = [
         ('shannon', 'H = −Σ p<sub>k</sub> ln p<sub>k</sub>, p<sub>k</sub> = pieces of topping k / n.', 'shannon'),
         ('evenness', 'H / ln(n_distinct); empty when n_distinct &lt; 2.', 'analyse'),
         ('simpson', '1 − Σ p<sub>k</sub>².', 'analyse'),
-        ('n_categories, meat_or_fish', 'Food categories used (meat, seafood, veg, fruit, herb, egg, dairy, seaweed, nut); 1 if any meat or seafood.', 'analyse'),
+        ('n_categories, meat_or_fish', 'Food categories used (meat, seafood, veg, fruit, herb, egg, dairy, seaweed, nut, soy); 1 if any meat or seafood (anchovies, shrimp, tuna).', 'analyse'),
         ('n_distinct_{tier}', 'Distinct toppings in each a-priori tier (common / mid / unusual; table TIER).', 'analyse'),
         ('prop_unusual_distinct, prop_unusual_pieces', 'Unusual-tier toppings / n_distinct; unusual-tier pieces / n.', 'analyse'),
         ('n_perishable_included', 'Distinct perishable toppings used (meat, seafood, egg, blue cheese; table PERISHABLE).', 'analyse'),
