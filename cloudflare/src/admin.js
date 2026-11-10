@@ -59,9 +59,9 @@ export async function adminState(r, scope, f) {
   for (const sid of ids) {
     const cfg = loadStudy(sid);
     const invs = await st.invites(sid);
-    const [n, done, built, active, syn] = counts[sid] || [0, 0, 0, 0, 0];
+    const [n, done, built, active, syn, declined] = counts[sid] || [0, 0, 0, 0, 0, 0];
     const row = {
-      id: sid || 'main', title: cfg.title || '', description: cfg.description || (sid ? '' : 'The main study'), n, done, built, active, stopped: n - done - active,
+      id: sid || 'main', title: cfg.title || '', description: cfg.description || (sid ? '' : 'The main study'), n, done, built, active, declined, stopped: n - done - active - declined,
       last: await st.lastStarted(sid), median_seconds: await st.medianSeconds(sid),
       invites: [invs.length, invs.filter((i) => i.stage).length, invs.filter((i) => i.stage === 'done').length],
       links: openLinks(r, sid), nutrition_reveal: !!cfg.nutrition_reveal, nutrition_panel: !!cfg.nutrition_panel,
@@ -93,7 +93,7 @@ export async function adminState(r, scope, f) {
     server: 'cloudflare', scope: scope[0], scope_study: scope[0] === 'study' ? (scope[1] || 'main') : null,
     study: sel, studies: out, idle_minutes: 30,
     all: { n: out.reduce((a, s) => a + s.n, 0), done: out.reduce((a, s) => a + s.done, 0), built: out.reduce((a, s) => a + s.built, 0),
-      active: out.reduce((a, s) => a + s.active, 0), stopped: out.reduce((a, s) => a + s.stopped, 0),
+      active: out.reduce((a, s) => a + s.active, 0), stopped: out.reduce((a, s) => a + s.stopped, 0), declined: out.reduce((a, s) => a + (s.declined || 0), 0),
       last: out.map((s) => s.last).filter(Boolean).sort().pop() || null, median_seconds: await st.medianSeconds(null) },
     global_link: own ? r.base() + '/admin?' + new URLSearchParams({ key: await st.studyKey(ALL_KEY) }) : null,
     reports, reports_build_on_open: false, options,

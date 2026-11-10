@@ -162,7 +162,7 @@ class Study:
                 old = fh.read().split('\n')[1]
         except (OSError, IndexError):
             old = None
-        if not force and old == sig:
+        if not force and old == sig + '|' + ANALYSIS_CODE:      # same sessions, same analysis code: nothing to do
             return False, ''
         with BUILD_LOCK:
             tmp, src = out + '.new', out + '.in'
@@ -190,7 +190,7 @@ class Study:
             shutil.rmtree(out, ignore_errors=True)
             os.replace(tmp, out)                          # swap in the new reports only when they are complete
             with open(stamp, 'w', encoding='utf-8') as fh:
-                fh.write(time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()) + '\n' + sig)
+                fh.write(time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()) + '\n' + sig + '|' + ANALYSIS_CODE)
             return True, r.stdout.strip().split('\n')[-1]
 
     def reports_info(self, f):
@@ -209,6 +209,22 @@ class Study:
         except (OSError, ValueError, KeyError):
             pass
         return when, n, {k: check[k] for k in ('sessions', 'typical', 'left_out', 'built_sessions', 'ok') if k in check} or None
+
+
+def analysis_code():
+    """The analysis code's hash (as tools/cloud_sync.py code_version): reports built by older code are built again, so
+    a server updated with new analysis code does not keep showing reports made the old way."""
+    h = hashlib.sha1()
+    for name in ('analysis/analyse.py', 'analysis/methods.py', 'analysis/r_export.py', 'analysis/load_pizza.R', 'analysis/nutrition.json'):
+        try:
+            with open(os.path.join(ROOT, name), 'rb') as fh:
+                h.update(fh.read())
+        except OSError:
+            pass
+    return h.hexdigest()[:16]
+
+
+ANALYSIS_CODE = analysis_code()
 
 
 FILTER_KEYS = ('study', 'grp', 'source', 'stage', 'neuro', 'cond', 'q', 'since', 'until', 'pids')   # pids: a list of ids (the reports' To review links)
@@ -605,9 +621,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         for sid in ids:
             cfg = load_study(sid)
             invs = st.invites(sid)
-            n, done, built, active, syn = counts.get(sid, (0, 0, 0, 0, 0))
+            n, done, built, active, syn, declined = counts.get(sid, (0, 0, 0, 0, 0, 0))
             row = {'id': sid or 'main', 'title': cfg.get('title') or '', 'description': cfg.get('description') or ('The main study' if not sid else ''),
-                   'n': n, 'done': done or 0, 'built': built, 'active': active, 'stopped': n - (done or 0) - active, 'last': st.last_started(sid), 'median_seconds': st.median_seconds(sid),
+                   'n': n, 'done': done or 0, 'built': built, 'active': active, 'declined': declined, 'stopped': n - (done or 0) - active - declined, 'last': st.last_started(sid), 'median_seconds': st.median_seconds(sid),
                    'invites': [len(invs), sum(1 for i in invs if i['stage']), sum(1 for i in invs if i['stage'] == 'done')],
                    'links': self.open_links(sid), 'nutrition_reveal': bool(cfg.get('nutrition_reveal')), 'nutrition_panel': bool(cfg.get('nutrition_panel')),
                    'synthetic': {'n': synthetic_n(st, sid), 'stored': syn, 'choices': SYNTHETIC_CHOICES} if sid and cfg.get('synthetic') else None}
@@ -621,7 +637,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             'server': 'python', 'scope': scope[0], 'scope_study': (scope[1] or 'main') if scope[0] == 'study' else None,
             'study': sel, 'studies': out, 'idle_minutes': 30,
             'all': {'n': sum(r['n'] for r in out), 'done': sum(r['done'] for r in out), 'built': sum(r['built'] for r in out),
-                    'active': sum(r['active'] for r in out), 'stopped': sum(r['stopped'] for r in out),
+                    'active': sum(r['active'] for r in out), 'stopped': sum(r['stopped'] for r in out), 'declined': sum(r['declined'] for r in out),
                                                    'last': max([r['last'] for r in out if r['last']] or [None]),
                                                    'median_seconds': st.median_seconds(None)},
             'global_link': self.base_url() + '/admin?' + urllib.parse.urlencode({'key': st.study_key(ALL_KEY)}) if own else None,

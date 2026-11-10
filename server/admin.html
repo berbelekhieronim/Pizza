@@ -421,10 +421,11 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     $('kpis').innerHTML = [[d.n, 'opened the link' + (syn ? ' (+' + syn + ' synthetic)' : ''), 'every real session: a participant (or a new tab) opened the link'
       + (syn ? '; the synthetic test sessions are not counted in these tiles' : '')],
       [d.built, 'built a pizza', 'pressed "I\'m done" on the build: their pizza is in the reports'],
-      [d.done + ' · ' + pct(d.done, d.n), 'finished', 'reached the thank-you page after the questions'],
+      [d.done + ' · ' + pct(d.done, d.n - (d.declined || 0)), 'finished', 'reached the thank-you page after the questions (% of those who agreed to take part)'],
       [d.active, 'in progress now', 'unfinished, saved within the last ' + idle + ' minutes'],
-      [d.stopped, 'stopped', 'unfinished, no activity for ' + idle + ' minutes (they can still come back)'],
-      [mins(d.median_seconds), 'median time (finished)', ''], [shortTime(d.last), 'last started', '']]
+      [d.stopped, 'stopped', 'unfinished, no activity for ' + idle + ' minutes (they can still come back)']]
+      .concat(d.declined ? [[d.declined, 'declined consent', 'said NO to the consent: the study ended there; only the answer is kept']] : []).concat([
+      [mins(d.median_seconds), 'median time (finished)', ''], [shortTime(d.last), 'last started', '']])
       .map(function (k) { return '<div class="kpi" title="' + esc(k[2]) + '"><b>' + esc(k[0]) + '</b><span>' + esc(k[1]) + '</span></div>'; }).join('')
       + '<div class="' + a[0] + '" title="' + esc(a[2]) + '"><b>' + esc(a[1]) + '</b><span>' + esc(a[2]) + '</span></div>';
   }

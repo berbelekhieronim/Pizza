@@ -124,7 +124,7 @@ export class Store {
     const sql = [], args = [];
     if (f.study !== null && f.study !== undefined) { sql.push('study = ?'); args.push(f.study); }
     if (f.stage === 'active') { sql.push("stage NOT IN ('done', 'declined') AND updated >= ?"); args.push(idleCutoff()); }
-    if (f.stage === 'stopped') { sql.push("stage != 'done' AND (stage = 'declined' OR updated IS NULL OR updated < ?)"); args.push(idleCutoff()); }   // a refusal is not "in progress"
+    if (f.stage === 'stopped') { sql.push("stage NOT IN ('done', 'declined') AND (updated IS NULL OR updated < ?)"); args.push(idleCutoff()); }   // a refusal is counted on its own (stage declined)
     if (f.stage === 'included') sql.push(INCLUDED_SQL);
     if (f.stage === 'left_out') sql.push(LEFT_OUT_SQL);
     if (f.stage === 'flagged') sql.push(REVIEW_SQL);
@@ -184,8 +184,8 @@ export class Store {
     // are counted apart); the rest of the unfinished real ones have stopped
     const { results } = await this.db.prepare(`SELECT study, SUM(NOT ${SYN_SQL}) AS n, SUM(NOT ${SYN_SQL} AND stage = 'done') AS done, `
       + `SUM(NOT ${SYN_SQL} AND n_pieces IS NOT NULL AND ${INCLUDED_SQL}) AS built, SUM(NOT ${SYN_SQL} AND stage NOT IN ('done', 'declined') AND updated >= ?) AS active, `
-      + `SUM(${SYN_SQL}) AS syn FROM sessions GROUP BY study`).bind(idleCutoff()).all();
-    return Object.fromEntries(results.map((r) => [r.study, [r.n || 0, r.done || 0, r.built || 0, r.active || 0, r.syn || 0]]));
+      + `SUM(${SYN_SQL}) AS syn, SUM(NOT ${SYN_SQL} AND stage = 'declined') AS declined FROM sessions GROUP BY study`).bind(idleCutoff()).all();
+    return Object.fromEntries(results.map((r) => [r.study, [r.n || 0, r.done || 0, r.built || 0, r.active || 0, r.syn || 0, r.declined || 0]]));
   }
 
   async syncSynthetic(study, add, keep, version) {

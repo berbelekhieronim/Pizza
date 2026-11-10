@@ -2003,8 +2003,8 @@ def data_check_html(c):
             parts.append('%d left out by the researcher (%s)' % (c['left_out_researcher'], pid_links(c['researcher_excluded'])))
         if c.get('left_out_browser'):
             parts.append('%d left out automatically because a program drove the browser (browser flag <code>automated</code>: not a participant)' % c['left_out_browser'])
-        items.append(li('<b>%d builds left out</b>: %s. They are listed in <code>excluded.csv</code>; change this per session on the Sessions tab of '
-                        'the researcher page.' % (c['left_out'], '; '.join(parts))))
+        items.append(li('<b>%d build%s left out</b>: %s. They are listed in <code>excluded.csv</code>; change this per session on the Sessions tab of '
+                        'the researcher page.' % (c['left_out'], '' if c['left_out'] == 1 else 's', '; '.join(parts))))
     if c['researcher_included']:
         items.append(li('Kept in by the researcher (overriding the automatic rule): %s.' % pid_links(c['researcher_included'])))
     if c['no_pizza']:
@@ -2014,14 +2014,15 @@ def data_check_html(c):
                         % (c['typical'], ('; %d unfinished left out' % c['left_out_typical']) if c['left_out_typical'] else '')))
     if 'ok' in c:
         if c['ok']:
-            items.append(li('<span class="ok">✓ Consistent:</span> the analysed own pizzas match the %d sessions that got past the build.' % c['built_sessions']))
+            items.append(li('<span class="ok">✓ Consistent:</span> the analysed own pizzas match the %d sessions whose pizza was finished '
+                            '(the researcher page\'s "built a pizza").' % c['built_sessions']))
         else:
             bad = []
             if c['built_without_pizza']:
                 bad.append('expected in the analysis but no finished pizza: ' + pid_links(c['built_without_pizza']))
             if c['pizza_without_built']:
                 bad.append('analysed but not expected: ' + pid_links(c['pizza_without_built']))
-            items.append(li('<span class="bad">✗ Check:</span> %d own pizzas analysed, %d sessions got past the build. %s'
+            items.append(li('<span class="bad">✗ Check:</span> %d own pizzas analysed, %d sessions with a finished pizza. %s'
                             % (c['own'], c['built_sessions'], '; '.join(bad))))
     flags = [(k, l) for k, l in (('flag_fast', 'finished in under 15 s'), ('flag_empty', 'no toppings'), ('flag_tab_away', 'tab hidden for over 30 s while building')) if c['flags'][k]]
     review = ['<b>%s</b>: %s%s' % (l, pid_links(c['flags'][k]), show_all(c['flags'][k])) for k, l in flags]

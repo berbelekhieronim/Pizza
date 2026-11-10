@@ -5,6 +5,17 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Review fixes.**
+- *Declined consent* is its own tile on the researcher page (both servers) and no longer counted as "stopped"; the
+  "finished" percentage is of those who agreed to take part. The *stopped* filter leaves refusals out (they have the
+  *declined consent* filter).
+- The Codespace server rebuilds reports made with older analysis code (its build stamp now includes the analysis
+  code's hash, as the Cloudflare job does); before, an updated server kept showing reports made the old way until a
+  session changed.
+- The Data check says what it compares ("sessions whose pizza was finished", the researcher page's *built a pizza*),
+  with the right singular / plural.
+- The texts sheet lists only the metryczka texts of the questions a study's survey asks.
+
 **Task 0.16.0: the post-pizza survey is set per study** (`docs/SURVEY.md`). The metryczka is now a list of questions
 in the study's settings (`"survey"` in `server/study.json`: number, one answer, several answers with an optional
 "other" box, or text; required or not), so each study can ask its own. Pizza Pilot 11.2026 lists its six questions

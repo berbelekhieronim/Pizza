@@ -396,7 +396,7 @@ def researcher_access_checks(base, key, study, n_study, n_all, other_pid, label)
     one = api(base, 'state', key, study=study)
     check(one['study'] == study and one['studies'][[s['id'] for s in one['studies']].index(study)]['n'] == n_study, label + 'researcher page: one study with its counts')
     row = one['studies'][[s['id'] for s in one['studies']].index(study)]
-    check(row['n'] == row['done'] + row['active'] + row['stopped'] and row['done'] <= row['built'] <= row['n']
+    check(row['n'] == row['done'] + row['active'] + row['stopped'] + row['declined'] and row['done'] <= row['built'] <= row['n']
           and api(base, 'sessions', key, study=study, stage='active')['total'] == row['active']
           and api(base, 'sessions', key, study=study, stage='stopped')['total'] == row['stopped'],
           label + 'sessions split into finished, in progress and stopped (no save for 30 minutes), with filters')
@@ -712,7 +712,7 @@ def main():
             pl = api(base, 'state', 'smoke-key', study='pilot-2026-11')
             prow = next(r for r in pl['studies'] if r['id'] == 'pilot-2026-11')
             dec = api(base, 'sessions', 'smoke-key', study='pilot-2026-11', stage='declined')
-            check(prow['title'] == 'Pizza Pilot 11.2026' and prow['n'] == 3 and prow['active'] == 0 and dec['total'] == 1 and pl['stages']['declined'],
+            check(prow['title'] == 'Pizza Pilot 11.2026' and prow['n'] == 3 and prow['active'] == 0 and dec['total'] == 1 and prow['declined'] == 1 and prow['stopped'] == 0 and pl['stages']['declined'],
                   'Pizza Pilot 11.2026: listed with its title; a refusal is its own stage, never "in progress"')
             ok = run('analysis/analyse.py', os.path.join(data, 'study.db'), '--study', 'pilot-2026-11', '--out', os.path.join(tmp, 'pilot'))
             pcs = {r['pid']: r for r in csv.DictReader(open(os.path.join(tmp, 'pilot', 'participants.csv'), encoding='utf-8'))} if ok else {}

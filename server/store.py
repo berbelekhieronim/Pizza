@@ -230,7 +230,7 @@ class Store:
         if f.get('stage') == 'active':
             sql.append("stage NOT IN ('done', 'declined') AND updated >= ?"); args.append(idle_cutoff())
         elif f.get('stage') == 'stopped':
-            sql.append("stage != 'done' AND (stage = 'declined' OR updated IS NULL OR updated < ?)"); args.append(idle_cutoff())   # a refusal is not "in progress"
+            sql.append("stage NOT IN ('done', 'declined') AND (updated IS NULL OR updated < ?)"); args.append(idle_cutoff())   # a refusal is counted on its own (stage declined)
         elif f.get('stage') == 'included':
             sql.append(INCLUDED_SQL)
         elif f.get('stage') == 'left_out':
@@ -284,12 +284,12 @@ class Store:
         return None if not v else (v[len(v) // 2] if len(v) % 2 else (v[len(v) // 2 - 1] + v[len(v) // 2]) / 2)
 
     def counts_by_study(self):
-        """{study: (sessions, finished, built a pizza, in progress now, synthetic)} of the real sessions (the synthetic
-        ones are counted apart); the rest of the unfinished real ones have stopped."""
-        return {r['study']: (r['n'] or 0, r['done'] or 0, r['built'] or 0, r['active'] or 0, r['syn'] or 0) for r in self.db().execute(
+        """{study: (sessions, finished, built a pizza, in progress now, synthetic, declined consent)} of the real sessions
+        (the synthetic ones are counted apart); the rest of the unfinished real ones have stopped."""
+        return {r['study']: (r['n'] or 0, r['done'] or 0, r['built'] or 0, r['active'] or 0, r['syn'] or 0, r['declined'] or 0) for r in self.db().execute(
             "SELECT study, SUM(NOT %s) n, SUM(NOT %s AND stage = 'done') done, SUM(NOT %s AND n_pieces IS NOT NULL AND %s) built, "
-            "SUM(NOT %s AND stage NOT IN ('done', 'declined') AND updated >= ?) active, SUM(%s) syn FROM sessions GROUP BY study"
-            % (SYN_SQL, SYN_SQL, SYN_SQL, INCLUDED_SQL, SYN_SQL, SYN_SQL), (idle_cutoff(),))}   # built = their pizza is in the reports
+            "SUM(NOT %s AND stage NOT IN ('done', 'declined') AND updated >= ?) active, SUM(%s) syn, SUM(NOT %s AND stage = 'declined') declined FROM sessions GROUP BY study"
+            % (SYN_SQL, SYN_SQL, SYN_SQL, INCLUDED_SQL, SYN_SQL, SYN_SQL, SYN_SQL), (idle_cutoff(),))}   # built = their pizza is in the reports
 
     # ---- settings kept in the database
     def meta(self, k):

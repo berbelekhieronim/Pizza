@@ -64,7 +64,25 @@ MET = [('task.metTitle', 'Metryczka: nagłówek'), ('task.metSub', 'Metryczka: t
     ('task.metGenders.%s' % k, 'Metryczka: odpowiedź o płeć') for k in ('man', 'woman', 'nonbinary', 'pnts')] + [('task.metTrans', 'Metryczka: pytanie o transpłciowość')] + [
     ('task.metTransOpts.%s' % k, 'Metryczka: odpowiedź o transpłciowość') for k in ('yes', 'no', 'pnts')] + [('task.metDiet', 'Metryczka: pytanie o dietę')] + [
     ('task.metDiets.%s' % k, 'Metryczka: odpowiedź o dietę') for k in ('vegetarian', 'vegan', 'allergy', 'other')] + [
-    ('task.metDietPh', 'Metryczka: podpowiedź w polu „inna”'), ('task.finish', 'Metryczka: przycisk Zakończ')]
+    ('task.metDietPh', 'Metryczka: podpowiedź w polu „inna”'), ('task.metNumberBad', 'Ankieta: zła liczba (pytanie liczbowe spoza metryczki)'),
+    ('task.finish', 'Metryczka: przycisk Zakończ')]
+# which question of the survey each metryczka text belongs to (the sheet lists only the texts of questions asked)
+MET_QUESTION = {'metAge': 'age', 'metAgePh': 'age', 'metAgeBad': 'age', 'metAutism': 'autism', 'metAdhd': 'adhd', 'metDx': ('autism', 'adhd'),
+                'metGender': 'gender', 'metGenders': 'gender', 'metTrans': 'trans', 'metTransOpts': 'trans', 'metDiet': 'diet', 'metDiets': 'diet',
+                'metDietPh': 'diet', 'metNumberBad': '@number'}
+
+
+def met_asked(key, st):
+    """Whether a metryczka text is shown with this study's survey (no survey: the six questions of the metryczka)."""
+    part = key.split('.')[1]
+    if part not in MET_QUESTION or getattr(st, 'no_study_rows', False):
+        return True
+    qs = [q for q in (st.get('survey') or [{'id': i} for i in ('age', 'autism', 'adhd', 'gender', 'trans', 'diet')]) if isinstance(q, dict)]
+    want = MET_QUESTION[part]
+    if want == '@number':
+        return any(q.get('type') == 'number' and (q.get('id') != 'age' or q.get('min') not in (None, 16) or q.get('max') not in (None, 99)) for q in qs)
+    ids = {q.get('id') for q in qs if not (q.get('text') and q.get('options'))}      # a question with its own wording does not use these
+    return bool(ids & ({want} if isinstance(want, str) else set(want)))
 DESKTOP = [('task.desktopTitle', 'Telefon lub tablet: nagłówek'), ('task.desktopBody', 'Telefon lub tablet: tekst')]
 NAMES = ['pep', 'ham', 'chk', 'tun', 'anc', 'mus', 'grp', 'oni', 'oli', 'crn', 'pin', 'jal', 'bas', 'shr', 'egg', 'gor', 'nor', 'kim', 'kan', 'fig', 'tof', 'tom']
 
@@ -127,6 +145,8 @@ def current_texts(sid, st):
         parts = k.split('.')[1:]
         if parts[0] == 'cheeseNames' and parts[1] not in cheeses or parts[0] == 'sauceNames' and parts[1] not in sauces:
             continue                               # not offered in this study
+        if k.startswith('task.met') and not met_asked(k, st):
+            continue                               # a metryczka question this study's survey does not ask
         rows.append((k, where, task(parts) or ''))
     for code in NAMES:
         rows.append(('names.' + code, 'Składnik: ' + ('plaster pomidora (tylko instrukcja)' if code == 'tom' else 'nazwa na tacy'), d['names'][code]))
