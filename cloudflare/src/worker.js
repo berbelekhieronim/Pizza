@@ -29,7 +29,7 @@ function ghToken(env) {
   return env.GITHUB_TOKEN || env.PIZZA_GITHUB_TOKEN || env.PIZZA_GITHUB_TOKEN_PIZZA || '';
 }
 
-async function dispatchBuild(env, wait) {
+async function dispatchBuild(env, wait, only = '') {
   // asks GitHub to run the reports job (needs the GITHUB_TOKEN secret); true when GitHub accepted. It builds only the
   // studies whose sessions changed (a full rebuild: Actions -> reports -> Run workflow with force). wait: first wait
   // for 5 quiet minutes after the last save (automatic builds).
@@ -37,7 +37,7 @@ async function dispatchBuild(env, wait) {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + ghToken(env), Accept: 'application/vnd.github+json', 'User-Agent': 'pizza-study-worker',
       'Content-Type': 'application/json' },
-    body: JSON.stringify({ ref: env.GITHUB_BRANCH || 'main', inputs: { force: 'false', wait: wait ? 'true' : 'false' } }),
+    body: JSON.stringify({ ref: env.GITHUB_BRANCH || 'main', inputs: { force: 'false', wait: wait ? 'true' : 'false', only } }),
   });
   return r.ok;
 }
@@ -237,16 +237,17 @@ class Request_ {
     await dispatchBuild(this.env, true);
   }
 
-  async requestReports(force) {
+  async requestReports(force, only = '') {
     // "Build reports": marks a build as wanted (shown on the page until it is done) and, with the GitHub token, asks
-    // GitHub to start it at once. The job analyses the studies whose sessions changed since the last build.
+    // GitHub to start it at once. The job analyses the studies whose sessions changed since the last build; from a
+    // study's page (only = its id, 'main' or 'all') that study only.
     if (force) await this.store.setMeta('reports_wanted', new Date().toISOString().slice(0, 19) + 'Z');
     if (!ghToken(this.env) || !this.env.GITHUB_REPO) {
       return 'Build requested, but the site cannot start GitHub without the PIZZA_GITHUB_TOKEN secret (cloudflare/README.md). '
         + 'It runs at the next build: start one from GitHub, Actions -> reports -> Run workflow.';
     }
     await this.store.setMeta('reports_requested', String(Date.now()));
-    return (await dispatchBuild(this.env, false)) ? 'Build started on GitHub; its progress shows here.'
+    return (await dispatchBuild(this.env, false, only)) ? 'Build started on GitHub' + (only && only !== 'all' ? ' for this study only' : '') + '; its progress shows here.'
       : 'GitHub refused to start the rebuild: check the GitHub token (PIZZA_GITHUB_TOKEN, cloudflare/README.md).';
   }
 
@@ -379,7 +380,7 @@ class Request_ {
     }
     const form = route === '/admin/reports' ? {} : Object.fromEntries(new URLSearchParams((await this.req.text()).slice(0, 10000)));
     if (route === '/admin/reports') {
-      msg = await this.requestReports(true);
+      msg = await this.requestReports(true, scopeName(f));
     } else if (route === '/admin/invites') {
       let sid = form.study === 'main' ? '' : (form.study || '');
       if (scope[0] === 'study') sid = scope[1];               // a study's researchers make links for their study only

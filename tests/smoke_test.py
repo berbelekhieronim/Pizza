@@ -241,6 +241,11 @@ def cloudflare_checks(tmp, fields):
               'an inclusion choice marks the reports out of date; the next build redoes only the studies it touches')
         post_form(base + '/admin/api/inclusion?key=' + key, {'pid': pid, 'value': 'auto'})
         counting_checks(base, key, fields, 'Worker: ')
+        r = subprocess.run([PY, os.path.join(ROOT, 'tools', 'cloud_sync.py'), '--site', base, '--key', key, '--only', 'main'], capture_output=True, text=True, timeout=600)
+        started = next((x for x in r.stdout.splitlines() if x.startswith('Started')), '')
+        check(r.returncode == 0 and started == 'Started: 1 to build (main).' and api(base, 'state', key, study='main')['reports']['fresh']
+              and not api(base, 'state', key, study='all')['reports']['fresh'],
+              '"Build reports" on a study\'s page builds that study only (not "all" or the other studies)' + ('' if r.returncode == 0 else ' - ' + r.stderr[-300:]))
     finally:
         os.killpg(srv.pid, 15)
         srv.wait(timeout=20)

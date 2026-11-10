@@ -219,6 +219,8 @@ def main():
     ap.add_argument('--wait', type=int, default=0, metavar='SECONDS',
                     help='first wait until no session was saved for this long (the site starts the job with 300 when a session '
                          'finishes, so sessions finishing close together share one build); at most 30 minutes')
+    ap.add_argument('--only', default='', metavar='SCOPE',
+                    help='build this one set only: a study id, "main" or "all" ("Build reports" on a study\'s page sends its study)')
     a = ap.parse_args()
     if not a.site or not a.key:
         sys.exit('Set PIZZA_SITE_URL and PIZZA_ADMIN_KEY (or pass --site and --key).')
@@ -245,6 +247,8 @@ def main():
     if state.get('code') != version:           # the analysis changed: everything is rebuilt once
         a.force = True
     scopes = ['all'] + sorted(s for s in sigs if s != 'all')
+    if a.only:                                 # one study's page asked: that study's data only, nothing else is analysed
+        scopes = [s for s in scopes if s == a.only]
     todo = [s for s in scopes if a.force or (state.get('scopes') or {}).get(s) != sigs[s]]
     if sigs['all'].startswith('0|'):
         todo = []
@@ -264,13 +268,14 @@ def main():
             os.remove(db_path)
         site.status('running', 'Downloaded %d sessions.' % download(site, db_path))
         st = Store(db_path)
-        new_state = {'code': version, 'scopes': dict(state.get('scopes') or {})}
+        # with --only the other sets were not rebuilt: the code version they were built with stays as it was
+        new_state = {'code': state.get('code') if a.only and state.get('code') != version else version, 'scopes': dict(state.get('scopes') or {})}
         stamp = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         # a study holding exactly the sessions of "all" (e.g. all data so far is in one study) gets a copy of all's
         # reports instead of a second identical analysis; the others are analysed side by side
         count = lambda sc: sigs[sc].split('|')[0]
         same = {sc for sc in todo if sc != 'all' and count(sc) == count('all') and sigs[sc].split('|')[1] == sigs['all'].split('|')[1]}
-        if same and 'all' not in todo:
+        if same and 'all' not in todo and not a.only:
             todo = ['all'] + todo
         analyse = [sc for sc in todo if sc not in same]
         site.status('running', 'Analysing %s side by side%s.' % (', '.join(analyse), ('; %s will reuse the analysis of all' % ', '.join(sorted(same))) if same else ''),

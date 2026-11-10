@@ -5,6 +5,11 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**"Build reports" builds the study you are looking at** (Cloudflare): pressed on a study's page it analyses that
+study's data only (`tools/cloud_sync.py --only <study>`, workflow input `only`), not "all" and the other studies (for
+the pilot: its own sessions, not the test study's synthetic ones). Builds started by a finished session or by hand
+from GitHub still bring every changed study up to date. (The Codespace server already built per study.)
+
 **The "built a pizza" counter agrees with the reports.** The counter, the Sessions tab and the session list decided by
 the stage a session was last saved at; the analysis by the pizza itself (finished = the participant pressed "I'm
 done"). A participant who closed the tab while the pizza was baking, or whose last saves arrived out of order, has a

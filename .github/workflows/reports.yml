@@ -13,6 +13,10 @@ on:
         description: First wait for 5 quiet minutes after the last save (the site sets this when a session finishes)
         required: false
         default: 'false'
+      only:
+        description: Build this study only (a study id, main or all; empty = every study with new data). "Build reports" on a study's page sets it
+        required: false
+        default: ''
 concurrency:                    # one build at a time; GitHub keeps one more queued, so finishing sessions never pile up runs
   group: cloudflare-reports
   cancel-in-progress: false
@@ -51,4 +55,6 @@ jobs:
         run: |
           export PIZZA_SITE_URL="${PIZZA_SITE_URL:-$(python3 cloudflare/deploy.py url)}"
           export PIZZA_MEASURE_CACHE="$HOME/.cache/pizza-measures"
-          python3 tools/cloud_sync.py ${{ github.event.inputs.force == 'true' && '--force' || '' }} ${{ github.event.inputs.wait == 'true' && '--wait 300' || '' }}
+          python3 tools/cloud_sync.py ${{ github.event.inputs.force == 'true' && '--force' || '' }} ${{ github.event.inputs.wait == 'true' && '--wait 300' || '' }} --only "$ONLY"
+        env:
+          ONLY: ${{ github.event.inputs.only }}
