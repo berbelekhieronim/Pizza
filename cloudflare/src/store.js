@@ -2,7 +2,8 @@
 // reads exactly like server/data/study.db. D1 has no BEGIN/COMMIT: a write that must be atomic is one batch().
 
 export const SORTABLE = ['pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces', 'started', 'seconds', 'restarts'];
-export const STAGES = ['intro', 'practice', 'build', 'typical', 'followup', 'done', 'declined'];   // declined: said no to the consent
+// survey: the study's questions asked before the pizza (survey_when = before); followup: after it (as store.py)
+export const STAGES = ['intro', 'survey', 'practice', 'build', 'typical', 'followup', 'done', 'declined'];   // declined: said no to the consent
 export const ACTIVITY = ['active', 'stopped'];     // extra "where" filter values, from the time of the last save
 export const ANALYSIS = ['included', 'left_out', 'flagged', 'synthetic', 'real'];  // ... from whether the session's pizza is analysed, needs a look, or is synthetic
 const SYN_SQL = "pid LIKE 'SYN-%'";               // synthetic sessions of a test study (analysis/synthetic.py), as in store.py
@@ -27,7 +28,7 @@ const INCLUDED_SQL = `(${INCL_SQL} = 'include' OR (${INCL_SQL} = '' AND ${AUTO_I
 export const REVIEW_FLAGS = ['translated', 'coarse-timer', 'forced-colors', 'small-window', 'automated'];
 const REVIEW_SQL = '(' + REVIEW_FLAGS.map((f) => `${FLAGS} LIKE '% ${f} %'`).join(' OR ')
   + " OR EXISTS (SELECT 1 FROM fields WHERE fields.pid = sessions.pid AND name = 'client_errors'))";
-const STAGE_RANK = { intro: 0, practice: 1, build: 2, typical: 3, followup: 4, done: 5, declined: 5 };
+const STAGE_RANK = { intro: 0, survey: 1, practice: 2, build: 3, typical: 4, followup: 5, done: 6, declined: 6 };
 export function laterStage(old, stage) {
   // a save never moves a session back to an earlier part (saves can arrive out of order); done and declined are final
   // (as store.py later_stage)

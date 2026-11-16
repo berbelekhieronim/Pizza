@@ -43,6 +43,25 @@ analysis columns (age, autism / ADHD and how identified, gender, transgender, di
 those columns are empty; nobody is counted as "not autistic" because the question was not asked. Without
 `"survey"` the metryczka asks exactly these six.
 
+## Before or after the pizza
+
+`"survey_when": "before"` asks the questions right after the consent, before the practice and the pizza (Pizza
+Pilot 11.2026 from task 0.17.0); the default is after the pizza. The card's wording follows (*Najpierw kilka pytań o
+Ciebie* and *Dalej* before, *Na koniec…* and *Zakończ* after; texts `task.metSubBefore`, `task.metNext`). What it
+changes:
+
+- the session's stages: `survey` (the questions before the pizza) comes between the consent and the practice;
+  `followup` stays the questions after it. A save never moves a session back to an earlier stage.
+- the data: `pzf_data.when` is `before` or `after`; `participants.csv` has `survey_when`. Earlier data is `after`.
+- the Data check: people who answered and then left before building are listed (their answers are kept with the
+  session but not analysed, which starts from a pizza); a mix of before and after in the same data is a point to review.
+- people who were past the consent when the setting changed and had not answered yet are asked after the pizza
+  instead (with the after wording), so nobody misses the questions; whoever was at the questions after the pizza
+  comes back to them.
+
+Answers given before building can prime the pizza (for example, being asked about diet or autism first), and the
+pizza can prime answers given after it. Keep one order within an analysis, or compare the two (`survey_when`).
+
 ## Checking and editing the wording
 
 - `python3 tools/texts.py check` (also run by the smoke test) checks every study's survey: ids, types, options, an

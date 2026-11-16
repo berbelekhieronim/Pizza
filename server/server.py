@@ -54,7 +54,7 @@ STUDY_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 STUDY_KEYS = ('title', 'intro', 'consent', 'completion_message', 'completion_redirect', 'typical_build', 'about_you', 'conditions', 'groups',
               'nutrition_panel', 'nutrition_show', 'nutrition_base', 'nutrition_reveal', 'condition_settings', 'synthetic',
               # a study's own flow: language, consent with yes/no, the questions at the end, the base choices, the end page
-              'lang', 'consent_choice', 'decline_message', 'followup', 'sauces', 'sauce', 'cheeses', 'cheese', 'bake_picture', 'show_code', 'completion_title', 'texts', 'survey')
+              'lang', 'consent_choice', 'decline_message', 'followup', 'sauces', 'sauce', 'cheeses', 'cheese', 'bake_picture', 'show_code', 'completion_title', 'texts', 'survey', 'survey_when')
 SYNTHETIC_CHOICES = (0, 25, 50, 100, 200, 500)        # synthetic pizzas a test study can hold (study.json "synthetic" = the default)
 
 
@@ -314,7 +314,7 @@ Tables (UTF-8 CSV, missing values = NA, yes/no = 1/0, times in ms, positions in 
 NEURO_NAMES = {'autistic': 'Autistic', 'adhd': 'ADHD', 'dys': 'Dyslexic etc.', 'otherND': 'Other ND', 'none': 'None', 'pnts': 'Prefer not to say'}
 
 
-STAGE_NAMES = {'intro': 'reading the intro', 'practice': 'practice', 'build': 'building', 'typical': 'typical pizza', 'followup': 'questions', 'done': 'finished',
+STAGE_NAMES = {'intro': 'reading the intro', 'survey': 'questions (before the pizza)', 'practice': 'practice', 'build': 'building', 'typical': 'typical pizza', 'followup': 'questions', 'done': 'finished',
                'declined': 'declined consent'}
 PAGE = 100
 ALL_KEY = '*'                                         # study_keys row of the researcher link for all studies
@@ -446,7 +446,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if 'error' in rec:
                 return self.send(200, json.dumps({'error': rec['error']}), 'application/json')
             return self.send(200, json.dumps({'pid': rec['pid'], 'cond': rec.get('cond', ''), 'stage': rec.get('stage', 'intro'),
-                                              'counts': rec.get('pz_counts', ''), 'restarts': str(rec.get('restarts') or 0)}), 'application/json')
+                                              'counts': rec.get('pz_counts', ''), 'restarts': str(rec.get('restarts') or 0),
+                                              'answered': bool(rec.get('pzf_data'))}), 'application/json')   # answered: the questions (wherever they came)
         if not route.startswith('/admin'):
             return self.send(404, 'Not found', 'text/plain')
         scope = self.scope()

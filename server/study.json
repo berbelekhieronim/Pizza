@@ -74,6 +74,7 @@
       "cheese": "light",
       "typical_build": false,
       "followup": "metryczka",
+      "survey_when": "before",
       "survey": [
         {
           "id": "age",

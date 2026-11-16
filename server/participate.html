@@ -259,10 +259,14 @@
     }).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'lang'] });
   } catch (e) { /* old browser */ }
 
+  // The parts in order. The study's questions (style metryczka) come after the pizza ("followup"), or before the
+  // practice with survey_when = "before" ("survey"). Someone who was already past that point when the setting changed
+  // and has not answered (S.needSurvey) is asked after the pizza instead, so nobody misses the questions.
+  function surveyFirst() { return S.study.survey_when === 'before' && S.study.followup === 'metryczka'; }
   function order() {
-    var o = ['intro', 'practice', 'build'];
+    var first = surveyFirst(), o = ['intro'].concat(first ? ['survey'] : [], ['practice', 'build']);
     if (S.study.typical_build) o.push('typical');
-    return o.concat(['followup', 'done']);
+    return o.concat(!first || S.needSurvey ? ['followup'] : [], ['done']);
   }
   function go(name) {
     S.stage = name;
@@ -280,7 +284,8 @@
     setTimeout(windowCheck, 50);   // the "welcome back" note shows on the part they came back to only
     var box = document.createElement('div');
     stage.appendChild(box);
-    var opts = { mode: name === 'typical' ? 'build' : name, onSave: onSave, condition: S.cond, onFinish: function () { send(true); go(o[i + 1]); } };
+    var opts = { mode: name === 'typical' ? 'build' : name === 'survey' ? 'followup' : name, onSave: onSave, condition: S.cond,
+      onFinish: function () { send(true); go(o[i + 1]); } };
     opts.maxEventChars = 500000;   // the study server keeps the whole log (the 60,000 default is for Qualtrics' embedded data)
     if (S.study.lang) opts.lang = S.study.lang;
     if (S.study.texts) opts.texts = S.study.texts;
@@ -288,7 +293,8 @@
       opts.prefix = 'pzt_';
       opts.prompt = L.typical;
     }
-    if (name === 'followup') {
+    if (name === 'followup' || name === 'survey') {
+      opts.when = name === 'survey' ? 'before' : 'after';     // kept with the answers (pzf_data.when)
       opts.counts = S.fields.pz_counts || null; opts.askAbout = S.study.about_you !== false;
       if (S.study.followup) opts.style = S.study.followup;     // e.g. "metryczka": only the short demographic card
       if (S.study.survey) opts.survey = S.study.survey;       // the study's own post-pizza questions (study.json "survey")
@@ -311,7 +317,7 @@
     if (st.consent_choice) {             // consent as a question with two answers: YES goes on, NO ends the study
       stage.innerHTML = '<div class="intro"><h1>' + esc(L.consentTitle) + '</h1>' + paras + '<div class="choice"><p>' + esc(st.consent || L.agree) + '</p>' +
         '<button class="go" type="button" id="yes">' + esc(L.yes) + '</button><button class="go alt" type="button" id="no">' + esc(L.no) + '</button></div></div>';
-      document.getElementById('yes').onclick = function () { S.fields.consent = new Date().toISOString(); go('practice'); };
+      document.getElementById('yes').onclick = function () { S.fields.consent = new Date().toISOString(); go(order()[1]); };
       document.getElementById('no').onclick = function () { S.fields.consent = 'declined ' + new Date().toISOString(); go('declined'); };
       return;
     }
@@ -322,7 +328,7 @@
     var btn = next.querySelector('button');
     btn.disabled = true;
     box.onchange = function () { btn.disabled = !box.checked; };
-    btn.onclick = function () { if (!box.checked) return; btn.disabled = false; S.fields.consent = new Date().toISOString(); go('practice'); };
+    btn.onclick = function () { if (!box.checked) return; btn.disabled = false; S.fields.consent = new Date().toISOString(); go(order()[1]); };
   }
   function declined() {
     stage.innerHTML = '<h1>' + esc(L.declinedTitle) + '</h1><p>' + esc(S.study.decline_message || L.declined) + '</p>';
@@ -427,6 +433,7 @@
     // coming back (a reload, a closed tab, a personal link opened again): no second consent; the part they were on
     // starts again, the follow-up keeps what the build saved, and restarts are counted for the analysis
     var was = res[1].stage;
+    S.needSurvey = surveyFirst() && ['practice', 'build', 'typical', 'followup'].indexOf(was) >= 0 && (was === 'followup' || !res[1].answered);
     if (was === 'done') return go('done');
     if (was === 'declined') return go('declined');
     if (order().indexOf(was) > 0) {

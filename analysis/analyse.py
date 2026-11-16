@@ -1890,8 +1890,7 @@ def nutrition_section(recs, groups):
 
 
 EXCLUDED_COLUMNS = ['pid', 'build', 'reason', 'stage', 'n_pieces', 'last_saved', 'study']
-LATER_STAGES = ('typical', 'followup', 'done')      # a session at one of these has pressed "I'm done" on its own pizza
-STAGE_LABELS = [('intro', 'reading the intro'), ('practice', 'practice'), ('build', 'building'), ('typical', 'typical pizza'),
+STAGE_LABELS = [('intro', 'reading the intro'), ('survey', 'questions before the pizza'), ('practice', 'practice'), ('build', 'building'), ('typical', 'typical pizza'),
                 ('followup', 'questions'), ('done', 'finished')]
 
 
@@ -1951,10 +1950,13 @@ def data_check(rows, builds, people, left_out):
            'browser_flags': {f: sorted(r['_pid'] for r in rows if f in browser_flags(r)) for f in REVIEW_FLAGS if any(f in browser_flags(r) for r in rows)},
            'researcher_included': sorted(p for p, c in choices.items() if c == 'include'),
            'no_pizza': sum(1 for r in rows if loads(field(r, builds[0] + 'final')) is None),
+           # with the questions before the pizza: answered them, then left before building (their answers are not analysed)
+           'answered_no_pizza': sorted(r['_pid'] for r in rows if loads(field(r, builds[0] + 'final')) is None and loads(field(r, 'pzf_data'))),
            'stages': {k: stages.get(k, 0) for k, _ in STAGE_LABELS if stages.get(k)},
            'flags': {k: sorted(p['pid'] for p in mine if p.get(k)) for k in ('flag_fast', 'flag_empty', 'flag_tab_away')},
            'restarted': sorted(p['pid'] for p in mine if p.get('restarts')),
            'versions': dict(Counter(str(p.get('task_version') or '?') for p in mine)),
+           'survey_when': {w: sorted(p['pid'] for p in mine if p.get('survey_when') == w) for w in {p.get('survey_when') for p in mine if p.get('survey_when')}},
            'version_pids': {v: sorted(p['pid'] for p in mine if str(p.get('task_version') or '?') == v) for v in {str(p.get('task_version') or '?') for p in mine}},
            'test_sessions': sum((r.get('study') or '') == 'tests' for r in rows),
            'synthetic': sum(1 for p in mine if p.get('synthetic'))}
@@ -2008,7 +2010,12 @@ def data_check_html(c):
     if c['researcher_included']:
         items.append(li('Kept in by the researcher (overriding the automatic rule): %s.' % pid_links(c['researcher_included'])))
     if c['no_pizza']:
-        items.append(li('%d sessions never placed a topping on their own pizza (stopped in the intro or practice, or just opened the link).' % c['no_pizza']))
+        items.append(li('%d sessions never placed a topping on their own pizza (stopped in the intro, the questions or the practice, or just opened the link).'
+                        % c['no_pizza']))
+    if c.get('answered_no_pizza'):
+        items.append(li('%d of them answered the questions and then left before building (asked before the pizza): %s. Their answers are kept in '
+                        'the sessions, not in the analysis, which starts from a pizza; compare them with those who stayed to see who drops out.'
+                        % (len(c['answered_no_pizza']), pid_links(c['answered_no_pizza']) + show_all(c['answered_no_pizza']))))
     if c['typical'] or c['left_out_typical']:
         items.append(li('%d "typical participant" pizzas, analysed as a separate build (column <code>build</code> = pzt), not counted above%s.'
                         % (c['typical'], ('; %d unfinished left out' % c['left_out_typical']) if c['left_out_typical'] else '')))
@@ -2028,6 +2035,11 @@ def data_check_html(c):
     review = ['<b>%s</b>: %s%s' % (l, pid_links(c['flags'][k]), show_all(c['flags'][k])) for k, l in flags]
     if c['restarted']:
         review.append('<b>came back mid-study</b> (reload or new visit), so their build started again: ' + pid_links(c['restarted']) + show_all(c['restarted']))
+    if len(c.get('survey_when') or {}) > 1:
+        sw = c['survey_when']
+        review.append('<b>questions asked at different points</b>: %s; answers given before building can change the pizza, and the other way round. '
+                      'Compare the two (column <code>survey_when</code>) before pooling them'
+                      % '; '.join('%s the pizza: %d%s' % (k, len(v), show_all(v)) for k, v in sorted(sw.items())))
     if len(c['versions']) > 1:
         by_v = c.get('version_pids') or {}
         review.append('<b>pizzas from different task versions</b>: %s; see the Changelog for what changed between them'
@@ -3857,6 +3869,9 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             rec['pizza_freq'] = follow.get('freq')
             rec.update(about_measures(follow.get('about')))
             rec.update(survey_measures(follow))
+            # when the questions were asked: before the pizza (survey_when = before, task 0.17.0) or after it; answers
+            # given before building may change the pizza (and the pizza may change answers given after it)
+            rec['survey_when'] = (follow.get('when') or 'after') if follow else None
             # stated a special diet (vegetarian, vegan, other; from the diet question), for comparing groups
             rec['diet_special'] = None if not diet else int(any(d not in ('none', 'pnts') for d in diet))
             rec['flag_tab_away'] = int((summary.get('hiddenMs') or 0) > 30000)

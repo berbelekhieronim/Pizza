@@ -5,6 +5,21 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Task 0.17.0: Pizza Pilot 11.2026 asks its questions before the pizza** (`"survey_when": "before"`,
+`docs/SURVEY.md`). Consent, then the metryczka (*Najpierw kilka pytań o Ciebie*, *Dalej*), then the practice, the pizza
+and the baked pizza. What that touched, so nothing breaks:
+- a new stage `survey` before the practice (both servers; the rule that a save never moves a session back ranks it
+  there), shown as "questions (before the pizza)" on the researcher page; the consent now goes to the next part of
+  the study's own order instead of always the practice.
+- `pzf_data.when` (`before` / `after`) and the column `survey_when`; earlier pilot data is `after`. The Data check
+  lists a mix of the two as a point to review (answers before building can change the pizza) and the people who
+  answered and then left before building.
+- people already past the consent when the setting changed who have not answered are asked after the pizza, with
+  the after wording, and whoever was at the questions after the pizza comes back to them (the start response now
+  says whether the session has answers).
+- new texts `task.metSubBefore`, `task.metNext` (Polish and English), in the texts sheet of a study that asks first
+  (the pilot's sheet: 132 rows).
+
 **Review fixes.**
 - *Declined consent* is its own tile on the researcher page (both servers) and no longer counted as "stopped"; the
   "finished" percentage is of those who agreed to take part. The *stopped* filter leaves refusals out (they have the

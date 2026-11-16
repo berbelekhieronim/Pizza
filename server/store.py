@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     source TEXT NOT NULL DEFAULT '',         -- recruitment source
     invite TEXT NOT NULL DEFAULT '',         -- personal invite token, if the session came from one
     cond TEXT NOT NULL DEFAULT '',
-    stage TEXT NOT NULL DEFAULT 'intro',     -- intro / practice / build / typical / followup / done
+    stage TEXT NOT NULL DEFAULT 'intro',     -- intro / survey / practice / build / typical / followup / done / declined
     started TEXT NOT NULL,                   -- UTC, ISO 8601
     updated TEXT,
     finished TEXT,                           -- first time stage reached done
@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS study_keys (study TEXT PRIMARY KEY, key TEXT NOT NULL
 FIELD_RE = re.compile(r'^[a-z_]{2,40}$')
 INVITE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789'     # no 0/o, 1/l/i: easy to read out or type
 SORTABLE = ('pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces', 'started', 'seconds', 'restarts')
-STAGES = ('intro', 'practice', 'build', 'typical', 'followup', 'done', 'declined')   # declined: said no to the consent
+# survey: the study's questions asked before the pizza (study setting survey_when = before); followup: after it
+STAGES = ('intro', 'survey', 'practice', 'build', 'typical', 'followup', 'done', 'declined')   # declined: said no to the consent
 IDLE_MINUTES = 30            # an unfinished session with no save for this long counts as stopped (it can still resume)
 ACTIVITY = ('active', 'stopped')   # extra values of the "where" filter, from the time of the last save
 ANALYSIS = ('included', 'left_out', 'flagged', 'synthetic', 'real')  # ... from whether the session's pizza is analysed, needs a look, or is synthetic
@@ -108,7 +109,7 @@ def iso_seconds(a, b):
         return None
 
 
-STAGE_RANK = {'intro': 0, 'practice': 1, 'build': 2, 'typical': 3, 'followup': 4, 'done': 5, 'declined': 5}
+STAGE_RANK = {'intro': 0, 'survey': 1, 'practice': 2, 'build': 3, 'typical': 4, 'followup': 5, 'done': 6, 'declined': 6}
 
 
 def later_stage(old, new):

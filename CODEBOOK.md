@@ -108,7 +108,8 @@ also written where the analysis reads it:
 
 From task 0.16.0 the questions are the study's own (`"survey"` in `server/study.json`, `docs/SURVEY.md`): `met.<id>`
 for each question (a number, a code, a list of codes, or text; `met.<id>Other` for a typed "other"), and
-`survey: [{id, type}]` lists what was asked. In `participants.csv` the metryczka's six questions keep their columns;
+`survey: [{id, type}]` lists what was asked; from 0.17.0 `when` says whether the card came `before` the pizza or
+`after` it (column `survey_when`; earlier data: after). In `participants.csv` the metryczka's six questions keep their columns;
 any other question becomes `q_<id>`, `q_<id>_<code>` (1/0, several-answer questions) and `q_<id>_text`. When autism
 and ADHD were not asked, `about.neuro` is empty (unknown), not "none".
 
@@ -272,7 +273,8 @@ Per pizza: `n_adjustments`, `n_adj_*`, `adj_symmetry_expected`, `adj_symmetry_ex
 
 `study`, `group`, `source`, `invite`, `cond` (from the link), `consent` (time the consent box was ticked and the
 participant went on; `declined <time>` for NIE), `restarts` (times they came back mid-study, see README), `stage` (last
-part reached: intro / practice / build / typical / followup / done / declined), `started`, `updated`. All times are
+part reached: intro / survey (the questions before the pizza, `survey_when` = before) / practice / build / typical /
+followup / done / declined; a save never moves a session back to an earlier part), `started`, `updated`. All times are
 UTC (ISO 8601, ending in `Z`); the researcher page shows them in Warsaw time, and the session list download has
 `started_warsaw` and `finished_warsaw` as well.
 

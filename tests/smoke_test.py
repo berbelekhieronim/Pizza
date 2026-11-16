@@ -347,6 +347,17 @@ def counting_checks(base, key, fields, label):
           and rows[pids[2]]['stage'] == 'followup' and rows[pids[2]]['analysis'] == 'included' and rows[pids[3]]['analysis'] == 'left_out',
           label + '"built a pizza" counts the finished pizzas the reports analyse (one closed while baking counts, one still being built does not); '
           'a late older save does not move a session back; a program-driven browser is left out automatically')
+    # the questions before the pizza: survey comes before practice, and nothing moves a session back to it
+    q = json.loads(http('GET', base + '/api/start?pid=CNTQ')[1])['pid']
+    http('POST', base + '/api/save', {'pid': q, 'stage': 'survey', 'fields': {'pzf_data': json.dumps({'style': 'metryczka', 'when': 'before', 'met': {}})}})
+    st1 = next(r for r in api(base, 'sessions', key, study='main', pids=q)['rows'])['stage']
+    http('POST', base + '/api/save', {'pid': q, 'stage': 'practice', 'fields': {}})
+    http('POST', base + '/api/save', {'pid': q, 'stage': 'survey', 'fields': {}})
+    st2 = next(r for r in api(base, 'sessions', key, study='main', pids=q)['rows'])['stage']
+    back = json.loads(http('GET', base + '/api/start?pid=' + q)[1])
+    check(st1 == 'survey' and st2 == 'practice' and back.get('answered') is True and json.loads(http('GET', base + '/api/start?pid=CNTFRESH')[1]).get('answered') is False,
+          label + 'questions before the pizza: stage "survey" comes before the practice, is never returned to, and a returning participant\'s answers are known')
+    pids.append(q)
     flagged = {r['pid'] for r in api(base, 'sessions', key, study='main', stage='flagged')['rows']}
     check(pids[3] in flagged and pids[0] not in flagged, label + 'Sessions tab: the "needs a look" filter finds browser flags')
     for p_ in pids:
@@ -691,7 +702,7 @@ def main():
             check(pst['title'] == 'Pizza Pilot 11.2026' and pst['lang'] == 'pl' and pst['consent_choice'] is True and pst['followup'] == 'metryczka'
                   and pst['cheeses'] == ['none', 'light', 'extra', 'vegan'] and pst['nutrition_panel'] is True and pst['bake_picture'] is True and pst['show_code'] is False,
                   'Pizza Pilot 11.2026: Polish, consent yes / no, metryczka, its cheeses, nutrition table, the baked pizza at the end')
-            pids = [json.loads(http('GET', base + '/api/start?study=pilot-2026-11')[1])['pid'] for _ in range(3)]
+            pids = [json.loads(http('GET', base + '/api/start?study=pilot-2026-11')[1])['pid'] for _ in range(4)]
             http('POST', base + '/api/save', {'pid': pids[0], 'stage': 'declined', 'fields': {'consent': 'declined 2026-11-08T10:00:00Z'}})
             met = {'style': 'metryczka', 'finished': True, 'met': {'age': 31, 'autism': 'self', 'adhd': 'no', 'gender': 'nonbinary', 'trans': 'yes', 'diet': ['vegan', 'allergy'],
                                                                  'sleep': 'good', 'hours': 7, 'pets': ['cat', 'other'], 'petsOther': 'axolotl'},
@@ -702,7 +713,9 @@ def main():
             vfin = [f for f in json.loads(sample['pz_final']) if f[1] not in ('pep', 'ham', 'chk', 'kan', 'anc', 'shr', 'tun', 'egg', 'gor')]
             http('POST', base + '/api/save', {'pid': pids[1], 'stage': 'done', 'fields': {'consent': '2026-11-08T10:00:00Z', 'pz_final': json.dumps(vfin),
                                                                                           'pz_summary': json.dumps(vsum), 'pz_events': sample['pz_events'] if isinstance(sample['pz_events'], str) else json.dumps(sample['pz_events']),
-                                                                                          'pzf_data': json.dumps(met)}})
+                                                                                          'pzf_data': json.dumps(dict(met, when='before'))}})
+            # someone who answered the questions (asked before the pizza) and left before building
+            http('POST', base + '/api/save', {'pid': pids[3], 'stage': 'survey', 'fields': {'consent': '2026-11-08T11:00:00Z', 'pzf_data': json.dumps(dict(met, when='before'))}})
             # a pizza captured before tofu was on the tray (task 0.14.0): it still analyses, with tofu NA (not offered), not 0
             osum = dict(vsum, v='0.14.0', tray=[k for k in vsum['tray'] if k != 'tof'], sauce='bbq', cheese='none')
             ofin = [f for f in vfin if f[1] != 'tof']
@@ -712,7 +725,7 @@ def main():
             pl = api(base, 'state', 'smoke-key', study='pilot-2026-11')
             prow = next(r for r in pl['studies'] if r['id'] == 'pilot-2026-11')
             dec = api(base, 'sessions', 'smoke-key', study='pilot-2026-11', stage='declined')
-            check(prow['title'] == 'Pizza Pilot 11.2026' and prow['n'] == 3 and prow['active'] == 0 and dec['total'] == 1 and prow['declined'] == 1 and prow['stopped'] == 0 and pl['stages']['declined'],
+            check(prow['title'] == 'Pizza Pilot 11.2026' and prow['n'] == 4 and dec['total'] == 1 and prow['declined'] == 1 and prow['n'] == prow['done'] + prow['active'] + prow['stopped'] + prow['declined'] and pl['stages']['declined'],
                   'Pizza Pilot 11.2026: listed with its title; a refusal is its own stage, never "in progress"')
             ok = run('analysis/analyse.py', os.path.join(data, 'study.db'), '--study', 'pilot-2026-11', '--out', os.path.join(tmp, 'pilot'))
             pcs = {r['pid']: r for r in csv.DictReader(open(os.path.join(tmp, 'pilot', 'participants.csv'), encoding='utf-8'))} if ok else {}
@@ -729,6 +742,13 @@ def main():
                   and pc[0]['q_sleep'] == 'good' and pc[0]['q_hours'] == '7' and pc[0]['q_pets'] == 'cat other' and pc[0]['q_pets_cat'] == '1'
                   and pc[0]['q_pets_text'] == 'axolotl' and pc[0]['q_pets_other'] == '1' and 'q_age' not in pc[0],
                   'Pizza Pilot 11.2026: the analysis reads the metryczka (age, transgender, autism / ADHD, gender, diets) and vegan cheese keeps a pizza vegan')
+            dchk = json.load(open(os.path.join(tmp, 'pilot', 'data_check.json'), encoding='utf-8')) if ok else {}
+            dash = open(os.path.join(tmp, 'pilot', 'dashboard.html'), encoding='utf-8').read() if ok else ''
+            check(pst.get('survey_when') == 'before' and new.get('survey_when') == 'before' and old.get('survey_when') == 'after'
+                  and dchk.get('answered_no_pizza') == [pids[3]] and sorted(dchk.get('survey_when') or {}) == ['after', 'before']
+                  and 'questions asked at different points' in dash and 'answered the questions and then left before building' in dash and 'id="feelings"' not in dash,
+                  'Pizza Pilot 11.2026: the questions come before the pizza; the data says when each person answered (survey_when), the Data check lists a mix '
+                  'and those who answered but left before building; no strong-feelings section')
             counting_checks(base, 'smoke-key', fields, '')
         finally:
             srv.terminate()
@@ -796,7 +816,7 @@ def main():
             pg = open(os.path.join(ROOT, 'server', 'participate.html'), encoding='utf-8').read()
             raw_storage = [m.start() for m in re.finditer(r'(?<!window\.)\b(sessionStorage|localStorage)\.', pg)]
             check(not raw_storage and "addEventListener('visibilitychange'" in pg and "keepalive: true" in pg and "'error-callback'" in pg
-                  and 'name="darkreader-lock"' in pg and 'content="only light"' in pg and '<noscript>' in pg and 'r.status === 429' in pg,
+                  and "go('practice')" not in pg and "go(order()[1])" in pg and 'name="darkreader-lock"' in pg and 'content="only light"' in pg and '<noscript>' in pg and 'r.status === 429' in pg,
                   'participant page: works with storage blocked, saves on leaving without sendBeacon, retries busy starts, never waits forever on the person check, keeps its colours, explains when JavaScript is off')
             # Warsaw time (session list download): the EU summer-time rule in server.py (and the Worker, checked against it
             # above) agrees with the time-zone database of node / the researcher's browser, around both changes of the clock

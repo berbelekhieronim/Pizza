@@ -4,7 +4,7 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-11-10, task version 0.16.0, server 0.14.0)
+## Snapshot (2026-11-16, task version 0.17.0, server 0.14.0)
 
 - **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
@@ -145,6 +145,9 @@ push, check the GitHub Actions run, and republish the demo artifact.
   recording these visits (a count, or a session in a stage of its own) to know how many are lost.
 - **Live data seen from the reports job only.** The GitHub reports log on 2026-11-10 showed 533 sessions (510 synthetic
   in the test study), 3 finished pizzas in Pizza Pilot 11.2026. Device and trouble fields start with server 0.13.0.
+- **Questions before or after the pizza in the pilot.** From task 0.17.0 the pilot asks the metryczka first; its
+  earlier sessions answered after building. `survey_when` tells them apart; compare before pooling (answers can prime
+  the pizza and the other way round).
 - **Tofu and the pilot.** Pizza Pilot 11.2026 had participants before tofu and the vegan mark (task 0.14.0) and has
   them after (0.15.0). Their pizzas are analysed together (tofu NA where not offered; `docs/BUILDER.md`), but the
   stimulus differs: compare or control for `summary.v` (task version) before pooling sauce choice or vegan share.
@@ -201,6 +204,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-16 | Claude Code (cloud) | 0.17.0 (task): pilot asks the metryczka before the pizza (survey_when, stage survey, pzf_data.when / survey_when, Data check: mix and answered-but-left; old-flow participants still asked) |
 | 2026-11-10 | Claude Code (cloud) | Review: declined consent tile (not stopped), Codespace reports rebuilt on analysis-code change, Data check wording, texts sheet per survey |
 | 2026-11-10 | Claude Code (cloud) | 0.16.0 (task): post-pizza survey per study (study.json survey, docs/SURVEY.md), q_<id> columns, Explore groupings from it; build per study; To review links + session panel (#sessions/<id>) |
 | 2026-11-10 | Claude Code (cloud) | Counter fix (built = finished pizza, as the analysis; stage never moves back); asked/flagged/auto-excluded browser conditions; Sessions filter needs a look |

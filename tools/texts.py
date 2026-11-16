@@ -65,11 +65,12 @@ MET = [('task.metTitle', 'Metryczka: nagłówek'), ('task.metSub', 'Metryczka: t
     ('task.metTransOpts.%s' % k, 'Metryczka: odpowiedź o transpłciowość') for k in ('yes', 'no', 'pnts')] + [('task.metDiet', 'Metryczka: pytanie o dietę')] + [
     ('task.metDiets.%s' % k, 'Metryczka: odpowiedź o dietę') for k in ('vegetarian', 'vegan', 'allergy', 'other')] + [
     ('task.metDietPh', 'Metryczka: podpowiedź w polu „inna”'), ('task.metNumberBad', 'Ankieta: zła liczba (pytanie liczbowe spoza metryczki)'),
-    ('task.finish', 'Metryczka: przycisk Zakończ')]
+    ('task.finish', 'Metryczka: przycisk Zakończ'),
+    ('task.metSubBefore', 'Metryczka przed pizzą: tekst pod nagłówkiem („Najpierw…”)'), ('task.metNext', 'Metryczka przed pizzą: przycisk Dalej')]
 # which question of the survey each metryczka text belongs to (the sheet lists only the texts of questions asked)
 MET_QUESTION = {'metAge': 'age', 'metAgePh': 'age', 'metAgeBad': 'age', 'metAutism': 'autism', 'metAdhd': 'adhd', 'metDx': ('autism', 'adhd'),
                 'metGender': 'gender', 'metGenders': 'gender', 'metTrans': 'trans', 'metTransOpts': 'trans', 'metDiet': 'diet', 'metDiets': 'diet',
-                'metDietPh': 'diet', 'metNumberBad': '@number'}
+                'metDietPh': 'diet', 'metNumberBad': '@number', 'metSubBefore': '@before', 'metNext': '@before'}
 
 
 def met_asked(key, st):
@@ -79,6 +80,8 @@ def met_asked(key, st):
         return True
     qs = [q for q in (st.get('survey') or [{'id': i} for i in ('age', 'autism', 'adhd', 'gender', 'trans', 'diet')]) if isinstance(q, dict)]
     want = MET_QUESTION[part]
+    if want == '@before':                          # the questions before the pizza (survey_when = before)
+        return st.get('survey_when') == 'before'
     if want == '@number':
         return any(q.get('type') == 'number' and (q.get('id') != 'age' or q.get('min') not in (None, 16) or q.get('max') not in (None, 99)) for q in qs)
     ids = {q.get('id') for q in qs if not (q.get('text') and q.get('options'))}      # a question with its own wording does not use these

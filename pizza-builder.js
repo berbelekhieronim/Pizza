@@ -16,7 +16,7 @@
   'use strict';
   if (global.PizzaBuilder) return;
 
-  var VERSION = '0.16.0';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
+  var VERSION = '0.17.0';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
   var VIEW = 105;        // half-width of every pizza viewBox; the pizza's outer radius is 100
   var R_SNAP = 0.9;      // with snapIn, a topping centre dropped on the crust is pulled in to this radius
   var R_OFF = 1.0;       // dropped further out than this = off the pizza
@@ -595,6 +595,7 @@
     aboutScales: [['picky', 'I am a picky eater.'], ['sensoryfood', 'Food textures, smells or looks often bother me.']],
     // metryczka (Followup style 'metryczka'): the short demographic card
     metTitle: 'About you', metSub: 'Finally, a few questions about you.',
+    metSubBefore: 'First, a few questions about you.', metNext: 'Continue',
     metAge: 'How old are you?', metAgePh: 'e.g. 27', metAgeBad: 'Please enter your age in years (a number from 16 to 99).',
     metNumberBad: 'Please enter a whole number from {min} to {max}.',
     metDx: [['no', 'No'], ['formal', 'Diagnosed by a specialist'], ['self', 'Self-diagnosed']],
@@ -646,6 +647,7 @@
         // metryczka (Followup style 'metryczka')
         metTitle: 'Metryczka',
         metSub: 'Na koniec kilka pytań o Ciebie.',
+        metSubBefore: 'Najpierw kilka pytań o Ciebie.', metNext: 'Dalej',
         metAge: 'Ile masz lat?', metAgePh: 'np. 27', metAgeBad: 'Wpisz wiek w latach (liczba od 16 do 99).',
         metNumberBad: 'Wpisz liczbę całkowitą od {min} do {max}.',
         metDx: [['no', 'nie'], ['formal', 'diagnoza postawiona przez specjalistę'], ['self', 'autodiagnoza']],
@@ -1372,6 +1374,9 @@
     style: 'strong', feelQuestions: ['feel', 'about', 'safe', 'sameway', 'crave'],
     // style 'metryczka': the study's own post-pizza questions (survey: a list of questions, see surveyQuestions)
     survey: null,
+    // when the card is shown: 'after' the pizza (default) or 'before' it (the study setting survey_when); it changes
+    // only the card's wording ("first" / "finally", Continue / Finish) and is kept with the answers (when)
+    when: 'after',
     counts: null, countsFrom: 'pz_', askPizza: null, askDiet: null, askReasons: true, askIdentity: true, force: true,
     // 'About you', the last card: who the participant is, so patterns can be explored across many kinds of people.
     // 'diet' is asked here only when the separate diet card is off. Set askAbout: false if the survey asks these itself.
@@ -1393,7 +1398,7 @@
     this.haveCounts = Object.keys(this.counts).length > 0;
     this.order = o.shuffle ? shuffle(o.ingredients) : o.ingredients.slice();
     this.root = root; this.t0 = now();
-    this.res = { v: VERSION, style: met ? 'metryczka' : strong ? 'strong' : 'ratings', start: new Date().toISOString(), countsKnown: this.haveCounts, order: this.order, pizza: {},
+    this.res = { v: VERSION, style: met ? 'metryczka' : strong ? 'strong' : 'ratings', when: o.when === 'before' ? 'before' : 'after', start: new Date().toISOString(), countsKnown: this.haveCounts, order: this.order, pizza: {},
       diet: [], dietOther: '', health: [], healthOther: '', freq: null, items: {} };
     if (strong && !met) { this.res.strong = []; this.res.none = false; }
     this.screens = met ? ['@met'] : strong ? ['@pick'].concat(o.askPizza ? ['@pizza'] : [], o.askDiet ? ['@diet'] : [])
@@ -1699,7 +1704,8 @@
     if (m.diet !== undefined) m.dietOther = m.dietOther || '';
     function stamp(k) { if (m.t[k] == null) m.t[k] = Math.round(now() - self.cardT); }
     card.appendChild(el('h3', null, esc(T.metTitle)));
-    card.appendChild(el('p', 'pzb-sub', esc(T.metSub)));
+    var before = this.res.when === 'before';
+    card.appendChild(el('p', 'pzb-sub', esc(before ? T.metSubBefore : T.metSub)));
     qs.forEach(function (q) {
       var box = el('div', 'pzb-q'); box.setAttribute('data-q', q.id); box.appendChild(el('p', null, esc(q.text)));
       if (q.type === 'number') {
@@ -1734,7 +1740,7 @@
     });
     upd = this._nav(card, function () {
       return qs.every(function (q) { var v = m[q.id]; return !q.required || (q.type === 'multi' ? v.length > 0 : v != null && v !== ''); });
-    }, T.finish);
+    }, before ? T.metNext : T.finish);
     this.w.appendChild(card);
   };
   // the metryczka in the fields the analysis already reads

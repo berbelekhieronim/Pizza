@@ -204,7 +204,8 @@ class Request_ {
       await this.store.create(pid, study, group || '', source || '', inv ? g('i') : '', cond || '');
       rec = await this.store.get(pid);
     }
-    return json({ pid: rec.pid, cond: rec.cond || '', stage: rec.stage || 'intro', counts: rec.pz_counts || '', restarts: String(rec.restarts || 0) });
+    return json({ pid: rec.pid, cond: rec.cond || '', stage: rec.stage || 'intro', counts: rec.pz_counts || '', restarts: String(rec.restarts || 0),
+      answered: !!rec.pzf_data });   // answered: the questions (wherever they came)
   }
 
   async save() {

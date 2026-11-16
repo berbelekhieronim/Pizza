@@ -230,6 +230,7 @@ settings above, a study can set its own flow:
 | `intro`, `consent` | the consent text (paragraphs) and the consent sentence | the SWPS pilot consent |
 | `consent_choice` | `true`: the consent is a question with YES / NO buttons; NO ends the study (stage `declined`, with `decline_message`) | `true` |
 | `followup` | the questions after the build: `strong` (default), `ratings`, or `metryczka` (the study's own short card of questions; by default age, autism, ADHD, gender, transgender, special diets) | `"metryczka"` |
+| `survey_when` | with `metryczka`: `before` asks the questions after the consent, before the practice and the pizza; default after the pizza (`docs/SURVEY.md`) | `"before"` |
 | `survey` | with `metryczka`: the study's own questions (number, one answer, several answers, text), in order; see `docs/SURVEY.md` | the metryczka's six |
 | `sauces`, `sauce`, `cheeses`, `cheese` | which sauces and cheeses are offered and which is selected at the start (`none`, `light`, `normal`, `extra`, `vegan`) | cheeses `none`, `light`, `extra`, `vegan`; `light` selected |
 | `nutrition_panel` | the nutrition table with calories under the pizza | `true` |
