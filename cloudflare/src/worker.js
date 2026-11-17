@@ -8,7 +8,8 @@
 import { Store, STAGES, ACTIVITY, ANALYSIS, now, randomToken, storageUsed, fileSizes, countOp, opsThisMonth } from './store.js';
 import { adminState, deniedPage, notBuilt, syntheticN, ALL_KEY } from './admin.js';
 import ADMIN_HTML from '../../server/admin.html';      // the researcher page, shared with server/server.py
-import { STUDY_RE, STUDY_KEYS, FILTER_KEYS, SYNTHETIC_CHOICES, loadStudy, studies, scopeName } from './config.js';
+import { STUDY_RE, STUDY_KEYS, FILTER_KEYS, SYNTHETIC_CHOICES, loadStudy, studies, scopeName, setOverrides, overrides, fileSettings } from './config.js';
+import * as ovr from './settings.js';
 
 const PID_RE = /^[A-Za-z0-9_-]{4,64}$/;
 const MAX_BODY = 2_000_000;
@@ -320,6 +321,13 @@ class Request_ {
     if (this.req.method === 'POST') return this.post(route, scope, f);
     if (route === '/admin') return html(ADMIN_HTML);
     if (route === '/admin/api/state') return json(await adminState(this, scope, f));
+    if (route === '/admin/api/settings') {
+      // the Settings tab: what is set where, and what is in force (server.py settings_view)
+      let sid = ['', 'main'].includes(this.arg('study')) ? '' : this.arg('study');
+      if (scope[0] === 'study') sid = scope[1];
+      if (sid && !studies().includes(sid)) return json({ error: 'no such study' }, 404);
+      return json(settingsView(scope, sid));
+    }
     if (route === '/admin/api/session') {
       // one session with every field (the Sessions tab's session panel); a study's researchers see their own study only
       const rec = await st.get(this.arg('pid'));
@@ -366,6 +374,23 @@ class Request_ {
 
   async post(route, scope, f) {
     let msg = '';
+    if (route === '/admin/api/settings') {
+      // the Settings tab: save the changes of one layer ('*' = every study, or a study id) after checking them
+      let body = null;
+      try { body = JSON.parse((await this.req.text()).slice(0, 100000)); } catch (e) { body = null; }
+      const where = body && body.scope, changes = body && body.settings;
+      const fail = (p) => json({ ok: false, problems: [p] }, 400);
+      if (where === '*') { if (!['owner', 'all'].includes(scope[0])) return fail('only the owner changes the settings of every study'); }
+      else if (typeof where !== 'string' || !studies().includes(where) || (scope[0] === 'study' && scope[1] !== where)) return fail('no such study');
+      if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return fail('no settings sent');
+      const clean = Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== null && v !== undefined));
+      const base = loadStudy(where === '*' ? '' : where, false);
+      const conds = clean.conditions || ovr.apply(base, where === '*' ? {} : overrides('*')).conditions || [];
+      const probs = ovr.problems(clean, conds);
+      if (probs.length) return json({ ok: false, problems: probs }, 400);
+      await this.store.setMeta('settings:' + where, JSON.stringify(clean));
+      return json({ ok: true });
+    }
     if (route === '/admin/api/synthetic') {
       // a test study's synthetic sessions: how many. Saved now; the next build adds or removes them and rebuilds
       const form = Object.fromEntries(new URLSearchParams((await this.req.text()).slice(0, 2000)));
@@ -469,6 +494,8 @@ class Request_ {
 
   async route() {
     const p = this.url.pathname;
+    // the Settings tab's changes, for the routes that read the study settings (saves do not)
+    if (p === '/study.json' || p === '/api/start' || p.startsWith('/admin')) setOverrides(await this.store.settingsAll());
     if (p === '/study.json') {
       const [sid] = await this.resolve(this.arg('i'), this.arg('study'));
       const s = loadStudy(sid);
@@ -495,3 +522,16 @@ export default {
   },
 };
 
+
+// the Settings tab's data: per layer, what study.json sets and what was changed here; what is in force
+function settingsView(scope, sid) {
+  const f = fileSettings();
+  const pick = (d) => Object.fromEntries(ovr.EDITABLE.filter((k) => d[k] !== undefined).map((k) => [k, d[k]]));
+  const eff = loadStudy(sid);
+  return {
+    study: sid || 'main', can_global: ['owner', 'all'].includes(scope[0]), editable: ovr.EDITABLE, cond_keys: ovr.COND_KEYS, choices: ovr.CHOICES,
+    global: { file: pick(f), changed: overrides('*') },
+    own: sid ? { file: pick((f.studies || {})[sid] || {}), changed: overrides(sid) } : null,
+    effective: pick(eff), groups: eff.groups || [],
+  };
+}

@@ -74,6 +74,35 @@ def http(method, url, body=None):
         return e.code, e.read()
 
 
+def settings_checks(base, key, who):
+    """The Settings tab's changes (server/settings.py, cloudflare/src/settings.js): saved per study, in force on the
+    participant page (study.json), checked before they are saved, and undone by saving nothing."""
+    sj = lambda: json.loads(http('GET', base + '/study.json?study=pilot-asd')[1])
+    url = base + '/admin/api/settings?key=' + key
+    before = sj()
+    good = {'nutrition': 'hidden', 'survey_when': 'after', 'conditions': ['a', 'b'],
+            'condition_settings': {'a': {'nutrition': 'none', 'survey': [{'id': 'age', 'type': 'number'}, {'id': 'sleep', 'type': 'single', 'text': 'Sen?', 'options': [['ok', 'dobrze'], ['bad', 'źle']]}]}}}
+    code, _ = http('POST', url, {'scope': 'pilot-asd', 'settings': good})
+    after = sj()
+    view = json.loads(http('GET', url + '&study=pilot-asd')[1])
+    check(before['nutrition'] == 'visible' and before['survey_when'] == 'before' and code == 200 and after['nutrition'] == 'hidden' and after['survey_when'] == 'after'
+          and after['condition_settings']['a']['nutrition'] == 'none' and view['effective']['conditions'] == ['a', 'b'] and view['own']['changed']['nutrition'] == 'hidden'
+          and view['global']['file']['nutrition'] == 'visible',
+          who + 'Settings tab: a study\'s changes (nutrition hidden, questions after, two conditions with their own settings) are in force on the participant page')
+    bad = [{'nutrition': 'blurry'}, {'survey': [{'id': 'X', 'type': 'single'}]}, {'conditions': ['a'], 'condition_settings': {'c': {'nutrition': 'none'}}},
+           {'condition_settings': {'a': {'groups': []}}}, {'title': 'x'}]
+    codes = [http('POST', url, {'scope': 'pilot-asd', 'settings': b}) for b in bad]
+    check(all(c == 400 and json.loads(t)['problems'] for c, t in codes) and sj()['nutrition'] == 'hidden'
+          and http('POST', url, {'scope': 'nope', 'settings': {}})[0] == 400,
+          who + 'Settings tab: wrong values, questions, conditions and keys are refused with the reasons (nothing saved)')
+    code, _ = http('POST', url, {'scope': '*', 'settings': {'nutrition': 'none'}})
+    g = json.loads(http('GET', base + '/study.json')[1]), json.loads(http('GET', base + '/study.json?study=pilot-2026-11')[1])
+    http('POST', url, {'scope': '*', 'settings': {}})
+    http('POST', url, {'scope': 'pilot-asd', 'settings': {}})
+    check(code == 200 and g[0]['nutrition'] == 'none' and g[1]['nutrition'] == 'visible' and sj() == before,
+          who + 'Settings tab: a global change applies where the study sets nothing itself (its own study.json line wins); saving nothing undoes it')
+
+
 def deploy_api_checks():
     """cloudflare/deploy.py's use of Cloudflare's API (account, workers.dev address, Turnstile), against a stand-in."""
     import http.server
@@ -167,7 +196,8 @@ def cloudflare_checks(tmp, fields):
             time.sleep(0.2)
         code, page = http('GET', base + '/')
         check(code == 200 and b'pizza-builder.js' in page, 'Worker: participant page')
-        check('nutrition_reveal' in json.loads(http('GET', base + '/study.json')[1]), 'Worker: passes the nutrition-reveal setting to the page')
+        check(json.loads(http('GET', base + '/study.json')[1]).get('nutrition') == 'visible', 'Worker: passes the nutrition setting to the page (default: shown)')
+        settings_checks(base, key, 'Worker: ')
         pst = json.loads(http('GET', base + '/study.json?study=pilot-2026-11')[1])
         check(pst['lang'] == 'pl' and pst['consent_choice'] is True and pst['followup'] == 'metryczka' and pst['cheeses'] == ['none', 'light', 'extra', 'vegan']
               and pst['bake_picture'] is True, 'Worker: passes the Pizza Pilot 11.2026 flow (Polish, consent yes / no, metryczka, cheeses, baked pizza)')
@@ -619,7 +649,8 @@ def main():
             check(api(base, 'sessions', 'smoke-key', study='tests')['total'] == 0, 'synthetic data: 0 removes it')
             code, page = http('GET', base + '/')
             check(code == 200 and b'pizza-builder.js' in page and b'Part ' not in page, 'participant page (the task only: no part counter)')
-            check('nutrition_reveal' in json.loads(http('GET', base + '/study.json')[1]), 'passes the nutrition-reveal setting to the page')
+            check(json.loads(http('GET', base + '/study.json')[1]).get('nutrition') == 'visible', 'passes the nutrition setting to the page (default: shown)')
+            settings_checks(base, 'smoke-key', '')
             check(http('GET', base + '/pizza-builder.js')[0] == 200, 'serves the task script')
             code, body = http('GET', base + '/api/start?group=ASD&pid=SMOKE001')
             check(code == 200 and json.loads(body)['pid'] == 'SMOKE001', 'starts a session')
@@ -712,7 +743,7 @@ def main():
             # Pizza Pilot 11.2026: its own flow (Polish, consent yes / no, metryczka, its cheeses, the baked pizza at the end)
             pst = json.loads(http('GET', base + '/study.json?study=pilot-2026-11')[1])
             check(pst['title'] == 'Pizza Pilot 11.2026' and pst['lang'] == 'pl' and pst['consent_choice'] is True and pst['followup'] == 'metryczka'
-                  and pst['cheeses'] == ['none', 'light', 'extra', 'vegan'] and pst['nutrition_panel'] is True and pst['bake_picture'] is True and pst['show_code'] is False,
+                  and pst['cheeses'] == ['none', 'light', 'extra', 'vegan'] and pst['nutrition'] == 'visible' and pst['bake_picture'] is True and pst['show_code'] is False,
                   'Pizza Pilot 11.2026: Polish, consent yes / no, metryczka, its cheeses, nutrition table, the baked pizza at the end')
             pids = [json.loads(http('GET', base + '/api/start?study=pilot-2026-11')[1])['pid'] for _ in range(4)]
             http('POST', base + '/api/save', {'pid': pids[0], 'stage': 'declined', 'fields': {'consent': 'declined 2026-11-08T10:00:00Z'}})
@@ -783,6 +814,18 @@ def main():
             heading('javascript')
             for f in ('pizza-builder.js', 'preview.js'):
                 check(subprocess.run(['node', '--check', f], cwd=ROOT).returncode == 0, 'syntax ' + f)
+            # the Settings tab's checker: the Worker's copy (cloudflare/src/settings.js) finds the same problems as server/settings.py
+            sys.path.insert(0, os.path.join(ROOT, 'server'))
+            import settings as OVR
+            cases = [{'nutrition': 'hidden'}, {'nutrition': 'x'}, {'survey_when': 'later'}, {'followup': 'metryczka', 'survey': [{'id': 'age', 'type': 'number'}]},
+                     {'survey': []}, {'survey': [{'id': 'q', 'type': 'single', 'text': 'Q', 'options': [['a', 'A'], ['a', 'B']], 'other': 'z'}]},
+                     {'survey': [{'id': 'n', 'type': 'number', 'text': 'N', 'min': 5, 'max': 1, 'required': 'yes', 'colour': 1}]},
+                     {'conditions': ['A', 'B'], 'condition_settings': {'A': {'nutrition': 'none'}, 'C': {}}}, {'conditions': ['A', 'A']},
+                     {'condition_settings': {'A': {'title': 'x'}}}, {'title': 'x'}, {'nutrition': None}, []]
+            js = ("import('./cloudflare/src/settings.js').then((m) => console.log(JSON.stringify(%s.map((c) => m.problems(c, ['A'])))))" % json.dumps(cases))
+            r = subprocess.run(['node', '--input-type=module', '-e', js], cwd=ROOT, capture_output=True, text=True)
+            check(r.returncode == 0 and json.loads(r.stdout) == [OVR.problems(c, ['A']) for c in cases],
+                  'Settings tab: the Worker and the study server check settings the same way (%d cases)' % len(cases))
             # the demo preview's face detector must give the same answers as analyse.py
             sys.path[:0] = [os.path.join(ROOT, 'tests'), os.path.join(ROOT, 'analysis')]
             import face_benchmark as FB

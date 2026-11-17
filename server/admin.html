@@ -74,6 +74,20 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
 .note{background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:10px 0;white-space:pre-wrap}
 .pill{display:inline-block;font-size:.75rem;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
 .pill.on{border-color:var(--ok);color:var(--ok)}
+/* the Settings tab */
+.setgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,300px);gap:18px;align-items:start}
+@media (max-width:820px){.setgrid{grid-template-columns:1fr}}
+.setsec{border-top:1px solid var(--line);padding:12px 0 4px}.setsec:first-of-type{border-top:0}
+.setsec h3{margin:0 0 4px;font-size:1rem}.setsec p.help{margin:0 0 8px;font-size:.85rem;color:var(--muted)}
+.opts{display:flex;flex-direction:column;gap:6px}.opts label{display:flex;gap:8px;align-items:flex-start;color:var(--fg);font-size:.92rem}
+.opts label small{color:var(--muted);display:block}
+.setrow{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin:6px 0}
+textarea.qs{width:100%;min-height:150px;font:12.5px/1.4 ui-monospace,Menlo,Consolas,monospace;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--panel);color:var(--fg)}
+.condbox{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:8px 0}
+.condbox h4{margin:0 0 4px;font-size:.92rem}
+.inforce{position:sticky;top:10px;font-size:.88rem}.inforce dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 10px}.inforce dt{color:var(--muted)}.inforce dd{margin:0}
+.probs{background:color-mix(in srgb,#d08a12 12%,transparent);border-radius:8px;padding:6px 10px;margin:8px 0;font-size:.88rem}
+.scopebar{display:flex;gap:6px;margin:0 0 10px}.scopebar button[aria-pressed=true]{background:var(--fg);color:var(--panel)}
 .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}
 @media (max-width:600px){.bar select{margin-left:0}iframe.report{height:80vh}}
 /* one session, opened from the Sessions tab or a report's link; its own address: #sessions/<id> */
@@ -145,6 +159,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       <button role="tab" data-tab="symmetry">Symmetry</button>
       <button role="tab" data-tab="methods">Methods</button>
       <button role="tab" data-tab="links">Links &amp; data</button>
+      <button role="tab" data-tab="settings">Settings</button>
     </nav>
     <div class="build" id="buildbar" aria-live="polite"></div>
 
@@ -178,6 +193,10 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     <div class="panel" data-panel="profiles"><div class="frame"><p class="loading"></p><iframe class="report" data-src="profiles.html" title="Profiles and clusters"></iframe></div></div>
     <div class="panel" data-panel="symmetry"><div class="frame"><p class="loading"></p><iframe class="report" data-src="arrangement.html" title="Symmetry and contact"></iframe></div></div>
     <div class="panel" data-panel="methods"><div class="frame"><p class="loading"></p><iframe class="report" data-src="methods" title="Methods"></iframe></div></div>
+
+    <div class="panel" data-panel="settings">
+      <div class="card" id="setcard"><p class="muted">Loading…</p></div>
+    </div>
 
     <div class="panel" data-panel="links">
       <div class="two">
@@ -289,7 +308,8 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
         + '<span class="stat"><b>' + esc(when(s.last).slice(0, 10)) + '</b><span>last started</span></span></span>'
         + '<span class="small muted">Personal links: ' + s.invites[0] + ' made, ' + s.invites[1] + ' opened, ' + s.invites[2] + ' finished'
         + (s.synthetic && s.synthetic.stored ? ' · <span class="syn">+' + s.synthetic.stored + ' synthetic</span>' : '')
-        + (s.nutrition_reveal ? ' · <span class="pill on">nutrition button</span>' : '') + (s.nutrition_panel ? ' · <span class="pill on">nutrition panel</span>' : '') + '</span></a>';
+        + (s.nutrition && s.nutrition !== 'none' ? ' · <span class="pill on">nutrition ' + (s.nutrition === 'hidden' ? 'hidden until asked' : 'shown') + '</span>' : '')
+        + (s.conditions && s.conditions.length ? ' · <span class="pill on">' + s.conditions.length + ' conditions</span>' : '') + '</span></a>';
     });
     cards.push('<a class="scard" href="?' + new URLSearchParams({ key: KEY, study: 'all' }) + '"><span class="name">All studies together</span>'
       + '<span class="muted small">Every session; the analysis compares studies and recruitment sources.</span>'
@@ -465,6 +485,115 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       + opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === c ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('')
       + '</select>';
   }
+  // ---- the Settings tab: the nutrition table, the questions and the conditions of a between-subjects study, for every
+  // study (global) or for this study. Each choice can be left "as inherited"; the panel on the right shows what is in
+  // force for new sessions. Saved as changes on top of server/study.json (settings.py / settings.js check them).
+  var NUTRI = [['visible', 'Shown', 'the nutrition table is visible next to the pizza while building'],
+    ['hidden', 'Hidden until asked', 'blurred, with a "Show nutrition information" button over it; whether and when they show it, and what they change afterwards, is analysed'],
+    ['none', 'Not shown', 'no nutrition information']];
+  var WHEN = [['before', 'Before the pizza', 'right after the consent'], ['after', 'After the pizza', 'after "I\'m done"']];
+  var STYLE = [['metryczka', 'Short card (age, autism / ADHD, gender, diet) or your own questions below', ''], ['strong', 'Standard follow-up: strong feelings about the toppings, About you (always after the pizza)', ''],
+    ['ratings', 'Standard follow-up with ratings of every topping (always after the pizza)', '']];
+  var SET = { scope: null, data: null };
+  function settings() {
+    var sid = S.study && S.study !== 'all' ? S.study : 'main';
+    api('api/settings', { study: sid }).then(function (d) {
+      SET.data = d;
+      if (!SET.scope || (SET.scope !== '*' && SET.scope !== d.study) || (SET.scope === '*' && !d.can_global)) SET.scope = d.own ? d.study : '*';
+      drawSettings();
+    }).catch(function () { $('setcard').innerHTML = '<p>Could not load the settings.</p>'; });
+  }
+  function optLabel(list, v) { var x = list.filter(function (o) { return o[0] === v; })[0]; return x ? x[1] : (v || '–'); }
+  function drawSettings(probs) {
+    var d = SET.data, glob = SET.scope === '*', ch = (glob ? d.global.changed : d.own.changed) || {};
+    // what this layer inherits: for a study, study.json's main settings with the global changes, then the study's own lines in study.json
+    function inh(k) {
+      if (glob) return d.global.file[k];
+      if (d.own.file[k] !== undefined) return d.own.file[k];
+      return d.global.changed[k] !== undefined ? d.global.changed[k] : d.global.file[k];
+    }
+    function src(k) {           // where the inherited value comes from
+      if (glob) return 'from server/study.json';
+      if (d.own.file[k] !== undefined) return 'from this study\'s lines in server/study.json';
+      return d.global.changed[k] !== undefined ? 'from the settings of every study (changed here)' : 'from the settings of every study (server/study.json)';
+    }
+    function radios(name, list, help) {
+      var cur = ch[name] === undefined ? '' : ch[name], iv = inh(name);
+      return '<div class="opts">' + [['', 'As inherited: ' + optLabel(list, iv || (name === 'survey_when' ? 'after' : name === 'nutrition' ? 'none' : 'strong')), src(name)]].concat(list).map(function (o) {
+        return '<label><input type="radio" name="' + name + '" value="' + o[0] + '"' + (o[0] === cur ? ' checked' : '') + '><span>' + esc(o[1]) + (o[2] ? '<small>' + esc(o[2]) + '</small>' : '') + '</span></label>';
+      }).join('') + '</div>';
+    }
+    function sel(name, list, cur, first) {
+      return '<select name="' + name + '"><option value="">' + esc(first) + '</option>' + list.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === cur ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>';
+    }
+    var conds = ch.conditions !== undefined ? ch.conditions : (inh('conditions') || []), cs = ch.condition_settings || (ch.conditions === undefined ? inh('condition_settings') || {} : {});
+    var inheritedConds = ch.conditions === undefined;
+    var condHtml = conds.map(function (c) {
+      var x = cs[c] || {};
+      return '<div class="condbox" data-cond="' + esc(c) + '"><h4>Condition ' + esc(c) + '</h4><div class="setrow">'
+        + '<label>Nutrition table<br>' + sel('c_nutrition', NUTRI, x.nutrition, 'as the study') + '</label>'
+        + '<label>Questions<br>' + sel('c_survey_when', WHEN, x.survey_when, 'as the study') + '</label>'
+        + '<label>Kind of questions<br>' + sel('c_followup', [['metryczka', 'short card / own questions'], ['strong', 'standard follow-up'], ['ratings', 'standard with ratings']], x.followup, 'as the study') + '</label></div>'
+        + '<details' + (x.survey ? ' open' : '') + '><summary class="small">Own questions for this condition (optional)</summary><textarea class="qs" name="c_survey" spellcheck="false" placeholder="empty: the questions of the study">' + esc(x.survey ? JSON.stringify(x.survey, null, 1) : '') + '</textarea></details></div>';
+    }).join('');
+    var e = d.effective, effCs = e.condition_settings || {};
+    var force = '<div class="card inforce"><h3 style="margin-top:0">In force for new sessions</h3><dl>'
+      + '<dt>Nutrition</dt><dd>' + esc(optLabel(NUTRI, e.nutrition || 'none')) + '</dd>'
+      + '<dt>Questions</dt><dd>' + esc(optLabel(WHEN, e.survey_when || 'after')) + (e.followup !== 'metryczka' && !e.survey ? ' (the standard follow-up: after)' : '') + '</dd>'
+      + '<dt>Asked</dt><dd>' + esc(e.survey ? e.survey.map(function (x) { return x.id; }).join(', ') : e.followup === 'metryczka' ? 'the short card' : 'the standard follow-up') + '</dd>'
+      + '<dt>Conditions</dt><dd>' + esc((e.conditions || []).length ? e.conditions.join(', ') : 'none (everyone the same)') + '</dd>'
+      + (e.conditions || []).map(function (c) {
+        var x = effCs[c] || {};
+        return '<dt>' + esc(c) + '</dt><dd>' + esc([x.nutrition ? 'nutrition ' + optLabel(NUTRI, x.nutrition).toLowerCase() : '', x.survey_when ? 'questions ' + x.survey_when : '', x.survey ? x.survey.length + ' own questions' : ''].filter(Boolean).join(', ') || 'as the study') + '</dd>';
+      }).join('') + '</dl><p class="small muted" style="margin:10px 0 0">Applies to new sessions and to people who reload the page; the data keeps what each person saw (summary.nutrition / reveal, pzf_data.when, the condition).</p></div>';
+    var title = glob ? 'Every study (global)' : 'This study: ' + d.study;
+    $('setcard').innerHTML = '<div class="setgrid"><form id="setform"><h2 style="margin-top:0">Settings</h2>'
+      + (d.own && d.can_global ? '<div class="scopebar"><button type="button" class="alt small" data-scope="' + esc(d.study) + '" aria-pressed="' + !glob + '">This study</button><button type="button" class="alt small" data-scope="*" aria-pressed="' + glob + '">Every study (global)</button></div>' : '')
+      + '<p class="muted small" style="margin:0 0 6px">Changing: <b>' + esc(title) + '</b>. ' + (glob ? 'A study\'s own settings (on its own Settings tab or in server/study.json) win over these.' : 'Anything left "as inherited" follows the settings of every study.') + '</p>'
+      + (probs && probs.length ? '<div class="probs"><b>Not saved:</b><br>' + probs.map(esc).join('<br>') + '</div>' : '')
+      + '<div class="setsec"><h3>Nutrition information while building</h3>' + radios('nutrition', NUTRI) + '</div>'
+      + '<div class="setsec"><h3>Questions (survey)</h3><p class="help">When to ask them, and what.</p>' + radios('survey_when', WHEN)
+      + '<p class="help" style="margin-top:10px">What to ask:</p>' + radios('followup', STYLE)
+      + '<details style="margin-top:8px"' + (ch.survey ? ' open' : '') + '><summary class="small">Your own questions (JSON, see docs/SURVEY.md)' + (ch.survey ? '' : inh('survey') ? ': inherited ' + inh('survey').length + ' questions' : '') + '</summary>'
+      + '<p class="help">A list of questions: <code>{"id": "sleep", "type": "single", "text": "Jak spałeś/spałaś?", "options": [["well", "dobrze"], ["badly", "źle"]]}</code>; types number, single, multi, text. The short card\'s own questions (age, autism, adhd, gender, trans, diet) need only id and type. Empty: as inherited.</p>'
+      + '<textarea class="qs" name="survey" spellcheck="false">' + esc(ch.survey ? JSON.stringify(ch.survey, null, 1) : '') + '</textarea>'
+      + (inh('survey') && !ch.survey ? '<button type="button" class="alt small" id="copyqs">Start from the inherited questions</button>' : '') + '</details></div>'
+      + '<div class="setsec"><h3>Between subjects: conditions</h3><p class="help">Each new session gets the next condition in turn (A, B, A, B…), or the one in its link (<code>&amp;cond=A</code>). A condition can have its own nutrition table and questions; the reports compare the conditions (Explore: Condition).</p>'
+      + '<div class="setrow"><label>Conditions (comma-separated, empty = ' + (inheritedConds ? 'as inherited' : 'none') + ')<br><input name="conditions" size="30" value="' + esc(inheritedConds ? '' : conds.join(', ')) + '" placeholder="' + esc((inh('conditions') || []).join(', ') || 'e.g. visible, hidden') + '"></label>'
+      + '<button type="button" class="alt small" id="condapply">Update the list below</button></div>' + condHtml + '</div>'
+      + '<div class="setrow" style="margin-top:12px"><button type="submit">Save</button><span class="small muted" id="setmsg"></span></div></form>' + force + '</div>';
+    var form = $('setform');
+    [].forEach.call(document.querySelectorAll('.scopebar button'), function (b) { b.onclick = function () { SET.scope = b.dataset.scope; drawSettings(); }; });
+    if ($('copyqs')) $('copyqs').onclick = function () { form.survey.value = JSON.stringify(inh('survey'), null, 1); };
+    $('condapply').onclick = function () { var v = collect(); if (v.ok) { (glob ? d.global : d.own).changed = v.settings; drawSettings(); } else drawSettings(v.problems); };
+    form.onsubmit = function (ev) {
+      ev.preventDefault();
+      var v = collect(); if (!v.ok) return drawSettings(v.problems);
+      $('setmsg').textContent = 'Saving…';
+      fetch('/admin/api/settings?' + q(), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ scope: SET.scope, settings: v.settings }) })
+        .then(function (r) { return r.json(); })
+        .then(function (r) { if (!r.ok) return drawSettings(r.problems || ['could not save']); settings(); load(S.study); })
+        .catch(function () { drawSettings(['could not save: reload the page and try again']); });
+    };
+    function collect() {
+      var out = {}, probs = [];
+      ['nutrition', 'survey_when', 'followup'].forEach(function (k) { var x = form.querySelector('input[name="' + k + '"]:checked'); if (x && x.value) out[k] = x.value; });
+      function parse(txt, where) { if (!txt.trim()) return undefined; try { return JSON.parse(txt); } catch (e) { probs.push(where + ': not valid JSON (' + e.message + ')'); return undefined; } }
+      var sv = parse(form.survey.value, 'your own questions'); if (sv !== undefined) out.survey = sv;
+      var cl = form.conditions.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+      if (cl.length) out.conditions = cl;
+      var css = {};
+      [].forEach.call(form.querySelectorAll('.condbox'), function (box) {
+        var c = box.dataset.cond, x = {};
+        ['nutrition', 'survey_when', 'followup'].forEach(function (k) { var v = box.querySelector('[name="c_' + k + '"]').value; if (v) x[k] = v; });
+        var qv = parse(box.querySelector('[name="c_survey"]').value, 'condition ' + c + ' questions'); if (qv !== undefined) x.survey = qv;
+        if (Object.keys(x).length && (cl.length ? cl : conds).indexOf(c) >= 0) css[c] = x;
+      });
+      if (Object.keys(css).length) { out.condition_settings = css; if (!cl.length && conds.length) out.conditions = conds; }
+      return probs.length ? { ok: false, problems: probs } : { ok: true, settings: out };
+    }
+  }
+
   function showStatus(k) {
     view.filters = { stage: k }; view.page = 1; view.folded = false;
     try { [].forEach.call($('filters').elements, function (el) { if (el.name) el.value = el.name === 'stage' ? k : ''; }); } catch (e) {}
@@ -535,6 +664,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       }
     }
     if (tab === 'sessions') sessions();
+    if (tab === 'settings') settings();
     if (tab === 'overview') liveStrip();
     setUrl(S.study, open ? 'sessions/' + encodeURIComponent(open) : tab);
     if (open) openSession(open);
@@ -600,6 +730,9 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
         + dl([['Started', when(rec.started)], ['Last saved', when(rec.updated)], ['Finished', rec.finished ? when(rec.finished) : ''], ['Time taken', rec.seconds != null ? mins(rec.seconds) : ''],
               ['Came back', rec.restarts ? rec.restarts + '×' : ''], ['Group / source', [rec.group, rec.source].filter(Boolean).join(' / ')], ['Condition', rec.cond],
               ['Pizza', rec.pz_final ? (J('pz_final') || []).length + ' pieces, ' + new Set((J('pz_final') || []).map(function (x) { return x[1]; })).size + ' toppings, sauce ' + (summ.sauce || '–') + ', cheese ' + (summ.cheese || '–') + (summ.finished === false ? ' (not finished)' : '') : ''],
+              ['Nutrition', !rec.pz_summary ? '' : summ.nutrition ? (summ.nutrition.blur ? 'hidden until asked: ' + (summ.reveal && summ.reveal.shown ? 'shown after ' + mins(summ.reveal.tFirst / 1000) : 'never shown') : 'shown')
+                : summ.reveal ? 'on a button: ' + (summ.reveal.shown ? 'shown after ' + mins(summ.reveal.tFirst / 1000) : 'not shown while building') : 'not shown'],
+              ['Finish button pulsed', summ.nudges ? summ.nudges + '×' : ''],
               ['Task version', summ.v], ['Device', [rec.browser, rec.os].filter(Boolean).join(' · ') + (rec.tz ? ' · ' + rec.tz : '')],
               ['Screen / window', cl.screen ? cl.screen.join('×') + ' / ' + (cl.viewport || []).join('×') : ''], ['Saves retried', rec.save_fails], ['Consent', rec.consent]])
         + (answers.length ? '<h3>Answers</h3>' + dl(answers) : '')

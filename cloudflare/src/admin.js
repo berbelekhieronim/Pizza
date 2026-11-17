@@ -1,6 +1,7 @@
 // The researcher page's data on Cloudflare: /admin/api/state, the same shape as Handler.state() in server/server.py.
 // The page itself is server/admin.html, shared by both servers.
 import { loadStudy, studies, scopeName, SYNTHETIC_CHOICES } from './config.js';
+import { nutritionMode } from './settings.js';
 import { STATUSES } from './store.js';
 
 export const ALL_KEY = '*';               // study_keys row of the researcher link for all studies
@@ -68,7 +69,7 @@ export async function adminState(r, scope, f) {
       built: stt.analysed, active: stt.active + stt.pending, declined: stt.declined, stopped: c.n - stt.analysed - stt.active - stt.pending - stt.declined,
       last: await st.lastStarted(sid), median_seconds: await st.medianSeconds(sid),
       invites: [invs.length, invs.filter((i) => i.stage).length, invs.filter((i) => i.stage === 'done').length],
-      links: openLinks(r, sid), nutrition_reveal: !!cfg.nutrition_reveal, nutrition_panel: !!cfg.nutrition_panel,
+      links: openLinks(r, sid), nutrition: nutritionMode(cfg), survey_when: cfg.survey_when || 'after', conditions: cfg.conditions || [],
       synthetic: sid && cfg.synthetic ? { n: await syntheticN(st, sid), stored: syn, choices: SYNTHETIC_CHOICES } : null,
     };
     if (own) row.researcher_link = r.base() + '/admin?' + new URLSearchParams({ key: await st.studyKey(sid) });

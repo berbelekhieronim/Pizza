@@ -6,7 +6,8 @@ ingredients, About you). Pizza Pilot 11.2026 does this: its *metryczka*. The que
 
 ## Setting it up
 
-In the study's settings (`"studies": {"<id>": {...}}`):
+On the researcher page's **Settings** tab (for every study, or for one study; per condition in a between-subjects
+study), or in the study's settings in `server/study.json` (`"studies": {"<id>": {...}}`):
 
 ```json
 "followup": "metryczka",
@@ -46,7 +47,8 @@ those columns are empty; nobody is counted as "not autistic" because the questio
 ## Before or after the pizza
 
 `"survey_when": "before"` asks the questions right after the consent, before the practice and the pizza (Pizza
-Pilot 11.2026 from task 0.17.0); the default is after the pizza. The card's wording follows (*Najpierw kilka pytań o
+Pilot 11.2026 from task 0.17.0; the default for every study from task 0.18.0); `"after"` asks them after the pizza. The
+standard follow-up (strong feelings about the toppings) asks about the pizza, so it always comes after it. The card's wording follows (*Najpierw kilka pytań o
 Ciebie* and *Dalej* before, *Na koniec…* and *Zakończ* after; texts `task.metSubBefore`, `task.metNext`). What it
 changes:
 

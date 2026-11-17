@@ -5,6 +5,29 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Task 0.18.0: nutrition hidden until asked; a Settings tab; the finish button stands out.**
+- **Nutrition hidden until asked** (`nutrition: "hidden"`): the nutrition table next to the pizza is blurred, with
+  *Pokaż wartości odżywcze* over it; it is not updated while blurred, so the blur gives nothing away, and one click shows
+  it for the rest of the build. The click is logged as `nshow`, so the reveal measures apply: whether and when they
+  showed it (`nutri_revealed`, `nutri_first_reveal_ms`, `nutri_reveal_share`) and what changed after (`post_nutri_*`:
+  pieces added / removed, energy and nutrients, meat / vegan pieces, base, lighter / heavier). New column
+  `nutrition_mode` (visible / hidden / button / none); Explore groups by it; the overview's nutrition section says how
+  it was offered and compares the energy of the pizzas by mode; the session panel shows it and when it was shown.
+- **Settings tab** on the researcher page, for every study (global) and for each study: the nutrition table (shown,
+  hidden until asked, not shown), the questions (before or after the pizza, the short card / own questions / the
+  standard follow-up, the questions themselves) and a between-subjects design (conditions assigned in turn, each with
+  its own nutrition setting and questions). Changes are kept in the database on both servers on top of
+  `server/study.json` (a study's own lines win over the global settings), checked before saving
+  (`server/settings.py` = `cloudflare/src/settings.js`), and apply to new sessions and reloads. `study.json` now
+  says `"nutrition"` (the earlier `nutrition_panel` / `nutrition_reveal` still read).
+- **Defaults** for every study: the nutrition table shown, the questions before the pizza (the standard follow-up still
+  comes after, as it asks about the pizza). Pilot ASD, which set neither, now shows the table and asks first.
+- **The finish button** (*Gotowe*) is green and pulses gently (a soft ring, no movement) when the pizza can be finished
+  and the participant has paused for 6 s; their next action stops it. Logged (`nudge`; `done_nudges`,
+  `done_first_nudge_ms`).
+- **Fits the window everywhere:** the questions card (the age box beside its question) and the practice no longer
+  scroll at 1366×657; the task's pages have less padding.
+
 **Task 0.17.1: the pizza task fits the window, nutrition included.** With the nutrition table (Pizza Pilot 11.2026),
 the table sat under the pizza and the toppings ran below the window, so people had to scroll to reach *Gotowe* and the
 table. Now, on a computer window at least about 1100 px wide, the page widens and the task is three columns (pizza |

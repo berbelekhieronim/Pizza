@@ -918,8 +918,18 @@ def nutrition_measures(pieces, summary):
     out = {NUT_COL[k]: whole[k] for k in NUTRIENTS}
     out.update({'nut_grams': whole['grams'], 'top_grams': top['grams'], 'top_kcal': top['kcal'],
                 'top_kcal_share': top['kcal'] / whole['kcal'] if whole['kcal'] else None,
-                'nutrition_panel': int(bool((summary or {}).get('nutrition')))})
+                'nutrition_panel': int(bool((summary or {}).get('nutrition'))), 'nutrition_mode': nutrition_mode(summary)})
     return out
+
+
+def nutrition_mode(summary):
+    """How the nutrition information was offered while building (study / condition setting, recorded in the summary):
+    visible (the table in view), hidden (blurred until "Show nutrition information", task 0.18.0), button (the earlier
+    reveal: a button under the pizza and the table in the "I'm done" dialog) or none."""
+    s = summary or {}
+    if s.get('nutrition'):
+        return 'hidden' if s['nutrition'].get('blur') else 'visible'
+    return 'button' if s.get('reveal') else 'none'
 
 
 NUTRI_SIGHTS = ('nshow', 'nmodal')     # the nutrition shown: "Show nutrition information", or the "I'm done" dialog
@@ -1860,6 +1870,12 @@ def nutrition_section(recs, groups):
     num = lambda r, k: r.get(k) if isinstance(r.get(k), (int, float)) else None
     vals = lambda k, rs: {g: [num(r, k) for r in rs if r['_group'] == g and num(r, k) is not None] for g in groups}
     out = [dot_plot('Energy of the finished pizza (whole pizza with its base; shown to the participant or not)', vals('nut_kcal', recs), lo=0.0, fmt='%.0f', unit='kcal')]
+    # more than one way of offering it (a between-subjects study, or a setting changed on the way): energy by the way
+    MODES = [('visible', 'shown'), ('hidden', 'hidden until asked'), ('button', 'on a button'), ('none', 'not shown')]
+    by_mode = {lab: [num(r, 'nut_kcal') for r in recs if r.get('nutrition_mode') == m and num(r, 'nut_kcal') is not None] for m, lab in MODES}
+    by_mode = {k: v for k, v in by_mode.items() if v}
+    if len(by_mode) > 1:
+        out.append(dot_plot('Energy of the finished pizza by how the nutrition information was offered', by_mode, lo=0.0, fmt='%.0f', unit='kcal'))
     offered = [r for r in recs if num(r, 'nutrition_reveal') == 1]
     if not offered:
         shown = any(num(r, 'nutrition_panel') == 1 for r in recs)
@@ -1886,9 +1902,16 @@ def nutrition_section(recs, groups):
     if seen:
         out.append(dot_plot('Change in energy after first seeing the nutrition (final pizza minus the pizza at that moment)', vals('post_nutri_d_kcal', seen), fmt='%.0f',
                             unit='kcal', lo=min([0.0] + [num(r, 'post_nutri_d_kcal') or 0 for r in seen])))
-    return ('<p class="muted">Offered to %d of %d participants. %d chose "I changed my mind" at the end at least once; %d rebuilt after the end dialog. '
-            'Measures and their formulas are on the Methods page (nutri_*, post_nutri_*); explore.html compares people who revealed it with those who did not.</p>'
-            % (len(offered), len(recs), cm, sum(1 for r in offered if num(r, 'rebuilt_after_done') == 1)) + ''.join(out))
+    nb = sum(1 for r in offered if r.get('nutrition_mode') == 'hidden')
+    nrev = sum(1 for r in offered if num(r, 'nutri_revealed') == 1)
+    how = ('blurred with a "Show nutrition information" button over it' if nb == len(offered) else
+           'on a button under the pizza and in the "I\'m done" dialog' if not nb else 'blurred (%d) or on a button (%d)' % (nb, len(offered) - nb))
+    return ('<p class="muted">Hidden until asked for %d of %d participants (%s); %d of them showed it while building. '
+            '%s Measures and their formulas are on the Methods page (nutri_*, post_nutri_*); explore.html compares people who revealed it with those who did not, '
+            'and the ways of offering it (Nutrition information).</p>'
+            % (len(offered), len(recs), how, nrev,
+               ('%d chose "I changed my mind" at the end at least once; %d rebuilt after the end dialog.' % (cm, sum(1 for r in offered if num(r, 'rebuilt_after_done') == 1))) if len(offered) > nb else '')
+            + ''.join(out))
 
 
 EXCLUDED_COLUMNS = ['pid', 'build', 'reason', 'stage', 'n_pieces', 'last_saved', 'study']
@@ -3076,7 +3099,7 @@ EXPLORE_GROUPINGS = [
     ('nd_identified', 'Autism / ADHD: formally diagnosed or not'), ('eat_any', 'Any eating difficulty, allergy or intolerance (yes / no)'),
     ('eat_picky', 'Picky eating since childhood (yes / no)'), ('gender', 'Gender'), ('age_band', 'Age'),
     ('transgender', 'Transgender (yes / no)'), ('diet_special', 'Special diet (vegetarian, vegan or other; yes / no)'),
-    ('nutrition_panel', 'Nutrition panel shown (yes / no)'), ('nutri_revealed', 'Revealed the nutrition while building (yes / no)'), ('group', 'Recruitment group (study link)'), ('source', 'Recruitment source'), ('study', 'Study'), ('condition', 'Condition'),
+    ('nutrition_mode', 'Nutrition information: shown / hidden until asked / none'), ('nutrition_panel', 'Nutrition panel shown (yes / no)'), ('nutri_revealed', 'Revealed the nutrition while building (yes / no)'), ('group', 'Recruitment group (study link)'), ('source', 'Recruitment source'), ('study', 'Study'), ('condition', 'Condition'),
 ]
 EXPLORE_COVARIATES = [('self_picky', '"I am a picky eater" (1-7)'), ('self_sensory_food', '"Food textures, smells or looks bother me" (1-7)')]
 
@@ -3199,13 +3222,13 @@ def t_sf2(t, df):
 TOPPING_AREAS = ('Toppings', 'Strong ', 'Changed mind', 'Considered')      # per-topping rows of explore.html
 # the groupings the study is about; the others (demographics, recruitment) are shown folded away. The task is desktop
 # only, so the device is not a grouping.
-RESEARCH_GROUPINGS = ('neurotype', 'nd_any', 'nd_autistic', 'nd_adhd', 'nd_identified', 'eat_picky', 'eat_any', 'nutri_revealed', 'nutrition_panel', 'study', 'condition')
+RESEARCH_GROUPINGS = ('neurotype', 'nd_any', 'nd_autistic', 'nd_adhd', 'nd_identified', 'eat_picky', 'eat_any', 'nutri_revealed', 'nutrition_mode', 'nutrition_panel', 'study', 'condition')
 # measures that make a lead: not the per-topping indicators, base choices or the low-level process and movement
 # timings (they stay in the full screen)
 NOT_LEADS = TOPPING_AREAS + ('Base and diet', 'Process', 'Movement')
 LEAD_MIN = SMALL_N      # people in each group before a difference is listed as a lead
 # measures that define a grouping are not compared within it (people who revealed the nutrition "reveal it more often")
-DEFINED_BY = {'nutri_revealed': ('Seeing nutrition',), 'nutrition_panel': ('Seeing nutrition',)}
+DEFINED_BY = {'nutri_revealed': ('Seeing nutrition',), 'nutrition_panel': ('Seeing nutrition',), 'nutrition_mode': ('Seeing nutrition',)}
 
 
 # Kept in participants.csv but not screened for group differences: they mostly re-measure something already screened
@@ -3950,6 +3973,9 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
                 rec['drag_vs_practice'] = rec['drag_median'] / rec['practice_drag_median']
             for k in ('pointer', 'coarse', 'layout', 'pizzaPx', 'vw', 'vh', 'dpr', 'hiddenMs', 'hides'):
                 rec[k] = summary.get(k)
+            # the finish button's pulse (task 0.18.0): how often it started, and when first (ms from the start of the build)
+            rec['done_nudges'] = summary.get('nudges') if 'nudges' in summary else None
+            rec['done_first_nudge_ms'] = summary.get('tFirstNudge')
             rec['diet'] = ' '.join(diet) or None
             rec['diet_other'] = follow.get('dietOther') or None
             health = follow.get('health')

@@ -335,6 +335,14 @@ export class Store {
   async setMeta(k, v) {
     await this.db.prepare('INSERT OR REPLACE INTO meta VALUES (?, ?)').bind(k, v).run();
   }
+
+  async settingsAll() {
+    // the Settings tab's changes: {'*': {...}, <study id>: {...}} (meta keys settings:<scope>)
+    const { results } = await this.db.prepare("SELECT k, v FROM meta WHERE k LIKE 'settings:%'").all();
+    const out = {};
+    for (const r of results || []) { try { const v = JSON.parse(r.v); if (v && typeof v === 'object' && !Array.isArray(v)) out[r.k.slice(9)] = v; } catch (e) { /* skip a broken value */ } }
+    return out;
+  }
 }
 
 // ---- R2 accounting: storage and monthly operations stay under the free tier (see limits() in worker.js)

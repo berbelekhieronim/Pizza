@@ -16,7 +16,7 @@
   'use strict';
   if (global.PizzaBuilder) return;
 
-  var VERSION = '0.17.1';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
+  var VERSION = '0.18.0';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
   var VIEW = 105;        // half-width of every pizza viewBox; the pizza's outer radius is 100
   var R_SNAP = 0.9;      // with snapIn, a topping centre dropped on the crust is pulled in to this radius
   var R_OFF = 1.0;       // dropped further out than this = off the pizza
@@ -412,6 +412,11 @@
     '.pzb-btn{flex:1;min-height:44px;border-radius:10px;border:1px solid var(--pzb-line);background:#fff;padding:6px 10px}',
     '.pzb-btn.pzb-primary{background:var(--pzb-accent);border-color:var(--pzb-accent);color:var(--pzb-accent-ink);font-weight:600}',
     '.pzb-btn:disabled{opacity:.45;cursor:default}',
+    // the finish button has its own colour (green: done), and pulses gently when the pizza can be finished and the
+    // participant pauses (_tick)
+    '.pzb-btn.pzb-done{background:#2f7d3a;border-color:#2f7d3a;color:#fff}.pzb-btn.pzb-done:not(:disabled):hover{background:#276a31}',
+    '.pzb-btn.pzb-nudge{animation:pzb-nudge 1.8s ease-out infinite}.pzb-btn.pzb-nudge:hover{animation:none}',
+    '@keyframes pzb-nudge{0%{box-shadow:0 0 0 0 rgba(47,125,58,.55)}70%,100%{box-shadow:0 0 0 9px rgba(47,125,58,0)}}',
     '.pzb-note{min-height:1.2em;font-size:.85em;color:var(--pzb-muted)}',
     '.pzb-locked .pzb-item,.pzb-locked .pzb-ctl button{pointer-events:none;opacity:.5}',
     '.pzb-steps{margin:12px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}',
@@ -465,6 +470,9 @@
     '.pzb-mode-followup:not(.pzb-narrow) .pzb-checks{flex-direction:row;flex-wrap:wrap}',
     '.pzb-mode-followup:not(.pzb-narrow) .pzb-check{width:auto;flex:0 1 auto;padding:6px 12px 6px 10px}',
     '.pzb-mode-followup:not(.pzb-narrow) .pzb-q{margin-top:12px}',
+    '.pzb-mode-followup:not(.pzb-narrow) .pzb-qnum{display:flex;flex-wrap:wrap;align-items:center;column-gap:14px}',
+    '.pzb-mode-followup:not(.pzb-narrow) .pzb-qnum>p:first-child{margin:0}.pzb-mode-followup:not(.pzb-narrow) .pzb-qnum .pzb-num{margin-top:0}',
+    '.pzb-mode-followup:not(.pzb-narrow) .pzb-qnum>p.pzb-sub{flex-basis:100%}',
     '.pzb-mode-followup:not(.pzb-narrow) .pzb-acols{display:grid;grid-template-columns:1fr 1fr;gap:0 28px;align-items:start}',
     '.pzb-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;margin:12px 0 4px}',
     '.pzb-narrow .pzb-tiles{grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:6px}',
@@ -488,6 +496,8 @@
     '.pzb-ncompact{margin-top:0;padding:6px 10px}.pzb-ncompact .pzb-nh{margin-bottom:4px;align-items:center}',
     '.pzb-ncompact .pzb-ngrid{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:3px 10px}.pzb-ncompact .pzb-ncell,.pzb-ncompact .pzb-nkcal{font-size:.74em}',
     '.pzb-nhide{font:inherit;font-size:.85em;border:1px solid var(--pzb-line);background:#fff;border-radius:8px;padding:2px 10px;cursor:pointer;color:var(--pzb-ink)}',
+    '.pzb-nblur{position:relative;overflow:hidden}.pzb-nblur .pzb-nbody{filter:blur(7px);opacity:.75;pointer-events:none;user-select:none}',
+    '.pzb-nbtn{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);flex:none;min-width:70%;max-width:90%;box-shadow:0 4px 14px rgba(0,0,0,.18)}',
     '.pzb-dialog.pzb-wide{max-width:620px}.pzb-dialog.pzb-wide .pzb-nutri{margin:0 0 16px}',
     // a computer with the nutrition panel: three columns (pizza | toppings and buttons | nutrition), all sized to the
     // window so nothing needs scrolling; _layout picks the toppings' columns and bowl size, the text keeps its size
@@ -744,6 +754,10 @@
     // researcher setting: a "Show nutrition information" button under the pizza, and the pizza's nutrition in the
     // "I'm done" dialog with "Bake it for me" / "I changed my mind" (back to building)
     nutritionReveal: false,
+    // researcher setting (with nutrition: true): the panel starts blurred with "Show nutrition information" over it; one
+    // click shows it for the rest of the build (logged as nshow, like the button above). Until then it is not updated,
+    // so the blurred bars give nothing away.
+    nutritionBlur: false,
     names: null, text: null, lang: null, texts: null, onSave: null, onFinish: null, onEvent: null
   };
 
@@ -753,6 +767,7 @@
     this.practice = o.mode === 'practice';
     if (o.prefix == null) o.prefix = this.practice ? 'pzp_' : 'pz_';
     if (this.practice) { o.ingredients = ['tom']; o.baseChoices = false; o.confirm = false; o.bake = false; o.shuffle = false; o.nutrition = false; o.nutritionReveal = false; }
+    if (!o.nutrition) o.nutritionBlur = false;
     this.T = texts(o);
     this.root = root;
     this.pieces = []; this.stack = []; this.ev = [];
@@ -832,12 +847,21 @@
       this.undoBtn.onclick = function () { self.undo(); };
       this.clearBtn.onclick = function () { self._clearAsk(); };
     }
-    this.doneBtn = el('button', 'pzb-btn pzb-primary', esc(this.practice ? T.practiceDone : T.done)); this.doneBtn.type = 'button';
+    this.doneBtn = el('button', 'pzb-btn pzb-primary pzb-done', esc(this.practice ? T.practiceDone : T.done)); this.doneBtn.type = 'button';
     btns.appendChild(this.doneBtn);
     this.doneBtn.onclick = function () { self._doneClick(); };
     this.noteEl = el('div', 'pzb-note'); ctl.appendChild(this.noteEl);
 
-    if (o.nutrition) { this.nutriEl = el('div', 'pzb-nutri'); this.nutriEl.setAttribute('aria-live', 'polite'); w.appendChild(this.nutriEl); }
+    if (o.nutrition) {
+      this.nutriEl = this.nutriBody = el('div', 'pzb-nutri'); this.nutriEl.setAttribute('aria-live', 'polite'); w.appendChild(this.nutriEl);
+      if (o.nutritionBlur) {             // blurred, with the button over it, until the participant asks to see it
+        this.blurred = true; this.nutriEl.className = 'pzb-nutri pzb-nblur'; this.nutriEl.removeAttribute('aria-live');
+        this.nutriBody = el('div', 'pzb-nbody'); this.nutriBody.setAttribute('aria-hidden', 'true'); this.nutriEl.appendChild(this.nutriBody);
+        this.nutriBody.innerHTML = this._nutriHtml();
+        this.blurBtn = el('button', 'pzb-btn pzb-primary pzb-nbtn', esc(T.reveal)); this.blurBtn.type = 'button'; this.nutriEl.appendChild(this.blurBtn);
+        this.blurBtn.onclick = function () { self._unblur(); };
+      }
+    }
 
     this.toastEl = el('div', 'pzb-toast'); document.body.appendChild(this.toastEl);
     this.root.appendChild(w);
@@ -886,7 +910,7 @@
     var top = this.boardEl ? this.boardEl.getBoundingClientRect().top + (global.scrollY || 0) : 120;
     // room under the pizza for the "Show nutrition information" button, or for the table once it is shown
     var below = this.revealBtn ? (this.revealEl.hidden ? 44 : (this.revealEl.offsetHeight || 170) + 24) : 0;
-    var size = narrow ? Math.min(W - pad, vh * 0.52, 560) : Math.min(W - (cols4 ? 390 : 318) - pad, Math.max(this.revealBtn ? (this.revealEl.hidden ? 330 : 280) : 380, vh - top - 40 - below), 600);
+    var size = narrow ? Math.min(W - pad, vh * 0.52, 560) : Math.min(W - (cols4 ? 390 : 318) - pad, Math.max(this.revealBtn ? (this.revealEl.hidden ? 330 : 280) : 380, vh - top - 48 - below), 600);
     size = Math.max(220, Math.floor(size));
     this.pizzaEl.style.width = this.pizzaEl.style.height = size + 'px';
     // the column keeps the width it had with the table hidden: showing the table shrinks the pizza, not the layout
@@ -1174,8 +1198,15 @@
     this.save();
   };
 
+  Builder.prototype._unblur = function () {
+    if (this.locked || !this.blurred) return;
+    this.blurred = false;
+    this.nutriEl.classList.remove('pzb-nblur'); this.nutriEl.setAttribute('aria-live', 'polite'); this.nutriBody.removeAttribute('aria-hidden');
+    if (this.blurBtn.parentNode) this.blurBtn.parentNode.removeChild(this.blurBtn);
+    this.nutriBody.innerHTML = this._nutriHtml(); this._logSight('nshow');
+  };
   Builder.prototype._nutri = function () {
-    if (this.nutriEl) this.nutriEl.innerHTML = this._nutriHtml();
+    if (this.nutriEl && !this.blurred) this.nutriBody.innerHTML = this._nutriHtml();
     if (this.revealEl && !this.revealEl.hidden) this.revealEl.innerHTML = this._nutriHtml(true);
   };
   Builder.prototype._totals = function () {
@@ -1274,7 +1305,12 @@
     }
     this.doneBtn.disabled = !ok;
     this.noteEl.textContent = note;
-    if (!this.timer && !this.practice && o.minSeconds > 0) this.timer = setInterval(function () { self._tick(); }, 500);
+    // a gentle pulse on the finish button once the pizza can be finished and the participant has paused for 6 s (it
+    // stops at their next action; logged as "nudge", counted in summary.nudges)
+    if (!this.practice && ok && this.pieces.length && !this.nudging && now() - (this.lastAct || this.t0) > 6000 && !this.locked) {
+      this.nudging = true; this.doneBtn.classList.add('pzb-nudge'); this.log('nudge');
+    }
+    if (!this.timer && !this.practice) this.timer = setInterval(function () { self._tick(); }, 500);
   };
 
   Builder.prototype._doneClick = function () {
@@ -1310,8 +1346,13 @@
   };
 
   // ---- data
+  var NOT_ACTS = { nudge: 1, hide: 1, show: 1 };      // logged without being something the participant did here
   Builder.prototype.log = function () {
     if (this.finished && arguments[0] !== 'finish') return;
+    if (!NOT_ACTS[arguments[0]]) {
+      this.lastAct = now();
+      if (this.nudging) { this.nudging = false; this.doneBtn.classList.remove('pzb-nudge'); }
+    }
     var a = [Math.round(now() - (this.t0 || now()))].concat([].slice.call(arguments));
     this.ev.push(a);
     if (this.o.onEvent) this.o.onEvent(a);
@@ -1335,6 +1376,7 @@
       if (e[1] === 'pick' && first.pick == null) first.pick = e[0];
       if (e[1] === 'done' && first.done == null) first.done = e[0];
       if (e[1] === 'nshow' && first.nshow == null) first.nshow = e[0];
+      if (e[1] === 'nudge' && first.nudge == null) first.nudge = e[0];
     });
     var gaps = []; for (var i = 1; i < adds.length; i++) gaps.push(adds[i] - adds[i - 1]);
     var last = ev.length ? ev[ev.length - 1][0] : 0, fin = null;
@@ -1346,8 +1388,8 @@
       tFirstPick: first.pick == null ? null : first.pick, tFirstAdd: first.add == null ? null : first.add, tLast: last,
       nPieces: this.pieces.length, nDistinct: Object.keys(counts).filter(function (k) { return counts[k] > 0; }).length,
       counts: counts, sauce: o.baseChoices ? this.sauce : null, cheese: o.baseChoices ? this.cheese : null, tray: this.tray,
-      nutrition: o.nutrition ? { show: o.nutritionShow, base: o.nutritionBase !== false } : null,
-      reveal: o.nutritionReveal ? { shown: n.nshow || 0, tFirst: first.nshow == null ? null : first.nshow, doneSeen: n.nmodal || 0, changedMind: n.changemind || 0,
+      nutrition: o.nutrition ? { show: o.nutritionShow, base: o.nutritionBase !== false, blur: !!o.nutritionBlur } : null,
+      reveal: o.nutritionReveal || o.nutritionBlur ? { how: o.nutritionBlur ? 'blur' : 'button', shown: n.nshow || 0, tFirst: first.nshow == null ? null : first.nshow, doneSeen: n.nmodal || 0, changedMind: n.changemind || 0,
         base: o.nutritionBase !== false } : null,
       n: { pick: n.pick || 0, add: n.add || 0, reject: n.reject || 0, tap: n.tap || 0, move: n.move || 0, remove: n.remove || 0, resize: n.resize || 0, undo: n.undo || 0, clear: n.clear || 0, hover: n.hover || 0 },
       nGrown: this.pieces.filter(function (p) { return (p.g || 1) > 1.01; }).length,
@@ -1355,7 +1397,7 @@
       dragMsMedian: median(drags), addGapMsMedian: median(gaps),
       move: mv.length ? { n: mv.length, straight: fmedian(mv.map(function (m) { return m[1]; })), pausesPerDrag: Math.round(100 * mv.reduce(function (a, m) { return a + m[2]; }, 0) / mv.length) / 100,
         dwell: median(mv.map(function (m) { return m[4]; })), hold: median(mv.map(function (m) { return m[6]; })), path: fmedian(mv.map(function (m) { return m[0]; })) } : null,
-      hiddenMs: Math.round(this.hiddenMs + (this.hiddenAt != null ? now() - this.hiddenAt : 0)), hides: n.hide || 0,
+      hiddenMs: Math.round(this.hiddenMs + (this.hiddenAt != null ? now() - this.hiddenAt : 0)), hides: n.hide || 0, nudges: n.nudge || 0, tFirstNudge: first.nudge == null ? null : first.nudge,
       pointer: this.pointer, coarse: mq('(pointer: coarse)'), hover: mq('(hover: hover)'),
       vw: global.innerWidth, vh: global.innerHeight, dpr: global.devicePixelRatio || 1,
       pizzaPx: Math.round(this.pizzaEl.getBoundingClientRect().width * 200 / (2 * VIEW)), layout: this.layout
@@ -1757,6 +1799,7 @@
     qs.forEach(function (q) {
       var box = el('div', 'pzb-q'); box.setAttribute('data-q', q.id); box.appendChild(el('p', null, esc(q.text)));
       if (q.type === 'number') {
+        box.className = 'pzb-q pzb-qnum';      // on a computer the box sits beside its question (the card fits the window)
         var inp = el('input', 'pzb-other pzb-num' + (q.id === 'age' ? ' pzb-age' : '')); inp.type = 'number'; inp.min = String(q.min); inp.max = String(q.max); inp.step = '1';
         inp.inputMode = 'numeric'; inp.placeholder = q.placeholder; inp.style.maxWidth = '8em';
         var bad = el('p', 'pzb-sub', esc(q.bad)); bad.style.display = 'none';

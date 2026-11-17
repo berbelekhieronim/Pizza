@@ -4,7 +4,7 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-11-17, task version 0.17.1, server 0.14.0)
+## Snapshot (2026-11-17, task version 0.18.0, server 0.14.0)
 
 - **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
@@ -81,6 +81,15 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 ## Decisions and why
 
+- **Settings tab = overrides in the database, study.json stays the base** (0.18.0). Layers: study.json main → global
+  changes → the study's own study.json lines → the study's changes. Kept in `meta` (`settings:*`, `settings:<study>`),
+  no migration; the Worker reads them at the start of the requests that need them (`setOverrides`). Only `nutrition`,
+  `survey_when`, `followup`, `survey`, `conditions`, `condition_settings` are editable there; everything else is
+  study.json. Global changes: owner or the all-studies link only.
+- **Blurred nutrition is frozen while blurred** so the bars under the blur do not leak the pizza's energy; showing it is
+  one-way (no hide), so `nutri_open_ms` runs from the reveal to the end.
+- **The finish-button pulse is a nudge to finish** and could shorten building; it starts only after 6 s of no action,
+  is logged (`done_nudges`), and the version (0.18.0) marks the change, so earlier and later data can be compared.
 - **Exploratory framing.** Many measures and groupings are screened. Effects are given as Cliff's δ with BH false
   discovery rates. Leads come with n per group at half the observed effect, because pilot effects are inflated.
   Hypotheses H1a–H2c guide which measures exist but are not tested as such.
@@ -204,6 +213,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-17 | Claude Code (cloud) | 0.18.0: nutrition hidden until asked (blurred + button, reveal measures, nutrition_mode); Settings tab (nutrition, questions, conditions; global and per study; both servers, settings.py = settings.js); defaults shown + before; green pulsing Gotowe (nudges); whole flow fits 1366×657 |
 | 2026-11-17 | Claude Code (cloud) | 0.17.1 (task): three-column layout with the nutrition table (pizza / toppings + buttons / nutrition) fitted to the window height, no scrolling from 1280×610; Sessions tab: status and include/exclude in one dropdown, column tooltips |
 | 2026-11-17 | Claude Code (cloud) | One status per session (STATUS_SQL, both servers): tiles add up, Status badge + Your choice on the Sessions tab, pizza thumbnails toggle; live data read (11 of 20 pilot sessions excluded by hand explained the counts) |
 | 2026-11-17 | Claude Code (cloud) | Unfinished pizzas pending for 24 h (listed with those in progress), then abandoned (left out, folded); both servers + analysis |

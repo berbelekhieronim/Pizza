@@ -233,7 +233,7 @@ settings above, a study can set its own flow:
 | `survey_when` | with `metryczka`: `before` asks the questions after the consent, before the practice and the pizza; default after the pizza (`docs/SURVEY.md`) | `"before"` |
 | `survey` | with `metryczka`: the study's own questions (number, one answer, several answers, text), in order; see `docs/SURVEY.md` | the metryczka's six |
 | `sauces`, `sauce`, `cheeses`, `cheese` | which sauces and cheeses are offered and which is selected at the start (`none`, `light`, `normal`, `extra`, `vegan`) | cheeses `none`, `light`, `extra`, `vegan`; `light` selected |
-| `nutrition_panel` | the nutrition table with calories under the pizza | `true` |
+| `nutrition` | the nutrition table: `visible` (in view), `hidden` (blurred until "Pokaż wartości odżywcze"), `none` | `"visible"` |
 | `completion_title`, `completion_message`, `bake_picture`, `show_code` | the end page: heading, text, the participant's pizza baked, and whether to show the completion code | "Dziękujemy za pomoc!", "Oto Twoja upieczona pizza:", picture on, no code |
 
 The toppings are shown in a new random order for every participant (as in every study).
@@ -347,18 +347,37 @@ What a pilot gives for the larger study (in `explore.html`):
 - To compare the pilot with a non-autistic sample, run a second study (e.g. `general`, recruited the same way, or
   via Prolific) on the same server and look at *All studies*.
 
+### Settings tab: nutrition, questions and conditions per study
+
+The researcher page has a **Settings** tab. For every study (global) and for each study on its own it sets:
+- **Nutrition information while building** (`nutrition`): *shown* (`visible`, the default), *hidden until asked*
+  (`hidden`: the table is blurred with a *Pokaż wartości odżywcze* button over it; whether and when they show it and
+  what they change afterwards is analysed), or *not shown* (`none`).
+- **Questions**: when (`survey_when`: `before` the pizza, the default, or `after`), what (`followup`: the short card
+  or your own questions, or the standard follow-up, which asks about the toppings and so always comes after), and your
+  own questions (`survey`, see `docs/SURVEY.md`).
+- **Between subjects** (`conditions`, `condition_settings`): conditions assigned in turn to new sessions (or set by
+  `&cond=` in the link), each with its own nutrition setting and questions. The reports compare them (Explore:
+  Condition, Nutrition information).
+
+Anything left "as inherited" follows the layer below: global changes on top of `server/study.json`, a study's own lines
+in `study.json`, then the study's changes. The changes are kept in the database (both servers; `server/settings.py`,
+`cloudflare/src/settings.js` check them) and apply to new sessions and to people who reload the page. The same keys
+can be written in `study.json` directly.
+
 ### Nutrition panel (a study setting)
 
 Researchers can show participants a live **nutrition panel** under the pizza. It shows the whole pizza's energy (and
 per slice, with where the energy comes from), protein, carbohydrate and sugars, fat and saturates, fibre, salt, and
 vitamins and minerals as a share of the daily reference intake. It updates with every piece added, moved off, resized,
-or a sauce / cheese change. It is off by default. Turn it on:
+or a sauce / cheese change. On the study server it is shown by default (task 0.18.0); turn it off or hide it until asked on the Settings tab, or:
 
-- **study server:** `server/study.json` (or one study under `"studies"`): `"nutrition_panel": true`;
+- **study server:** `server/study.json` (or one study under `"studies"`): `"nutrition": "visible"` (or `"hidden"`, `"none"`;
+  the earlier `"nutrition_panel": true` still works);
   `"nutrition_show"` lists what to show (any of `kcal protein carbs sugars fat satfat fibre salt vitA vitC vitD vitB12
   folate calcium iron potassium`); `"nutrition_base": false` counts the toppings only. To test the panel's effect,
   give it to one condition only:
-  `"conditions": ["label", "nolabel"], "condition_settings": {"label": {"nutrition_panel": true}}`.
+  `"conditions": ["label", "nolabel"], "condition_settings": {"label": {"nutrition": "visible"}, "nolabel": {"nutrition": "none"}}`.
 - **Qualtrics:** `nutrition: true` in `build.js` (also `nutritionShow`, `nutritionBase`).
 - **demo:** the *Nutrition panel* switch.
 
@@ -375,9 +394,12 @@ they finish. This shows who wants to know and whether knowing changes the pizza.
 - **At "I'm done":** a dialog shows the pizza's nutrition with two choices. *Bake it for me* finishes. *I changed my
   mind* goes back to building, and the participant can change anything.
 
-Turn it on:
-- **study server:** `"nutrition_reveal": true` for the own pizza. Per condition:
-  `"condition_settings": {"reveal": {"nutrition_reveal": true}}`, which also applies to the typical-participant pizza.
+On the study server from task 0.18.0, *hidden until asked* is the nutrition table next to the pizza, blurred, with
+*Pokaż wartości odżywcze* over it (no dialog at the end); one click shows it for the rest of the build. Set it on the
+Settings tab or with `"nutrition": "hidden"` (also per condition); the earlier `"nutrition_reveal": true` means the same.
+The button-under-the-pizza version below stays for Qualtrics.
+
+Turn the button version on:
 - **Qualtrics:** `nutritionReveal: true` in `build.js`.
 - **demo:** *Researcher view* → the *Nutrition button* switch.
 

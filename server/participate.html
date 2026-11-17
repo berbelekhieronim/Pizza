@@ -35,8 +35,10 @@
   .choice button { min-width:7em; }
   button.alt { background:#fff; color:var(--ink); border:1px solid var(--line); }
   /* the pizza task with the nutrition panel: wider, so pizza, toppings and nutrition sit side by side in the window */
-  body.wide .wrap { max-width:1400px; padding-top:8px; padding-bottom:8px; }
-  body.wide .sheet { padding-top:10px; padding-bottom:10px; }
+  /* the task's parts (questions, practice, pizza): less padding, so each fits a laptop window without scrolling */
+  body.task .wrap { padding-top:8px; padding-bottom:8px; }
+  body.task .sheet { padding-top:10px; padding-bottom:10px; }
+  body.wide .wrap { max-width:1400px; }
   .baked { display:flex; justify-content:center; margin:14px 0 6px; }
 </style>
 </head>
@@ -265,7 +267,20 @@
   // The parts in order. The study's questions (style metryczka) come after the pizza ("followup"), or before the
   // practice with survey_when = "before" ("survey"). Someone who was already past that point when the setting changed
   // and has not answered (S.needSurvey) is asked after the pizza instead, so nobody misses the questions.
-  function surveyFirst() { return S.study.survey_when === 'before' && S.study.followup === 'metryczka'; }
+  // A setting for this participant: their condition's (condition_settings, a between-subjects experiment), else the
+  // study's (which already includes the global settings and the researcher's changes on the Settings tab)
+  function cfg(k) { var cs = (S.study.condition_settings || {})[S.cond] || {}; return cs[k] !== undefined ? cs[k] : S.study[k]; }
+  // the nutrition table: visible, hidden (blurred, with a button to show it) or none; earlier keys still read
+  function modeOf(o) {
+    if (['visible', 'hidden', 'none'].indexOf(o.nutrition) >= 0) return o.nutrition;
+    if (o.nutrition_reveal) return 'hidden';
+    if (o.nutrition_panel != null) return o.nutrition_panel ? 'visible' : 'none';
+    return null;
+  }
+  function nutritionMode() { return modeOf((S.study.condition_settings || {})[S.cond] || {}) || modeOf(S.study) || 'none'; }
+  // the questions before the pizza: the short card (metryczka) or the study's own questions; the standard follow-up asks
+  // about the toppings on the pizza, so it always comes after it
+  function surveyFirst() { return cfg('survey_when') === 'before' && (cfg('followup') === 'metryczka' || !!cfg('survey')); }
   function order() {
     var first = surveyFirst(), o = ['intro'].concat(first ? ['survey'] : [], ['practice', 'build']);
     if (S.study.typical_build) o.push('typical');
@@ -277,7 +292,7 @@
     widget = null;
     stage.innerHTML = '';
     next.hidden = true;
-    document.body.classList.remove('wide');
+    document.body.classList.remove('wide', 'task');
     var o = order(), i = o.indexOf(name);     // no "part i of n": the participant only sees the task itself
     window.scrollTo(0, 0);
     send(true);
@@ -300,21 +315,22 @@
     if (name === 'followup' || name === 'survey') {
       opts.when = name === 'survey' ? 'before' : 'after';     // kept with the answers (pzf_data.when)
       opts.counts = S.fields.pz_counts || null; opts.askAbout = S.study.about_you !== false;
-      if (S.study.followup) opts.style = S.study.followup;     // e.g. "metryczka": only the short demographic card
-      if (S.study.survey) opts.survey = S.study.survey;       // the study's own post-pizza questions (study.json "survey")
+      if (cfg('followup') || cfg('survey')) opts.style = cfg('followup') || 'metryczka';     // e.g. "metryczka": only the short demographic card
+      if (cfg('survey')) opts.survey = cfg('survey');       // the study's own questions (Settings tab, or study.json "survey")
     }
     if (name === 'build' || name === 'typical') {
       ['sauces', 'sauce', 'cheeses', 'cheese'].forEach(function (k) { if (S.study[k] != null) opts[k] = S.study[k]; });   // the study's base choices
       // study settings for what people see while building; condition_settings can vary them by condition (an experiment)
       var cs = (S.study.condition_settings || {})[S.cond] || {};
-      opts.nutrition = cs.nutrition_panel != null ? !!cs.nutrition_panel : !!S.study.nutrition_panel;
-      // "Show nutrition information" button + nutrition in the "I'm done" dialog: the own build, the typical build only by condition
-      opts.nutritionReveal = cs.nutrition_reveal != null ? !!cs.nutrition_reveal : (name === 'build' && !!S.study.nutrition_reveal);
+      var mode = nutritionMode();
+      opts.nutrition = mode !== 'none';
+      opts.nutritionBlur = mode === 'hidden';      // blurred with "Show nutrition information" over it; showing it is logged
       var show = cs.nutrition_show || S.study.nutrition_show;
       if (show) opts.nutritionShow = show;
       if ((cs.nutrition_base != null ? cs.nutrition_base : S.study.nutrition_base) === false) opts.nutritionBase = false;
     }
     document.body.classList.toggle('wide', !!opts.nutrition && (name === 'build' || name === 'typical'));
+    document.body.classList.add('task');
     widget = PizzaBuilder.mount(box, opts);
   }
   function intro() {

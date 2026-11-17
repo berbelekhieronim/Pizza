@@ -14,7 +14,8 @@
   ],
   "typical_build": false,
   "about_you": true,
-  "nutrition_panel": false,
+  "survey_when": "before",
+  "nutrition": "visible",
   "nutrition_show": [
     "kcal",
     "protein",
@@ -31,7 +32,6 @@
     "iron"
   ],
   "nutrition_base": true,
-  "nutrition_reveal": false,
   "condition_settings": {},
   "studies": {
     "pilot-asd": {
@@ -47,7 +47,7 @@
     },
     "tests": {
       "description": "Tests by the research team: not participant data",
-      "nutrition_reveal": true,
+      "nutrition": "hidden",
       "synthetic": 100
     },
     "pilot-2026-11": {
@@ -63,8 +63,7 @@
       "consent": "Wyrażam zgodę na udział w badaniu pilotażowym:",
       "consent_choice": true,
       "decline_message": "Dziękujemy. Bez zgody nie możemy kontynuować badania, więc kończy się ono w tym miejscu. Możesz zamknąć tę stronę.",
-      "nutrition_panel": true,
-      "nutrition_reveal": false,
+      "nutrition": "visible",
       "cheeses": [
         "none",
         "light",

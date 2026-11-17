@@ -66,7 +66,8 @@ A JSON array of `[t, type, ...]`:
 | `hover` | code, ms | mouse rested ≥150 ms on a tray item (desktop only) |
 | `hide`, `show` | | tab hidden or visible again |
 | `done`, `cancel`, `finish` | | "I'm done" pressed, confirmation declined, task finished |
-| `nshow` | pieces, kcal, sauce, cheese (what was shown) | "Show nutrition information" clicked (nutrition-reveal setting) |
+| `nshow` | pieces, kcal, sauce, cheese (what was shown) | "Show nutrition information" clicked (hidden until asked: the blurred table or the button) |
+| `nudge` | | the finish button started to pulse (0.18.0) |
 | `nhide` | | the nutrition table hidden again |
 | `nmodal` | pieces, kcal, sauce, cheese | the "I'm done" dialog with the pizza's nutrition shown (reveal setting) |
 | `changemind` | | "I changed my mind" in that dialog: back to building |
@@ -85,6 +86,7 @@ The build summary has `move: {n, straight, pausesPerDrag, dwell, hold, path}` (m
 `tFinish`, `tDone` (first press of "I'm done"), `tSubmit` (confirmed and submitted; = `tFinish`), `nDone` (presses of "I'm done"),
 `nDoneCancelled` (times they went back to edit), `tFirstPick`, `tFirstAdd`, `tLast` · `nPieces`, `nDistinct`, `counts` {code: n} · `sauce`, `cheese` · `tray` order ·
 `n` {event type: count} · `nGrown`, `nShrunk` (pieces made bigger / smaller) · `dragMsMedian` · `addGapMsMedian` · `hiddenMs`, `hides` ·
+`nudges`, `tFirstNudge` (the finish button's pulse: times started, ms of the first; from 0.18.0) · `nutrition` `{show, base, blur}` (`blur`: hidden until asked, 0.18.0) ·
 `pointer` (first pointer type used) · `coarse` (touch-first device) · `hover` (device can hover) · `vw`, `vh`, `dpr` ·
 `pizzaPx` (pizza diameter on screen in CSS px) · `layout` (`wide` side-by-side, `narrow` stacked, or `columns` from task 0.17.1: pizza, toppings and the nutrition panel in three columns fitted to the window) · `trimmed` (hover events dropped to save space).
 Practice only: `targetErr` (distance from the target centre for each attempt, max 3), `stepT` (time each step was completed), `stepsDone`.
@@ -238,6 +240,7 @@ Scales run 1-7:
 | `add_gap_median`, `drag_median` | median ms between placements; median drag duration |
 | `practice_*`, `drag_vs_practice` | motor baseline from the practice (drag time, targeting error, tries, duration, pointer); build drag ÷ practice drag |
 | device | `pointer`, `coarse`, `layout`, `pizzaPx`, `vw`, `vh`, `dpr`, `hiddenMs`, `hides` |
+| finish button | `done_nudges` (times the button started to pulse), `done_first_nudge_ms` (from 0.18.0) |
 | `diet`, `diet_other`, `pizza_freq` | from the follow-up |
 | `neurotype` | from "About you": `AuDHD` (autistic and ADHD), `Autistic`, `ADHD`, `Other ND` (dyslexic etc. or otherwise neurodivergent only), `Not ND`; empty if not asked or prefer not to say |
 | `nd_autistic`, `nd_adhd`, `nd_dys`, `nd_otherND`, `nd_none`, `nd_pnts` | each self-description ticked (0/1) |
@@ -318,7 +321,7 @@ salt in g; vitC, calcium, iron, potassium in mg; vitA, vitD, vitB12, folate in �
 
 ### Seeing the nutrition (reveal setting, from 0.13.0)
 
-`pz_summary.reveal` is `{shown, tFirst, doneSeen, changedMind, base}` when the setting was on (times the table was shown, ms of the first, "I'm done" dialogs seen, "I changed my mind" clicks, base counted), else `null`. Columns (participants.csv; empty when the setting was off): `nutrition_reveal`, `nutri_revealed`, `nutri_n_reveals`, `nutri_first_reveal_ms`, `nutri_reveal_share`, `nutri_open_ms`, `n_nutri_done_seen`, `n_changed_mind`, `nutri_seen`, `nutri_first_seen_ms`, `nutri_first_seen_how` (reveal / done), `nutri_kcal_at_sight`; after the first sight: `post_nutri_changed`, `post_nutri_added`, `post_nutri_removed`, `post_nutri_d_kcal` and `post_nutri_d_{protein,fat,satfat,sugars,salt,fibre}_g` (finished − then), `post_nutri_d_{vegan,vegetarian,seafood,meat}_pieces`, `post_nutri_base_changed`, `post_nutri_direction` (lighter / same energy / heavier / unchanged), `pre_nutri_adds_per_min`, `post_nutri_adds_per_min`, `pre_nutri_removal_share`, `post_nutri_removal_share`; from the first "I'm done" dialog: `rebuilt_after_done`, `post_done_d_kcal`, `post_done_direction`. Formulas: the Methods page.
+`nutrition_mode`: how it was offered (`visible`, `hidden` = blurred until asked from 0.18.0, `button`, `none`). `pz_summary.reveal` is `{how, shown, tFirst, doneSeen, changedMind, base}` (`how`: `blur` or `button`) when the setting was on (times the table was shown, ms of the first, "I'm done" dialogs seen, "I changed my mind" clicks, base counted), else `null`. Columns (participants.csv; empty when the setting was off): `nutrition_reveal`, `nutri_revealed`, `nutri_n_reveals`, `nutri_first_reveal_ms`, `nutri_reveal_share`, `nutri_open_ms`, `n_nutri_done_seen`, `n_changed_mind`, `nutri_seen`, `nutri_first_seen_ms`, `nutri_first_seen_how` (reveal / done), `nutri_kcal_at_sight`; after the first sight: `post_nutri_changed`, `post_nutri_added`, `post_nutri_removed`, `post_nutri_d_kcal` and `post_nutri_d_{protein,fat,satfat,sugars,salt,fibre}_g` (finished − then), `post_nutri_d_{vegan,vegetarian,seafood,meat}_pieces`, `post_nutri_base_changed`, `post_nutri_direction` (lighter / same energy / heavier / unchanged), `pre_nutri_adds_per_min`, `post_nutri_adds_per_min`, `pre_nutri_removal_share`, `post_nutri_removal_share`; from the first "I'm done" dialog: `rebuilt_after_done`, `post_done_d_kcal`, `post_done_direction`. Formulas: the Methods page.
 
 ### `removals_long.csv` (one row per piece taken off the pizza)
 

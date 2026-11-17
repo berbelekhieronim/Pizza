@@ -15,7 +15,8 @@ be analysed together (see *Changing the builder without breaking the data* below
 2. **Build** (`pz_` fields): choose a **sauce** and a **cheese** (where the study offers a choice), then drag toppings
    from the **tray** onto the pizza, one piece per drag. A piece is resized by holding it, removed by dragging it off
    the pizza. The tray order is shuffled for each participant and recorded (`tray` in the summary, `start` event).
-3. Optional, per study: a nutrition table (`nutrition_panel`), nutrition on request (`nutrition_reveal`), a
+3. Optional, per study (Settings tab, or `server/study.json`): the nutrition table (`nutrition`: `visible` by default,
+   `hidden` = blurred until *Pokaż wartości odżywcze*, `none`), a
    "typical participant" pizza (`pzt_`), and the follow-up questions (`pzf_data`).
 
 **Fits the window (task 0.17.1).** With the nutrition table on a computer at least about 1100 px wide, the task is
@@ -25,6 +26,12 @@ take 5 or 6 columns with the largest bowls that fit (46 down to 34 px; the names
 13.6 px) and the pizza takes the remaining height (at most 600 px). Checked with no scrolling at 1280×610, 1366×657,
 1440×789, 1536×730, 1920×945 and 1280×900 (browser windows of common laptop and desktop screens). Recorded as
 `layout: "columns"` in the summary; narrower windows keep the earlier layout (table below the pizza).
+
+**The finish button (task 0.18.0).** *Gotowe* is green (the other buttons are white, the base choices red), so it reads
+as the way out. Once the pizza can be finished (enough pieces and time) and the participant has done nothing for 6 s,
+it pulses gently (a soft green ring, no movement); their next action, or the mouse over it, stops it, and it can start
+again after another pause. Each start is logged (`nudge`; `summary.nudges`, `tFirstNudge`; columns `done_nudges`,
+`done_first_nudge_ms`). With reduced motion set in the system, it does not pulse.
 
 ## Sauces
 

@@ -41,6 +41,7 @@ from html import escape
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(1, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'analysis'))   # synthetic.py
 from store import Store, SORTABLE, STAGES, ACTIVITY, ANALYSIS, STATUSES  # noqa: E402
+import settings as ovr  # noqa: E402  (the Settings tab's changes to study.json)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                          # the repository root
@@ -52,7 +53,7 @@ BUILD_LOCK = threading.Lock()
 
 STUDY_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 STUDY_KEYS = ('title', 'intro', 'consent', 'completion_message', 'completion_redirect', 'typical_build', 'about_you', 'conditions', 'groups',
-              'nutrition_panel', 'nutrition_show', 'nutrition_base', 'nutrition_reveal', 'condition_settings', 'synthetic',
+              'nutrition', 'nutrition_panel', 'nutrition_show', 'nutrition_base', 'nutrition_reveal', 'condition_settings', 'synthetic',
               # a study's own flow: language, consent with yes/no, the questions at the end, the base choices, the end page
               'lang', 'consent_choice', 'decline_message', 'followup', 'sauces', 'sauce', 'cheeses', 'cheese', 'bake_picture', 'show_code', 'completion_title', 'texts', 'survey', 'survey_when')
 SYNTHETIC_CHOICES = (0, 25, 50, 100, 200, 500)        # synthetic pizzas a test study can hold (study.json "synthetic" = the default)
@@ -67,15 +68,38 @@ def synthetic_n(store, sid):
     return int(v) if v is not None and v.isdigit() else int(cfg['synthetic'])
 
 
-def load_study(study_id=''):
-    """study.json; with a study id, that study's settings ("studies": {id: {...}}) override the main ones."""
+SETTINGS_STORE = None      # the open database, for the Settings tab's changes (set by Study)
+
+
+def overrides(scope):
+    """The Settings tab's changes: scope '*' = every study, else a study id (settings.py says which keys)."""
+    if SETTINGS_STORE is None:
+        return {}
+    try:
+        v = json.loads(SETTINGS_STORE.meta('settings:' + scope) or '{}')
+    except ValueError:
+        return {}
+    return v if isinstance(v, dict) else {}
+
+
+def file_settings():
     try:
         with open(os.path.join(HERE, 'study.json'), encoding='utf-8') as f:
-            cfg = json.load(f)
+            return json.load(f)
     except (OSError, ValueError):
-        cfg = {}
+        return {}
+
+
+def load_study(study_id='', changes=True):
+    """study.json; with a study id, that study's settings ("studies": {id: {...}}) override the main ones. The Settings
+    tab's changes (changes=True) apply on top of each layer: the global ones on the main settings, the study's on its own."""
+    cfg = file_settings()
+    if changes:
+        cfg = ovr.apply(cfg, overrides('*'))
     if study_id:
         cfg = dict(cfg, **{k: v for k, v in (cfg.get('studies') or {}).get(study_id, {}).items() if k in STUDY_KEYS + ('description',)})
+        if changes:
+            cfg = ovr.apply(cfg, overrides(study_id))
     return cfg
 
 
@@ -91,6 +115,8 @@ class Study:
         self.key = key
         os.makedirs(self.data, exist_ok=True)
         self.store = Store(os.path.join(self.data, 'study.db'))
+        global SETTINGS_STORE
+        SETTINGS_STORE = self.store
         n = self.store.import_files(self.data)              # sessions saved as JSON files by earlier versions, once
         if n:
             print('  Imported %d earlier session%s into the database.' % (n, '' if n == 1 else 's'), flush=True)
@@ -405,6 +431,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 '<p>This page needs a researcher link, which ends in <code>/admin?key=...</code>. The study owner finds theirs in the codespace '
                 'terminal (or with <code>python3 server/server.py --links</code>) and can give each study\'s researchers a link for that study.</p></body>')
 
+    def settings_view(self, scope, sid):
+        """The Settings tab's data: per layer, what study.json sets and what was changed here; what is in force."""
+        f = file_settings()
+        pick = lambda d: {k: d[k] for k in ovr.EDITABLE if k in d}
+        eff = load_study(sid)
+        return {'study': sid or 'main', 'can_global': scope[0] in ('owner', 'all'), 'editable': list(ovr.EDITABLE), 'cond_keys': list(ovr.COND_KEYS),
+                'choices': {k: list(v) for k, v in ovr.CHOICES.items()},
+                'global': {'file': pick(f), 'changed': overrides('*')},
+                'own': {'file': pick((f.get('studies') or {}).get(sid, {})), 'changed': overrides(sid)} if sid else None,
+                'effective': pick(eff), 'groups': eff.get('groups') or []}
+
+    def save_settings(self, scope, where, changes):
+        """Replace the changes of one layer ('*' = every study, or a study id) after checking them."""
+        if where == '*':
+            if scope[0] not in ('owner', 'all'):
+                return False, {'ok': False, 'problems': ['only the owner changes the settings of every study']}
+        elif not isinstance(where, str) or where not in studies() or (scope[0] == 'study' and scope[1] != where):
+            return False, {'ok': False, 'problems': ['no such study']}
+        if not isinstance(changes, dict):
+            return False, {'ok': False, 'problems': ['no settings sent']}
+        changes = {k: v for k, v in changes.items() if v is not None}
+        base = load_study('' if where == '*' else where, changes=False)
+        conds = changes.get('conditions', ovr.apply(base, overrides('*') if where != '*' else {}).get('conditions') or [])
+        probs = ovr.problems(changes, conds)
+        if probs:
+            return False, {'ok': False, 'problems': probs}
+        self.study.store.set_meta('settings:' + where, json.dumps(changes, ensure_ascii=False))
+        return True, {'ok': True}
+
     def body_form(self):
         n = int(self.headers.get('Content-Length') or 0)
         if n <= 0 or n > 10000:
@@ -466,6 +521,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 page = 1
             rows, total, done, folded = st.query(f, self.arg('sort', 'started'), self.arg('dir', 'desc') != 'asc', PAGE, (page - 1) * PAGE, grouped=self.arg('flat') != '1', thumbs=self.arg('thumbs') == '1')
             return self.send(200, json.dumps({'rows': rows, 'total': total, 'done': done, 'folded': folded, 'page': page, 'pages': max(1, -(-total // PAGE))}), 'application/json')
+        if route == '/admin/api/settings':                 # the Settings tab: what is set where, and what is in force
+            sid = '' if self.arg('study', '') in ('', 'main') else self.arg('study', '')
+            if scope[0] == 'study':
+                sid = scope[1]
+            if sid and sid not in studies():
+                return self.send(404, json.dumps({'error': 'no such study'}), 'application/json')
+            return self.send(200, json.dumps(self.settings_view(scope, sid)), 'application/json')
         if route == '/admin/api/session':                  # one session with every field (the Sessions tab's session panel)
             rec = st.get(self.arg('pid', ''))
             if not rec or (scope[0] == 'study' and (rec.get('study') or '') != scope[1]):
@@ -566,6 +628,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 st.set_meta('synthetic_n:' + sid, n)
                 st.sync_synthetic(sid, n)
             return self.send(200 if ok else 404, json.dumps({'ok': ok}), 'application/json')
+        if route == '/admin/api/settings':                  # the Settings tab: save the changes of one layer (global or a study)
+            body = self.body_json() or {}
+            where = body.get('scope') if isinstance(body, dict) else None
+            ok, out = self.save_settings(scope, where, body.get('settings') if isinstance(body, dict) else None)
+            return self.send(200 if ok else 400, json.dumps(out), 'application/json')
         if route == '/admin/api/inclusion':                 # the Sessions tab: analyse this session or not (the reports rebuild when opened)
             form = self.body_form()
             ok = self.study.store.set_inclusion(form.get('pid', ''), form.get('value', ''), scope[1] if scope[0] == 'study' else None)
@@ -629,7 +696,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                    'n': c['n'], 'done': c['done'], 'status': stt, 'built': stt['analysed'], 'active': stt['active'] + stt['pending'], 'declined': stt['declined'],
                    'stopped': c['n'] - stt['analysed'] - stt['active'] - stt['pending'] - stt['declined'], 'last': st.last_started(sid), 'median_seconds': st.median_seconds(sid),
                    'invites': [len(invs), sum(1 for i in invs if i['stage']), sum(1 for i in invs if i['stage'] == 'done')],
-                   'links': self.open_links(sid), 'nutrition_reveal': bool(cfg.get('nutrition_reveal')), 'nutrition_panel': bool(cfg.get('nutrition_panel')),
+                   'links': self.open_links(sid), 'nutrition': ovr.nutrition_mode(cfg), 'survey_when': cfg.get('survey_when') or 'after', 'conditions': cfg.get('conditions') or [],
                    'synthetic': {'n': synthetic_n(st, sid), 'stored': syn, 'choices': SYNTHETIC_CHOICES} if sid and cfg.get('synthetic') else None}
             if own:
                 row['researcher_link'] = self.base_url() + '/admin?' + urllib.parse.urlencode({'key': st.study_key(sid)})
