@@ -74,6 +74,8 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
 .note{background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:10px 0;white-space:pre-wrap}
 .pill{display:inline-block;font-size:.75rem;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
 .pill.on{border-color:var(--ok);color:var(--ok)}
+.stalenote{margin:0 0 8px;padding:8px 12px;border-radius:10px;background:color-mix(in srgb,#d08a12 13%,var(--panel));border:1px solid color-mix(in srgb,#d08a12 45%,transparent);font-size:.9rem}
+.stalenote[hidden]{display:none}
 /* the Settings tab */
 .setgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,300px);gap:18px;align-items:start}
 @media (max-width:820px){.setgrid{grid-template-columns:1fr}}
@@ -422,6 +424,8 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       html = '<span class="msg">' + (S.reports_build_on_open ? 'Reports are built when you open them.' : (b && b.auto ? 'No reports yet: they are built 5 minutes after the first session data comes in.' : 'No reports yet: press Build reports.')) + '</span>';
     }
     var stale = (b && b.pending) || (r && !r.fresh) || (!r && !S.reports_build_on_open);
+    staleNotes(r, stale, running || queued || waiting);
+    if (stale || (r && r.code_changed)) autoBuild(running || queued || waiting);
     html += '<form method="post" action="/admin/reports?' + esc(q({ tab: location.hash.slice(1) || 'overview' })) + '" style="margin:0"><button class="' + (stale ? '' : 'alt ') + 'small" type="submit"'
       + (running || waiting || queued ? ' disabled' : '') + ' title="Analyses the sessions that changed since the last build">Build reports</button></form>';
     if (st && st.run_url) html += '<a class="small" href="' + esc(st.run_url) + '" target="_blank" rel="noopener">Open the run on GitHub</a>';
@@ -640,6 +644,31 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
         .catch(function () { b.disabled = false; alert('Could not change the synthetic data. Reload the page and try again.'); });
     };
   }
+  // The reports are built from the sessions at one moment; new pizzas reach them at the next build. Opening a report while
+  // they are out of date starts that build by itself (once per page; where the site can start builds), and every report
+  // says above it which pizzas it holds until the new build replaces it.
+  var autoAsked = false;
+  function onReportTab() { var t = location.hash.slice(1) || 'overview'; return ['overview', 'explore', 'profiles', 'symmetry', 'methods'].indexOf(t) >= 0; }
+  function autoBuild(busy) {
+    var b = S.build;
+    if (autoAsked || busy || S.reports_build_on_open || !b || !b.instant || !onReportTab() || !S.study) return;
+    autoAsked = true;
+    fetch('/admin/reports?' + q({ tab: location.hash.slice(1) || 'overview' }), { method: 'POST', headers: { Accept: 'text/html' } })
+      .then(function () { refresh(); }, function () {});
+  }
+  function staleNotes(r, stale, busy) {
+    var d = S.study === 'all' ? S.all : current(), now = d && d.status ? d.status.analysed : null;
+    [].forEach.call(document.querySelectorAll('.frame'), function (fr) {
+      var p = fr.querySelector('p.stalenote');
+      if (!p) { p = document.createElement('p'); p.className = 'stalenote'; fr.insertBefore(p, fr.firstChild); }
+      var show = !!(r && (stale || r.code_changed)) && !S.reports_build_on_open;   // the codespace server rebuilds on opening anyway
+      p.hidden = !show;
+      if (show) p.innerHTML = '<b>Out of date:</b> this report is from ' + esc(when(r.when)) + ' and holds ' + r.n + ' pizza' + (r.n === 1 ? '' : 's')
+        + (now != null && now !== r.n ? '; ' + now + ' are in the reports now' : '') + (r.code_changed && !stale ? ' (the analysis was updated since)' : '') + '. '
+        + (busy ? 'The new build is running; the report reloads by itself when it is done.' : 'Press <b>Build reports</b> above to update it.');
+    });
+  }
+
   function reloadReports() {
     [].forEach.call(document.querySelectorAll('iframe.report'), function (fr) { fr.removeAttribute('src'); });
     show(location.hash.slice(1) || 'overview');
@@ -665,6 +694,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     }
     if (tab === 'sessions') sessions();
     if (tab === 'settings') settings();
+    if (fr && S.studies) buildBar();             // the out-of-date note (and, if needed, the build) for the report just opened
     if (tab === 'overview') liveStrip();
     setUrl(S.study, open ? 'sessions/' + encodeURIComponent(open) : tab);
     if (open) openSession(open);

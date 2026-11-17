@@ -5,6 +5,11 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Reports never quietly out of date.** On the Cloudflare site the reports are built from the sessions at one moment;
+pizzas that came in later reached them only at the next "Build reports", so Explore could say 5 pizzas while 8 were in.
+Now opening a report while it is out of date starts the build by itself (once per visit), and each report says above it
+that it is out of date, which pizzas it holds and how many are in now, until the new build replaces it.
+
 **Sessions tab:** a participant who reported neither autism nor ADHD reads *Non-spicy* (was *None*), in the column and the filter. Display only; the data keep `none`.
 
 **Task 0.18.1: saves never pile up; the task is always seen whole.**
