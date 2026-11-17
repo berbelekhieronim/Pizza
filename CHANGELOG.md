@@ -5,6 +5,8 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Sessions tab:** a participant who reported neither autism nor ADHD reads *Non-spicy* (was *None*), in the column and the filter. Display only; the data keep `none`.
+
 **Task 0.18.1: saves never pile up; the task is always seen whole.**
 - **"Utracono połączenie" while the connection was fine.** Every save was sent as a *keepalive* request; browsers allow
   those only up to 64 KB in flight altogether and refuse the rest as a network error. A pilot session now saves 15-25 KB

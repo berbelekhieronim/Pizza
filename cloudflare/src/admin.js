@@ -6,7 +6,7 @@ import { STATUSES } from './store.js';
 
 export const ALL_KEY = '*';               // study_keys row of the researcher link for all studies
 const STAGE_NAMES = { intro: 'reading the intro', survey: 'questions (before the pizza)', practice: 'practice', build: 'building', typical: 'typical pizza', followup: 'questions', done: 'finished', declined: 'declined consent' };
-const NEURO_NAMES = { autistic: 'Autistic', adhd: 'ADHD', dys: 'Dyslexic etc.', otherND: 'Other ND', none: 'None', pnts: 'Prefer not to say' };
+const NEURO_NAMES = { autistic: 'Autistic', adhd: 'ADHD', dys: 'Dyslexic etc.', otherND: 'Other ND', none: 'Non-spicy', pnts: 'Prefer not to say' };
 
 export function esc(s) {
   return String(s === null || s === undefined ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');

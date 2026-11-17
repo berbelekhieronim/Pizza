@@ -337,7 +337,7 @@ Tables (UTF-8 CSV, missing values = NA, yes/no = 1/0, times in ms, positions in 
     raw/                  each analysed participant's session exactly as the study saved it (JSON);
                           excluded, declined and unfinished sessions are left out
 """
-NEURO_NAMES = {'autistic': 'Autistic', 'adhd': 'ADHD', 'dys': 'Dyslexic etc.', 'otherND': 'Other ND', 'none': 'None', 'pnts': 'Prefer not to say'}
+NEURO_NAMES = {'autistic': 'Autistic', 'adhd': 'ADHD', 'dys': 'Dyslexic etc.', 'otherND': 'Other ND', 'none': 'Non-spicy', 'pnts': 'Prefer not to say'}
 
 
 STAGE_NAMES = {'intro': 'reading the intro', 'survey': 'questions (before the pizza)', 'practice': 'practice', 'build': 'building', 'typical': 'typical pizza', 'followup': 'questions', 'done': 'finished',
