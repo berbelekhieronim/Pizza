@@ -94,6 +94,9 @@ a.pidlink{color:inherit;text-decoration:underline dotted;cursor:pointer}
 .st-out{color:#9a5b00;background:color-mix(in srgb,#d08a12 13%,transparent)} .st-none{color:var(--muted);background:color-mix(in srgb,var(--muted) 10%,transparent)}
 select.decide{font-size:.78rem;padding:1px 4px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--muted)}
 select.decide.set{color:var(--fg);border-color:currentColor;font-weight:600}
+select.st{appearance:auto;cursor:pointer;border:1px solid color-mix(in srgb,currentColor 35%,transparent);padding:1px 4px 1px 8px}
+select.st.set{border-color:currentColor;border-style:dashed}
+th[title]{cursor:help;text-decoration:underline dotted color-mix(in srgb,currentColor 40%,transparent);text-underline-offset:3px}
 .kpis .kpi.total{background:transparent} .kpieq{align-self:center;color:var(--muted);font-size:1.2rem}
 .kpis button.kpi{font:inherit;text-align:left;cursor:pointer;border:1px solid var(--line)} .kpis button.kpi:hover{border-color:currentColor}
 .kpis button.kpi.st-in b{color:#2e7d32} .kpis button.kpi.st-pend b{color:#2f5a95} .kpis button.kpi.st-out b{color:#9a5b00}
@@ -155,8 +158,8 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
         <form class="filters" id="filters">
           <label>Group<br><select name="grp"></select></label>
           <label>Source<br><select name="source"></select></label>
-          <label>Where<br><select name="stage"></select></label>
-          <label>Says they are<br><select name="neuro"></select></label>
+          <label title="The status, or the last part of the study reached">Status / last step<br><select name="stage"></select></label>
+          <label title="What they answered about themselves: autism / ADHD, or none">Neurotype (self-reported)<br><select name="neuro"></select></label>
           <label>Condition<br><select name="cond"></select></label>
           <label>Started from<br><input type="date" name="since"></label>
           <label>to<br><input type="date" name="until"></label>
@@ -450,13 +453,16 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     if (st === 'analysed' && r.inclusion === 'include') label = 'In the reports (included by you)';
     return '<span class="st ' + (STATUS[k] ? STATUS[k][1] : '') + '" title="' + esc(STATUS[k] ? STATUS[k][2] : '') + '">' + esc(label) + '</span>';
   }
-  // your choice, apart from the status: Auto (the rule above), Include, Exclude; only where there is a pizza to decide on
-  function decisionCell(r) {
-    if (r.n_pieces == null) return '<span class="muted small">–</span>';
-    var c = r.inclusion || '';
-    return '<select class="decide' + (c ? ' set' : '') + '" data-incl="' + esc(r.pid) + '" aria-label="Analyse ' + esc(r.pid) + '?" '
-      + 'title="Auto: in the reports once they press &quot;I\'m done&quot;; pending for 24 hours, then abandoned. Include or Exclude overrides it.">'
-      + [['', 'Auto'], ['include', 'Include'], ['exclude', 'Exclude']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === c ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('')
+  // The status and your decision in one control: where there is a pizza to decide on, the badge is a dropdown whose
+  // first choice is the automatic rule (showing what it gives now) and the others override it; elsewhere a plain badge.
+  function statusCell(r) {
+    if (r.n_pieces == null || String(r.pid).indexOf('SYN-') === 0) return statusBadge(r);
+    var c = r.inclusion || '', k = statusKey(r.status), cls = STATUS[k] ? STATUS[k][1] : '';
+    var now = (statusBadge(r).match(/>([^<]*)<\/span>$/) || [])[1] || '';
+    var opts = [['', c ? 'Auto (by the rule)' : now + ' · auto'], ['include', c === 'include' ? now : 'Include in the reports'], ['exclude', c === 'exclude' ? now : 'Exclude from the reports']];
+    return '<select class="st ' + cls + (c ? ' set' : '') + '" data-incl="' + esc(r.pid) + '" aria-label="Status of ' + esc(r.pid) + ' (change to include or exclude)" '
+      + 'title="' + esc((STATUS[k] ? STATUS[k][2] + '. ' : '') + (c ? 'You decided this (dashed border); pick Auto to go back to the rule.' : 'Set by the rule: in the reports once they press "I\'m done"; an unfinished pizza is pending for 24 hours, then abandoned.') + ' Pick Include or Exclude to decide yourself; the reports rebuild.') + '">'
+      + opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === c ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('')
       + '</select>';
   }
   function showStatus(k) {
@@ -587,7 +593,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
         : fol.about ? Object.keys(fol.about).map(function (k) { return [k, JSON.stringify(fol.about[k]).replace(/^"|"$/g, '')]; }) : [];
       var html = '<button class="alt small close" type="button">Close</button><h2>' + esc(rec.pid) + '</h2>'
         + '<p class="muted">' + esc((rec.study || 'main') + ' · ' + (S.stages[rec.stage] || rec.stage || '')) + ' · <a href="#sessions/' + encodeURIComponent(rec.pid) + '">link to this session</a></p>'
-        + '<p>' + statusBadge(r) + ' ' + (r.n_pieces != null ? '<span class="muted small">your choice</span> ' + decisionCell(r) : '') + '</p>'
+        + '<p>' + statusCell(r) + '</p>'
         + (flags.length || errs.length ? '<div class="warn">' + (flags.length ? 'Browser: ' + esc(flags.join(', ')) + (rec.translated ? ' (translated: ' + esc(rec.translated) + ')' : '') + (rec.small_window ? ' (smallest window ' + esc(rec.small_window) + ')' : '') : '')
           + (errs.length ? (flags.length ? '<br>' : '') + errs.length + ' page error(s): ' + esc(errs.map(function (e) { return e[2]; }).join(' | ')) : '') + '</div>' : '')
         + '<div class="pic" id="drawerpic"></div>'
@@ -607,6 +613,21 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     }).catch(function () { d.innerHTML = '<button class="alt small close" type="button">Close</button><p>Could not load this session.</p>'; });
   }
 
+  // what each column of the Sessions tab holds (the column headers' tooltips)
+  var HEAD_TIPS = {
+    pid: 'The participant\'s anonymous id; click it for the whole session',
+    study: 'The study (version) the link belonged to',
+    grp: 'The group set in their link (?group=...)',
+    source: 'Where the link came from (?source=..., e.g. a panel or a mailing)',
+    neuro: 'What they answered about themselves: autism / ADHD (diagnosed or self-identified), or none. Empty when not answered yet or not asked',
+    cond: 'The experimental condition the session was given',
+    stage: 'The last part of the study they reached (consent, questions, practice, pizza, follow-up, thank-you page). "stopped at" = no save for 30 minutes',
+    n_pieces: 'Pieces placed on the pizza',
+    started: 'When they opened the link, Warsaw time',
+    seconds: 'From opening the link to the last save',
+    restarts: 'How many times they came back to the same session (reloaded or reopened the link)'
+  };
+
   function sessions() {
     var extra = Object.assign({ sort: view.sort, dir: view.dir, page: view.page }, view.filters);
     if (view.pics) extra.thumbs = '1';                     // each row's pizza, drawn small (the "show the pizzas" switch)
@@ -616,19 +637,18 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       if (ids) $('pidsnote').innerHTML = 'Showing the ' + ids.length + ' session' + (ids.length === 1 ? '' : 's') + ' picked in a report. <button type="button" class="alt small">Show all sessions</button>';
       $('count').innerHTML = '<b>' + d.total + ' session' + (d.total === 1 ? '' : 's') + ' match</b>, ' + d.done + ' finished.';
       $('csv').href = '/admin/sessions.csv?' + q(Object.assign({ sort: view.sort, dir: view.dir }, view.filters));
-      var cols = [['pid', 'Participant'], ['status', 'Status'], ['inclusion', 'Your choice'], ['study', 'Study'], ['grp', 'Group'], ['source', 'Source'], ['neuro', 'Says they are'], ['cond', 'Condition'],
-        ['stage', 'Where'], ['n_pieces', 'Pieces'], ['started', 'Started (Warsaw)'], ['seconds', 'Time taken'], ['restarts', 'Restarts'], ['os', 'Device']];
+      var cols = [['pid', 'Participant'], ['status', 'Status'], ['study', 'Study'], ['grp', 'Group'], ['source', 'Source'], ['neuro', 'Neurotype (self-reported)'], ['cond', 'Condition'],
+        ['stage', 'Last step'], ['n_pieces', 'Pieces'], ['started', 'Started (Warsaw)'], ['seconds', 'Time taken'], ['restarts', 'Restarts'], ['os', 'Device']];
       if (view.pics) cols.unshift(['pic', '']);
       // columns nobody on this page has a value in (e.g. no groups or conditions in this study) are left out, to save room
       cols = cols.filter(function (c) { return ['grp', 'source', 'neuro', 'cond', 'restarts'].indexOf(c[0]) < 0 || d.rows.some(function (r) { return r[c[0]] && r[c[0]] !== '0'; }); });
       if (S.study && S.study !== 'all') cols = cols.filter(function (c) { return c[0] !== 'study'; });   // one study: its name on every row says nothing
       var head = '<tr>' + cols.map(function (c) {
-        if (c[0] === 'status') return '<th title="Where the session stands: in the reports, in progress, excluded, abandoned, left before the pizza, declined (the tiles at the top count them)">' + c[1] + '</th>';
-        if (c[0] === 'inclusion') return '<th title="Auto follows the rule; Include or Exclude decides for this session (the reports rebuild)">' + c[1] + '</th>';
+        if (c[0] === 'status') return '<th title="Where the session stands: in the reports, in progress, excluded, abandoned, left before the pizza, declined (the tiles at the top count them). Where there is a pizza, the status is a dropdown: keep it on auto (the rule) or include / exclude it yourself; a dashed border marks your own decision.">' + c[1] + '</th>';
         if (c[0] === 'pic') return '<th><span class="sr">Pizza</span></th>';
         if (c[0] === 'os') return '<th title="The participant\'s browser and system, recorded when the session started (from study server 0.13.0). ⚠: saves that had to be retried or errors in the page (hover for details); the time zone shows on hover.">' + c[1] + '</th>';
-        var arrow = c[0] === view.sort ? (view.dir === 'desc' ? ' ▼' : ' ▲') : '';
-        return '<th><a data-sort="' + c[0] + '">' + c[1] + arrow + '</a></th>';
+        var arrow = c[0] === view.sort ? (view.dir === 'desc' ? ' ▼' : ' ▲') : '', tip = HEAD_TIPS[c[0]];
+        return '<th' + (tip ? ' title="' + esc(tip) + '"' : '') + '><a data-sort="' + c[0] + '">' + c[1] + arrow + '</a></th>';
       }).join('') + '</tr>';
       // three groups, in this order (the servers sort by them first): the analysed pizzas, the sessions in progress now
       // (a pizza being built shows here at once), and the rest (left out, stopped, no pizza, declined), folded behind a
@@ -657,8 +677,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
           if (c[0] === 'neuro') v = (v || '').split(' ').filter(Boolean).map(function (x) { return S.neuro[x] || x; }).join(', ');
           if (c[0] === 'started') v = when(v);
           if (c[0] === 'seconds') v = v == null ? '' : mins(v);
-          if (c[0] === 'status') return '<td>' + statusBadge(r) + '</td>';
-          if (c[0] === 'inclusion') return '<td>' + decisionCell(r) + '</td>';
+          if (c[0] === 'status') return '<td>' + statusCell(r) + '</td>';
           if (c[0] === 'pic') return '<td class="pic" data-pid="' + esc(r.pid) + '"></td>';
           if (c[0] === 'os') {      // browser, system, time zone and trouble: recorded from study server 0.13.0 (earlier sessions: empty)
             // ⚠: worth a look before analysing (translated, coarse clock, high contrast, small window, automated, page

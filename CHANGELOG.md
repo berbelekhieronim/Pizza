@@ -12,10 +12,12 @@ hand appeared in none of them. Now every session has exactly one status, compute
 **excluded** (by you, or an automated browser), **abandoned**, **left before the pizza**, **declined consent**. The
 tiles show "opened the link = …" one tile per status (a click lists those sessions); the line under them says how
 many reached the thank-you page. The study cards on the start page use the same counts.
-Sessions tab: a **Status** badge (in plain words: in the reports, building now, pending, excluded by you, abandoned,
-left before the pizza…) and, apart from it, **Your choice** (Auto / Include / Exclude) only where there is a pizza;
-groups follow the statuses; **show the pizzas** (on by default; switching it off is remembered in this browser) draws each session's pizza small in the list. The *Where* filter
-starts with the statuses. The session list download has a `status` column.
+Sessions tab: one **Status** column (in plain words: in the reports, building now, pending, excluded by you, abandoned,
+left before the pizza…); where there is a pizza the status is itself the dropdown to include or exclude it (auto = the
+rule; a dashed border marks your own decision). Every column header explains itself on hover; *Says they are* is now
+*Neurotype (self-reported)* and *Where* is *Last step* (the last part of the study reached);
+groups follow the statuses; **show the pizzas** (on by default; switching it off is remembered in this browser) draws each session's pizza small in the list. The
+*Status / last step* filter starts with the statuses. The session list download has a `status` column.
 
 **Unfinished pizzas are pending for 24 hours, then abandoned.** An unfinished pizza (no "I'm done" yet) was called
 "Excluded: not finished (auto)" and folded away as soon as its session had been quiet for 30 minutes, although the
