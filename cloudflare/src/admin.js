@@ -1,6 +1,7 @@
 // The researcher page's data on Cloudflare: /admin/api/state, the same shape as Handler.state() in server/server.py.
 // The page itself is server/admin.html, shared by both servers.
 import { loadStudy, studies, scopeName, SYNTHETIC_CHOICES } from './config.js';
+import { STATUSES } from './store.js';
 
 export const ALL_KEY = '*';               // study_keys row of the researcher link for all studies
 const STAGE_NAMES = { intro: 'reading the intro', survey: 'questions (before the pizza)', practice: 'practice', build: 'building', typical: 'typical pizza', followup: 'questions', done: 'finished', declined: 'declined consent' };
@@ -59,9 +60,12 @@ export async function adminState(r, scope, f) {
   for (const sid of ids) {
     const cfg = loadStudy(sid);
     const invs = await st.invites(sid);
-    const [n, done, built, active, syn, declined] = counts[sid] || [0, 0, 0, 0, 0, 0];
+    const c = counts[sid] || { n: 0, done: 0, syn: 0, status: Object.fromEntries(STATUSES.map((k) => [k, 0])) };
+    const stt = c.status, syn = c.syn;
+    // status: one count per status, adding up to n (store.js STATUS_SQL); the other numbers are taken from it
     const row = {
-      id: sid || 'main', title: cfg.title || '', description: cfg.description || (sid ? '' : 'The main study'), n, done, built, active, declined, stopped: n - done - active - declined,
+      id: sid || 'main', title: cfg.title || '', description: cfg.description || (sid ? '' : 'The main study'), n: c.n, done: c.done, status: stt,
+      built: stt.analysed, active: stt.active + stt.pending, declined: stt.declined, stopped: c.n - stt.analysed - stt.active - stt.pending - stt.declined,
       last: await st.lastStarted(sid), median_seconds: await st.medianSeconds(sid),
       invites: [invs.length, invs.filter((i) => i.stage).length, invs.filter((i) => i.stage === 'done').length],
       links: openLinks(r, sid), nutrition_reveal: !!cfg.nutrition_reveal, nutrition_panel: !!cfg.nutrition_panel,
@@ -94,6 +98,7 @@ export async function adminState(r, scope, f) {
     study: sel, studies: out, idle_minutes: 30,
     all: { n: out.reduce((a, s) => a + s.n, 0), done: out.reduce((a, s) => a + s.done, 0), built: out.reduce((a, s) => a + s.built, 0),
       active: out.reduce((a, s) => a + s.active, 0), stopped: out.reduce((a, s) => a + s.stopped, 0), declined: out.reduce((a, s) => a + (s.declined || 0), 0),
+      status: Object.fromEntries(STATUSES.map((k) => [k, out.reduce((a, s) => a + (s.status[k] || 0), 0)])),
       last: out.map((s) => s.last).filter(Boolean).sort().pop() || null, median_seconds: await st.medianSeconds(null) },
     global_link: own ? r.base() + '/admin?' + new URLSearchParams({ key: await st.studyKey(ALL_KEY) }) : null,
     reports, reports_build_on_open: false, options,

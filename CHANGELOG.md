@@ -5,6 +5,18 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**One status per session; the tiles add up.** The top tiles counted different things that did not add up (finished =
+reached the thank-you page; pizzas in the reports = analysed; stopped = whatever was left), and sessions excluded by
+hand appeared in none of them. Now every session has exactly one status, computed in one place on both servers
+(`STATUS_SQL`): **in the reports**, **in progress** (now, or a pizza not finished yet saved in the last 24 hours),
+**excluded** (by you, or an automated browser), **abandoned**, **left before the pizza**, **declined consent**. The
+tiles show "opened the link = …" one tile per status (a click lists those sessions); the line under them says how
+many reached the thank-you page. The study cards on the start page use the same counts.
+Sessions tab: a **Status** badge (in plain words: in the reports, building now, pending, excluded by you, abandoned,
+left before the pizza…) and, apart from it, **Your choice** (Auto / Include / Exclude) only where there is a pizza;
+groups follow the statuses; **show the pizzas** draws each session's pizza small in the list. The *Where* filter
+starts with the statuses. The session list download has a `status` column.
+
 **Unfinished pizzas are pending for 24 hours, then abandoned.** An unfinished pizza (no "I'm done" yet) was called
 "Excluded: not finished (auto)" and folded away as soon as its session had been quiet for 30 minutes, although the
 participant could still come back and finish it. Now it is **Pending: not finished yet** (blue) and listed with the

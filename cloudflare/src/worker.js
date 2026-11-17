@@ -105,7 +105,7 @@ export function warsaw(t) {
   return new Date(u + (summer ? 2 : 1) * 3600000).toISOString().slice(0, 19).replace('T', ' ');
 }
 const SESSION_CSV = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'started_warsaw', 'finished_warsaw',
-  'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'analysis', 'inclusion', 'browser', 'os', 'tz', 'browser_flags', 'translated', 'save_fails', 'n_client_errors'];
+  'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'status', 'analysis', 'inclusion', 'browser', 'os', 'tz', 'browser_flags', 'translated', 'save_fails', 'n_client_errors'];
 function sessionCsvRow(r0) {
   // one row of the session list download (as server.py session_csv_row): times in UTC as stored, and in Warsaw time
   const r = { ...r0, started_warsaw: r0.started ? warsaw(r0.started) : null, finished_warsaw: r0.finished ? warsaw(r0.finished) : null };
@@ -329,7 +329,7 @@ class Request_ {
     }
     if (route === '/admin/api/sessions') {
       const page = Math.max(1, parseInt(this.arg('page', '1'), 10) || 1);
-      const { rows, total, done, folded } = await st.query(f, this.arg('sort', 'started'), this.arg('dir', 'desc') !== 'asc', 100, (page - 1) * 100, this.arg('flat') !== '1');
+      const { rows, total, done, folded } = await st.query(f, this.arg('sort', 'started'), this.arg('dir', 'desc') !== 'asc', 100, (page - 1) * 100, this.arg('flat') !== '1', this.arg('thumbs') === '1');
       return json({ rows, total, done, folded, page, pages: Math.max(1, Math.ceil(total / 100)) });
     }
     if (route === '/admin/sessions.csv') {

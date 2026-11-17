@@ -88,13 +88,23 @@ a.pidlink{color:inherit;text-decoration:underline dotted;cursor:pointer}
 #table tr.grouprow td,#table tr.foldrow td{background:var(--bg);font-size:.82rem;color:var(--muted);font-weight:600;padding:6px 8px}
 #table tr.foldrow td{font-weight:400} #table tr.g1 td:first-child{box-shadow:inset 3px 0 0 #d08a12}
 #table tr.g2 td{opacity:.8}
+/* status badges (one per session; the tiles count them) and your choice beside them */
+.st{display:inline-block;font-size:.78rem;padding:1px 8px;border-radius:999px;white-space:nowrap;border:1px solid transparent;font-weight:600}
+.st-in{color:#2e7d32;background:color-mix(in srgb,#2e7d32 10%,transparent)} .st-pend{color:#2f5a95;background:color-mix(in srgb,#3f6fb0 12%,transparent)}
+.st-out{color:#9a5b00;background:color-mix(in srgb,#d08a12 13%,transparent)} .st-none{color:var(--muted);background:color-mix(in srgb,var(--muted) 10%,transparent)}
+select.decide{font-size:.78rem;padding:1px 4px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--muted)}
+select.decide.set{color:var(--fg);border-color:currentColor;font-weight:600}
+.kpis .kpi.total{background:transparent} .kpieq{align-self:center;color:var(--muted);font-size:1.2rem}
+.kpis button.kpi{font:inherit;text-align:left;cursor:pointer;border:1px solid var(--line)} .kpis button.kpi:hover{border-color:currentColor}
+.kpis button.kpi.st-in b{color:#2e7d32} .kpis button.kpi.st-pend b{color:#2f5a95} .kpis button.kpi.st-out b{color:#9a5b00}
+.pictoggle{margin-left:12px;cursor:pointer} td.pic{width:48px;padding:2px 4px} td.pic svg{width:44px;height:44px;display:block}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .kpinote{flex-basis:100%;margin:2px 0 0}
 /* the Overview's live strip: pizzas started or changed since the reports were built (the reports list them after a build) */
 .live{border:1px solid color-mix(in srgb,#d08a12 45%,transparent);background:color-mix(in srgb,#d08a12 7%,transparent);border-radius:12px;padding:10px 12px;margin:8px 0 12px}
 .live h3{margin:0 0 6px;font-size:.95rem} .live .cards{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
 .live a.card{flex:0 0 auto;width:132px;text-decoration:none;color:inherit;border:1px solid var(--line);border-radius:10px;padding:6px;background:var(--panel,#fff);font-size:.78rem;text-align:center}
 .live a.card .pic{height:110px;display:flex;align-items:center;justify-content:center} .live a.card svg{width:110px;height:110px}
-.live .st{display:inline-block;padding:0 6px;border-radius:999px;background:color-mix(in srgb,#d08a12 16%,transparent)}
 tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{background:color-mix(in srgb,#d08a12 30%,transparent)}100%{background:transparent}}
 .pidsnote{background:color-mix(in srgb,#d08a12 10%,transparent);border-radius:8px;padding:6px 10px;margin:8px 0}
 @media (prefers-reduced-motion:reduce){#drawer{transition:none} tr.flash td{animation:none}}
@@ -154,7 +164,8 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
           <button type="submit">Show</button><button type="reset" class="alt">Clear</button>
         </form>
         <p class="pidsnote" id="pidsnote" hidden></p>
-        <p style="margin:10px 0 4px"><span id="count"></span> <a id="csv" class="small">Download this list (.csv)</a></p>
+        <p style="margin:10px 0 4px"><span id="count"></span> <a id="csv" class="small">Download this list (.csv)</a>
+          <label class="small pictoggle"><input type="checkbox" id="pics"> show the pizzas</label></p>
         <div class="tablewrap"><table id="table"></table></div>
         <div class="row" id="pager"></div>
       </div>
@@ -270,8 +281,8 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     var cards = S.studies.map(function (s) {
       return '<a class="scard" href="?' + new URLSearchParams({ key: KEY, study: s.id }) + '"><span class="name">' + esc(s.title || s.id) + (s.title ? ' <span class="muted small">' + esc(s.id) + '</span>' : '') + '</span>'
         + '<span class="muted small">' + esc(s.description) + '</span>'
-        + '<span class="stats"><span class="stat"><b>' + s.n + '</b><span>opened</span></span><span class="stat"><b>' + s.built + '</b><span>built a pizza</span></span>'
-        + '<span class="stat"><b>' + s.done + '</b><span>finished</span></span>'
+        + '<span class="stats"><span class="stat"><b>' + s.n + '</b><span>opened</span></span><span class="stat"><b>' + s.status.analysed + '</b><span>in the reports</span></span>'
+        + '<span class="stat"><b>' + (s.status.active + s.status.pending) + '</b><span>in progress</span></span>'
         + '<span class="stat"><b>' + esc(when(s.last).slice(0, 10)) + '</b><span>last started</span></span></span>'
         + '<span class="small muted">Personal links: ' + s.invites[0] + ' made, ' + s.invites[1] + ' opened, ' + s.invites[2] + ' finished'
         + (s.synthetic && s.synthetic.stored ? ' · <span class="syn">+' + s.synthetic.stored + ' synthetic</span>' : '')
@@ -279,7 +290,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     });
     cards.push('<a class="scard" href="?' + new URLSearchParams({ key: KEY, study: 'all' }) + '"><span class="name">All studies together</span>'
       + '<span class="muted small">Every session; the analysis compares studies and recruitment sources.</span>'
-      + '<span class="stats"><span class="stat"><b>' + S.all.n + '</b><span>sessions</span></span><span class="stat"><b>' + S.all.done + '</b><span>finished</span></span></span></a>');
+      + '<span class="stats"><span class="stat"><b>' + S.all.n + '</b><span>opened</span></span><span class="stat"><b>' + S.all.status.analysed + '</b><span>in the reports</span></span></span></a>');
     $('cards').innerHTML = cards.join('');
   }
 
@@ -338,9 +349,10 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     [['grp', S.options.grp], ['source', S.options.source], ['cond', S.options.cond], ['neuro', Object.keys(S.neuro || {})]].forEach(function (x) {
       f[x[0]].closest('label').hidden = !(x[1] && x[1].length);
     });
-    opts(f.stage, Object.keys(S.stages).concat(['active', 'stopped', 'included', 'pending', 'left_out', 'flagged', 'real', 'synthetic']),
-      Object.assign({}, S.stages, { active: 'in progress now', stopped: 'stopped (no activity ' + (S.idle_minutes || 30) + ' min)',
-        included: 'pizza in the analysis', left_out: 'pizza left out of the analysis', flagged: 'needs a look (browser flags, page errors)', pending: 'pizza pending (not finished yet, last 24 hours)', synthetic: 'synthetic (simulated) only', real: 'real participants only' })); opts(f.neuro, Object.keys(S.neuro), S.neuro);
+    // "Where": first the statuses (as the tiles), then the part of the study they are at, then the rest
+    opts(f.stage, ['analysed', 'in_progress', 'excluded', 'abandoned', 'no_pizza'].concat(Object.keys(S.stages), ['flagged', 'real', 'synthetic']),
+      Object.assign({}, S.stages, { analysed: 'status: in the reports', in_progress: 'status: in progress', excluded: 'status: excluded', abandoned: 'status: abandoned',
+        no_pizza: 'status: left before the pizza', declined: 'declined consent', flagged: 'needs a look (browser flags, page errors)', synthetic: 'synthetic (simulated) only', real: 'real participants only' })); opts(f.neuro, Object.keys(S.neuro), S.neuro);
     copyButtons();
     show(location.hash.slice(1) || 'overview');
   }
@@ -418,22 +430,55 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     if (!p) return '–';
     return (+p.day) + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+p.month - 1] + ' ' + p.hour + ':' + p.minute;
   }
+  // Every session has one status (the servers' STATUS_SQL); the tiles, the cards and the Sessions tab use these words.
+  // A pending pizza saved within the last half hour reads "building now".
+  var STATUS = {
+    analysed: ['In the reports', 'st-in', 'their pizza is analysed: they pressed "I\'m done" (or you included it)'],
+    in_progress: ['In progress', 'st-pend', 'reading, answering or building right now, or a pizza not finished yet that was saved in the last 24 hours'],
+    excluded: ['Excluded', 'st-out', 'left out by you on the Sessions tab, or automatically (a program drove the browser)'],
+    abandoned: ['Abandoned', 'st-out', 'a pizza never finished, with no save for 24 hours'],
+    no_pizza: ['Left before the pizza', 'st-none', 'left at the consent, the questions or the practice, before building'],
+    declined: ['Declined consent', 'st-none', 'said NO to the consent: the study ended there']
+  };
+  function statusKey(st) { return st === 'active' || st === 'pending' ? 'in_progress' : st === 'excluded_auto' ? 'excluded' : st; }
+  function statusBadge(r) {
+    var st = r.status, k = statusKey(st), label = STATUS[k] ? STATUS[k][0] : st, recent = r.updated && Date.now() - Date.parse(r.updated) < (S.idle_minutes || 30) * 60000;
+    if (st === 'active') label = 'In progress: ' + (S.stages[r.stage] || r.stage);
+    if (st === 'pending') label = recent ? 'Building now' : 'Pending: not finished yet';
+    if (st === 'excluded') label = 'Excluded by you';
+    if (st === 'excluded_auto') label = 'Excluded: automated browser';
+    if (st === 'analysed' && r.inclusion === 'include') label = 'In the reports (included by you)';
+    return '<span class="st ' + (STATUS[k] ? STATUS[k][1] : '') + '" title="' + esc(STATUS[k] ? STATUS[k][2] : '') + '">' + esc(label) + '</span>';
+  }
+  // your choice, apart from the status: Auto (the rule above), Include, Exclude; only where there is a pizza to decide on
+  function decisionCell(r) {
+    if (r.n_pieces == null) return '<span class="muted small">–</span>';
+    var c = r.inclusion || '';
+    return '<select class="decide' + (c ? ' set' : '') + '" data-incl="' + esc(r.pid) + '" aria-label="Analyse ' + esc(r.pid) + '?" '
+      + 'title="Auto: in the reports once they press &quot;I\'m done&quot;; pending for 24 hours, then abandoned. Include or Exclude overrides it.">'
+      + [['', 'Auto'], ['include', 'Include'], ['exclude', 'Exclude']].map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === c ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('')
+      + '</select>';
+  }
+  function showStatus(k) {
+    view.filters = { stage: k }; view.page = 1; view.folded = false;
+    try { [].forEach.call($('filters').elements, function (el) { if (el.name) el.value = el.name === 'stage' ? k : ''; }); } catch (e) {}
+    if (location.hash === '#sessions') sessions(); else location.hash = 'sessions';
+  }
+
   function kpiRefresh() {
     var d = S.study === 'all' ? S.all : current();
     if (!d) return;
     var idle = S.idle_minutes || 30;
     var syn = (S.study === 'all' ? S.studies : [d]).reduce(function (t, x) { return t + (x.synthetic ? x.synthetic.stored : 0); }, 0);
-    // the counts that matter, in the order a session goes; the rest (median time, last start) in one line under them
-    $('kpis').innerHTML = [[d.n, 'opened the link' + (syn ? ' (+' + syn + ' synthetic)' : ''), 'every real session: a participant (or a new tab) opened the link'
-      + (syn ? '; the synthetic test sessions are not counted in these tiles' : '')],
-      [d.done + ' · ' + pct(d.done, d.n - (d.declined || 0)), 'finished', 'reached the thank-you page (% of those who agreed to take part)'],
-      [d.built, 'pizzas in the reports', 'their pizza is analysed: they pressed "I\'m done" (or you included it), and it was not left out'],
-      [d.active, 'in progress now', 'unfinished, saved within the last ' + idle + ' minutes'],
-      [d.stopped, 'stopped', 'unfinished, no activity for ' + idle + ' minutes (they can still come back)']]
-      .concat(d.declined ? [[d.declined, 'declined consent', 'said NO to the consent: the study ended there; only the answer is kept']] : []).concat([
-      ])
-      .map(function (k) { return '<div class="kpi" title="' + esc(k[2]) + '"><b>' + esc(k[0]) + '</b><span>' + esc(k[1]) + '</span></div>'; }).join('')
-      + '<p class="muted small kpinote">' + (d.last ? 'last started ' + esc(shortTime(d.last)) : 'nobody yet') + (d.median_seconds != null ? ' · median time to finish ' + esc(mins(d.median_seconds)) : '') + '</p>';
+    // every session once: "opened the link" = the tiles after it (each a status; a click lists those sessions)
+    var st = d.status || {}, n = function (k) { return k === 'in_progress' ? (st.active || 0) + (st.pending || 0) : k === 'excluded' ? (st.excluded || 0) + (st.excluded_auto || 0) : st[k] || 0; };
+    $('kpis').innerHTML = '<div class="kpi total" title="every real session: a participant (or a new tab) opened the link' + (syn ? '; the ' + syn + ' synthetic test sessions are not counted' : '') + '"><b>' + d.n + '</b><span>opened the link'
+      + (syn ? ' (+' + syn + ' synthetic)' : '') + '</span></div><span class="kpieq" aria-hidden="true">=</span>'
+      + ['analysed', 'in_progress', 'excluded', 'abandoned', 'no_pizza', 'declined'].filter(function (k) { return k === 'analysed' || k === 'in_progress' || n(k); }).map(function (k) {
+        return '<button type="button" class="kpi ' + STATUS[k][1] + '" data-status="' + k + '" title="' + esc(STATUS[k][2]) + ' (click to list them)"><b>' + n(k) + '</b><span>' + esc(STATUS[k][0].toLowerCase()) + '</span></button>';
+      }).join('')
+      + '<p class="muted small kpinote">' + d.done + ' reached the thank-you page' + (d.last ? ' · last started ' + esc(shortTime(d.last)) : '')
+      + (d.median_seconds != null ? ' · median time to finish ' + esc(mins(d.median_seconds)) : '') + '</p>';
   }
   // A test study's synthetic data: how many synthetic pizzas it holds (0 = none), chosen here, always on top of the page
   function synStudy() {
@@ -502,9 +547,9 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       el.hidden = false;
       el.innerHTML = '<h3>' + (since ? 'New since these reports were built' : 'Pizzas so far') + ' (' + rows.length + (rows.length === 16 ? '+' : '') + ', live)</h3>'
         + '<div class="cards">' + rows.map(function (x) {
-          var state = x.analysis === 'included' ? 'finished' : x.analysis === 'pending' ? 'pending, not finished yet' : x.analysis === 'left_out' ? (+x.pz_finished ? 'left out' : 'abandoned') : (S.stages[x.stage] || x.stage);
+          var state = statusBadge(x);
           return '<a class="card" href="#sessions/' + encodeURIComponent(x.pid) + '"><div class="pic" data-pid="' + esc(x.pid) + '"></div><b>' + esc(x.pid) + '</b><br>'
-            + '<span class="st">' + esc(state) + '</span><br><span class="muted">' + esc(shortTime(x.updated)) + ' · ' + (x.n_pieces || 0) + ' pieces</span></a>';
+            + state + '<br><span class="muted">' + esc(shortTime(x.updated)) + ' · ' + (x.n_pieces || 0) + ' pieces</span></a>';
         }).join('') + '</div>';
       return builderScript().then(function () {
         rows.forEach(function (x) {
@@ -542,7 +587,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
         : fol.about ? Object.keys(fol.about).map(function (k) { return [k, JSON.stringify(fol.about[k]).replace(/^"|"$/g, '')]; }) : [];
       var html = '<button class="alt small close" type="button">Close</button><h2>' + esc(rec.pid) + '</h2>'
         + '<p class="muted">' + esc((rec.study || 'main') + ' · ' + (S.stages[rec.stage] || rec.stage || '')) + ' · <a href="#sessions/' + encodeURIComponent(rec.pid) + '">link to this session</a></p>'
-        + '<p>' + (r.analysis === 'no_pizza' ? '<span class="incl none">No pizza</span>' : inclusionCell(r)) + '</p>'
+        + '<p>' + statusBadge(r) + ' ' + (r.n_pieces != null ? '<span class="muted small">your choice</span> ' + decisionCell(r) : '') + '</p>'
         + (flags.length || errs.length ? '<div class="warn">' + (flags.length ? 'Browser: ' + esc(flags.join(', ')) + (rec.translated ? ' (translated: ' + esc(rec.translated) + ')' : '') + (rec.small_window ? ' (smallest window ' + esc(rec.small_window) + ')' : '') : '')
           + (errs.length ? (flags.length ? '<br>' : '') + errs.length + ' page error(s): ' + esc(errs.map(function (e) { return e[2]; }).join(' | ')) : '') + '</div>' : '')
         + '<div class="pic" id="drawerpic"></div>'
@@ -564,20 +609,23 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
 
   function sessions() {
     var extra = Object.assign({ sort: view.sort, dir: view.dir, page: view.page }, view.filters);
+    if (view.pics) extra.thumbs = '1';                     // each row's pizza, drawn small (the "show the pizzas" switch)
     api('api/sessions', extra).then(function (d) {
       var ids = view.filters.pids ? view.filters.pids.split(',') : null;
       $('pidsnote').hidden = !ids;
       if (ids) $('pidsnote').innerHTML = 'Showing the ' + ids.length + ' session' + (ids.length === 1 ? '' : 's') + ' picked in a report. <button type="button" class="alt small">Show all sessions</button>';
       $('count').innerHTML = '<b>' + d.total + ' session' + (d.total === 1 ? '' : 's') + ' match</b>, ' + d.done + ' finished.';
       $('csv').href = '/admin/sessions.csv?' + q(Object.assign({ sort: view.sort, dir: view.dir }, view.filters));
-      var cols = [['pid', 'Participant'], ['inclusion', 'Analysis'], ['study', 'Study'], ['grp', 'Group'], ['source', 'Source'], ['neuro', 'Says they are'], ['cond', 'Condition'],
+      var cols = [['pid', 'Participant'], ['status', 'Status'], ['inclusion', 'Your choice'], ['study', 'Study'], ['grp', 'Group'], ['source', 'Source'], ['neuro', 'Says they are'], ['cond', 'Condition'],
         ['stage', 'Where'], ['n_pieces', 'Pieces'], ['started', 'Started (Warsaw)'], ['seconds', 'Time taken'], ['restarts', 'Restarts'], ['os', 'Device']];
+      if (view.pics) cols.unshift(['pic', '']);
       // columns nobody on this page has a value in (e.g. no groups or conditions in this study) are left out, to save room
       cols = cols.filter(function (c) { return ['grp', 'source', 'neuro', 'cond', 'restarts'].indexOf(c[0]) < 0 || d.rows.some(function (r) { return r[c[0]] && r[c[0]] !== '0'; }); });
       if (S.study && S.study !== 'all') cols = cols.filter(function (c) { return c[0] !== 'study'; });   // one study: its name on every row says nothing
       var head = '<tr>' + cols.map(function (c) {
-        if (c[0] === 'inclusion') return '<th title="Whether this session\'s pizza is analysed. Automatic: yes once they pressed &quot;I\'m done&quot;; '
-          + 'a pizza they stopped building is left out. Choose Include or Exclude to override; the reports rebuild.">' + c[1] + '</th>';
+        if (c[0] === 'status') return '<th title="Where the session stands: in the reports, in progress, excluded, abandoned, left before the pizza, declined (the tiles at the top count them)">' + c[1] + '</th>';
+        if (c[0] === 'inclusion') return '<th title="Auto follows the rule; Include or Exclude decides for this session (the reports rebuild)">' + c[1] + '</th>';
+        if (c[0] === 'pic') return '<th><span class="sr">Pizza</span></th>';
         if (c[0] === 'os') return '<th title="The participant\'s browser and system, recorded when the session started (from study server 0.13.0). ⚠: saves that had to be retried or errors in the page (hover for details); the time zone shows on hover.">' + c[1] + '</th>';
         var arrow = c[0] === view.sort ? (view.dir === 'desc' ? ' ▼' : ' ▲') : '';
         return '<th><a data-sort="' + c[0] + '">' + c[1] + arrow + '</a></th>';
@@ -586,13 +634,13 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       // (a pizza being built shows here at once), and the rest (left out, stopped, no pizza, declined), folded behind a
       // button unless the filter asks for them
       var fold = !view.filters.stage && !view.filters.pids && !view.filters.q && d.folded > 0;
-      var GROUPS = ['Analysed', 'In progress now, or pending (a pizza not finished yet, saved in the last 24 hours)', 'Not analysed'], last = -1;
+      var GROUPS = ['In the reports', 'In progress (now, or a pizza not finished yet, saved in the last 24 hours)', 'Not analysed'], last = -1;
       var body = d.rows.map(function (r) {
         var g = +r.listgroup || 0, head = '';
         if (g !== last) {
           if (g === 2 && fold) head = '<tr class="foldrow"><td colspan="' + cols.length + '"><button type="button" class="alt small" id="foldbtn" aria-expanded="' + !view.folded + '">'
             + (view.folded ? '▸ Show the ' : '▾ Hide the ') + d.folded + ' session' + (d.folded === 1 ? '' : 's') + ' not analysed</button>'
-            + ' <span class="muted small">abandoned (no save for 24 hours), excluded, stopped without a pizza, declined consent</span></td></tr>';
+            + ' <span class="muted small">excluded, abandoned, left before the pizza, declined consent</span></td></tr>';
           else head = '<tr class="grouprow"><td colspan="' + cols.length + '">' + esc(GROUPS[g]) + '</td></tr>';
           last = g;
         }
@@ -609,7 +657,9 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
           if (c[0] === 'neuro') v = (v || '').split(' ').filter(Boolean).map(function (x) { return S.neuro[x] || x; }).join(', ');
           if (c[0] === 'started') v = when(v);
           if (c[0] === 'seconds') v = v == null ? '' : mins(v);
-          if (c[0] === 'inclusion') return '<td>' + inclusionCell(r) + '</td>';
+          if (c[0] === 'status') return '<td>' + statusBadge(r) + '</td>';
+          if (c[0] === 'inclusion') return '<td>' + decisionCell(r) + '</td>';
+          if (c[0] === 'pic') return '<td class="pic" data-pid="' + esc(r.pid) + '"></td>';
           if (c[0] === 'os') {      // browser, system, time zone and trouble: recorded from study server 0.13.0 (earlier sessions: empty)
             // ⚠: worth a look before analysing (translated, coarse clock, high contrast, small window, automated, page
             // errors); ℹ: for information only (storage blocked, no beacon, Brave, retried saves: the data arrived)
@@ -629,6 +679,12 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
         }).join('') + '</tr>';
       }).join('') || '<tr><td colspan="' + cols.length + '" class="muted">No sessions match.</td></tr>';
       $('table').innerHTML = head + body;
+      if (view.pics) builderScript().then(function () {              // the small pizzas, drawn from each row's saved pizza
+        d.rows.forEach(function (r) {
+          var td = document.querySelector('#table td.pic[data-pid="' + r.pid + '"]');
+          if (td && r.pz_final_pic && window.PizzaBuilder && PizzaBuilder.picture) { try { td.appendChild(PizzaBuilder.picture(r.pz_final_pic, r.pz_summary_pic, 44)); } catch (e) {} }
+        });
+      });
       $('pager').innerHTML = d.pages > 1 ? (d.page > 1 ? '<button class="alt small" data-page="' + (d.page - 1) + '">&larr; newer</button>' : '')
         + '<span class="muted small">page ' + d.page + ' of ' + d.pages + '</span>'
         + (d.page < d.pages ? '<button class="alt small" data-page="' + (d.page + 1) + '">older &rarr;</button>' : '') : '';
@@ -637,22 +693,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
 
   // Whether a session's pizza is analysed: the automatic rule (as analysis/analyse.py applies it) and the researcher's
   // choice, which overrides it
-  function inclusionCell(r) {
-    // one dropdown that is also the indicator: its colour and text say whether the pizza is analysed. Auto shows what
-    // the automatic rule decided; Included / Excluded are the researcher's choice.
-    if (r.analysis === 'no_pizza') return '<span class="incl none">No pizza</span>';      // nothing to analyse
-    // what the automatic rule decides (as the servers and the analysis): a finished pizza is analysed, unless a program
-    // drove the browser (browser flag "automated"); the row says whether the pizza was finished (auto_in, pz_finished)
-    var c = r.inclusion || '', state = r.analysis === 'included' ? 'in' : r.analysis === 'pending' ? 'pend' : 'out';
-    var robot = (' ' + (r.browser_flags || '') + ' ').indexOf(' automated ') >= 0;
-    // pending: not finished yet, saved within the last 24 hours (they may still finish it); abandoned after that
-    var auto = +r.auto_in ? 'Included' : robot && +r.pz_finished ? 'Excluded: automated browser' : r.analysis === 'pending' ? 'Pending: not finished yet' : 'Excluded: abandoned';
-    return '<select class="incl ' + state + '" data-incl="' + esc(r.pid) + '" aria-label="Is ' + esc(r.pid) + ' analysed?" title="Auto = the automatic rule: '
-      + 'included once they pressed &quot;I\'m done&quot; on their pizza, unless a program drove the browser; an unfinished pizza is pending for 24 hours after its last save (they may still finish it), then abandoned. Choose Included or Excluded to override it.">'
-      + [['', auto + ' (auto)'], ['include', 'Included (your choice)'], ['exclude', 'Excluded (your choice)']].map(function (o) {
-        return '<option value="' + o[0] + '"' + (o[0] === c ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
-      }).join('') + '</select>';
-  }
+
   $('table').onchange = function (e) {
     var sel = e.target.closest('select[data-incl]'); if (!sel) return;
     sel.disabled = true;
@@ -694,6 +735,10 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     if (!e.target.closest('#foldbtn')) return;
     view.folded = !view.folded; sessions();
   });
+  try { view.pics = localStorage.getItem('pzb-admin-pics') === '1'; } catch (e) {}
+  $('pics').checked = !!view.pics;
+  $('pics').onchange = function () { view.pics = this.checked; try { localStorage.setItem('pzb-admin-pics', view.pics ? '1' : '0'); } catch (e) {} sessions(); };
+  $('kpis').addEventListener('click', function (e) { var b = e.target.closest('button[data-status]'); if (b) showStatus(b.dataset.status); });
   $('pager').onclick = function (e) { var b = e.target.closest('button[data-page]'); if (b) { view.page = +b.dataset.page; sessions(); } };
   window.addEventListener('hashchange', function () { if (S && S.study) show(location.hash.slice(1)); });
   document.addEventListener('click', function (e) { if (e.target.closest('#drawer .close')) closeDrawer(); });

@@ -40,7 +40,7 @@ from html import escape
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(1, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'analysis'))   # synthetic.py
-from store import Store, SORTABLE, STAGES, ACTIVITY, ANALYSIS  # noqa: E402
+from store import Store, SORTABLE, STAGES, ACTIVITY, ANALYSIS, STATUSES  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)                          # the repository root
@@ -257,7 +257,7 @@ def warsaw(t):
 
 
 SESSION_CSV = ['pid', 'study', 'grp', 'source', 'invite', 'cond', 'stage', 'started', 'updated', 'finished', 'started_warsaw', 'finished_warsaw',
-               'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'analysis', 'inclusion', 'browser', 'os', 'tz', 'browser_flags', 'translated', 'save_fails', 'n_client_errors']
+               'seconds', 'restarts', 'consent', 'n_pieces', 'neuro', 'status', 'analysis', 'inclusion', 'browser', 'os', 'tz', 'browser_flags', 'translated', 'save_fails', 'n_client_errors']
 
 
 def session_csv_row(r):
@@ -464,7 +464,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 page = max(1, int(self.arg('page', '1')))
             except ValueError:
                 page = 1
-            rows, total, done, folded = st.query(f, self.arg('sort', 'started'), self.arg('dir', 'desc') != 'asc', PAGE, (page - 1) * PAGE, grouped=self.arg('flat') != '1')
+            rows, total, done, folded = st.query(f, self.arg('sort', 'started'), self.arg('dir', 'desc') != 'asc', PAGE, (page - 1) * PAGE, grouped=self.arg('flat') != '1', thumbs=self.arg('thumbs') == '1')
             return self.send(200, json.dumps({'rows': rows, 'total': total, 'done': done, 'folded': folded, 'page': page, 'pages': max(1, -(-total // PAGE))}), 'application/json')
         if route == '/admin/api/session':                  # one session with every field (the Sessions tab's session panel)
             rec = st.get(self.arg('pid', ''))
@@ -622,9 +622,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         for sid in ids:
             cfg = load_study(sid)
             invs = st.invites(sid)
-            n, done, built, active, syn, declined = counts.get(sid, (0, 0, 0, 0, 0, 0))
+            c = counts.get(sid) or {'n': 0, 'done': 0, 'syn': 0, 'status': {k: 0 for k in STATUSES}}
+            stt, syn = c['status'], c['syn']
+            # status: one count per status, adding up to n (store.py STATUS_SQL); the other numbers are taken from it
             row = {'id': sid or 'main', 'title': cfg.get('title') or '', 'description': cfg.get('description') or ('The main study' if not sid else ''),
-                   'n': n, 'done': done or 0, 'built': built, 'active': active, 'declined': declined, 'stopped': n - (done or 0) - active - declined, 'last': st.last_started(sid), 'median_seconds': st.median_seconds(sid),
+                   'n': c['n'], 'done': c['done'], 'status': stt, 'built': stt['analysed'], 'active': stt['active'] + stt['pending'], 'declined': stt['declined'],
+                   'stopped': c['n'] - stt['analysed'] - stt['active'] - stt['pending'] - stt['declined'], 'last': st.last_started(sid), 'median_seconds': st.median_seconds(sid),
                    'invites': [len(invs), sum(1 for i in invs if i['stage']), sum(1 for i in invs if i['stage'] == 'done')],
                    'links': self.open_links(sid), 'nutrition_reveal': bool(cfg.get('nutrition_reveal')), 'nutrition_panel': bool(cfg.get('nutrition_panel')),
                    'synthetic': {'n': synthetic_n(st, sid), 'stored': syn, 'choices': SYNTHETIC_CHOICES} if sid and cfg.get('synthetic') else None}
@@ -639,6 +642,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             'study': sel, 'studies': out, 'idle_minutes': 30,
             'all': {'n': sum(r['n'] for r in out), 'done': sum(r['done'] for r in out), 'built': sum(r['built'] for r in out),
                     'active': sum(r['active'] for r in out), 'stopped': sum(r['stopped'] for r in out), 'declined': sum(r['declined'] for r in out),
+                    'status': {k: sum(r['status'][k] for r in out) for k in STATUSES},
                                                    'last': max([r['last'] for r in out if r['last']] or [None]),
                                                    'median_seconds': st.median_seconds(None)},
             'global_link': self.base_url() + '/admin?' + urllib.parse.urlencode({'key': st.study_key(ALL_KEY)}) if own else None,

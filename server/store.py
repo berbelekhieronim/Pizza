@@ -62,7 +62,7 @@ SORTABLE = ('pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces
 STAGES = ('intro', 'survey', 'practice', 'build', 'typical', 'followup', 'done', 'declined')   # declined: said no to the consent
 IDLE_MINUTES = 30            # an unfinished session with no save for this long counts as stopped (it can still resume)
 ACTIVITY = ('active', 'stopped')   # extra values of the "where" filter, from the time of the last save
-ANALYSIS = ('included', 'pending', 'left_out', 'flagged', 'synthetic', 'real')  # ... from whether the session's pizza is analysed, needs a look, or is synthetic
+ANALYSIS = ('included', 'pending', 'left_out', 'flagged', 'synthetic', 'real', 'analysed', 'in_progress', 'excluded', 'abandoned', 'no_pizza')  # ... from whether the session's pizza is analysed, needs a look, or is synthetic
 SYN_SQL = "pid LIKE 'SYN-%'"        # synthetic sessions of a test study (analysis/synthetic.py): ids SYN-001 ...
 # The researcher's choice for a session (field 'inclusion', never taken from a participant's save): 'include',
 # 'exclude' or 'auto' (kept, so that going back to automatic also rebuilds the reports); no field = automatic: a session past the build (its own pizza finished) is analysed, one that stopped
@@ -95,8 +95,22 @@ LEFT_OUT_SQL = '(' + INCL_SQL + " = 'exclude' OR (" + INCL_SQL + " = '' AND n_pi
 INCLUDED_SQL = '(' + INCL_SQL + " = 'include' OR (" + INCL_SQL + " = '' AND " + AUTO_IN_SQL + '))'
 # the Sessions tab's groups: 0 analysed, 1 in progress now (unfinished, saved within IDLE_MINUTES; a pizza being built
 # shows here), 2 the rest (left out, stopped, no pizza, declined), folded away under a button. One ? = idle_cutoff().
-LIST_GROUP_SQL = ("(CASE WHEN " + INCLUDED_SQL + " AND n_pieces IS NOT NULL THEN 0 WHEN " + PENDING_SQL
-                  + " OR (stage NOT IN ('done', 'declined') AND updated >= ?) THEN 1 ELSE 2 END)")
+# Every session has exactly one status (one ? = idle_cutoff()); the researcher page's tiles count them (they add up
+# to "opened the link"), its Sessions tab groups and labels by them, the Worker uses the same (store.js STATUS_SQL):
+#   analysed       its pizza is in the reports (finished, or included by the researcher)
+#   active         no pizza yet, saved within IDLE_MINUTES (reading, answering, practising)
+#   pending        a pizza not finished yet, saved within ABANDON_HOURS (they may still finish it)
+#   excluded       left out by the researcher;  excluded_auto  left out automatically (a program drove the browser)
+#   abandoned      a pizza never finished, no save for ABANDON_HOURS
+#   no_pizza       left before building a pizza (consent, questions, practice)
+#   declined       said no to the consent
+STATUSES = ('analysed', 'active', 'pending', 'excluded', 'excluded_auto', 'abandoned', 'no_pizza', 'declined')
+STATUS_SQL = ("(CASE WHEN stage = 'declined' THEN 'declined' "
+              "WHEN n_pieces IS NULL THEN (CASE WHEN stage != 'done' AND updated >= ? THEN 'active' ELSE 'no_pizza' END) "
+              "WHEN " + INCLUDED_SQL + " THEN 'analysed' WHEN " + INCL_SQL + " = 'exclude' THEN 'excluded' "
+              "WHEN " + PENDING_SQL + " THEN 'pending' WHEN " + FLAGGED_OUT_SQL + " THEN 'excluded_auto' ELSE 'abandoned' END)")
+# the Sessions tab's groups: 0 in the reports, 1 in progress (active or pending), 2 the rest (folded); one ?
+LIST_GROUP_SQL = "(CASE " + STATUS_SQL + " WHEN 'analysed' THEN 0 WHEN 'active' THEN 1 WHEN 'pending' THEN 1 ELSE 2 END)"
 # browser trouble worth a look before analysing (participant page, docs/BROWSERS.md): the "needs a look" filter
 REVIEW_FLAGS = ('translated', 'coarse-timer', 'forced-colors', 'small-window', 'automated')
 REVIEW_SQL = '(' + ' OR '.join("(' ' || COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'browser_flags'), '') || ' ') LIKE '%% %s %%'" % f
@@ -249,6 +263,9 @@ class Store:
             sql.append(LEFT_OUT_SQL)
         elif f.get('stage') == 'pending':
             sql.append(PENDING_SQL)
+        elif f.get('stage') in ('analysed', 'in_progress', 'excluded', 'abandoned', 'no_pizza'):     # by status (the tiles)
+            want = {'in_progress': ('active', 'pending'), 'excluded': ('excluded', 'excluded_auto')}.get(f['stage'], (f['stage'],))
+            sql.append(STATUS_SQL + ' IN (%s)' % ', '.join('?' * len(want))); args.extend([idle_cutoff()] + list(want))
         elif f.get('stage') == 'flagged':
             sql.append(REVIEW_SQL)
         elif f.get('stage') == 'synthetic':
@@ -273,7 +290,7 @@ class Store:
             sql.append('started < ?'); args.append(f['until'] + 'T99')
         return (' WHERE ' + ' AND '.join(sql)) if sql else '', args
 
-    def query(self, f, sort='started', desc=True, limit=100, offset=0, grouped=False):
+    def query(self, f, sort='started', desc=True, limit=100, offset=0, grouped=False, thumbs=False):
         """The matching sessions, sorted; grouped (the Sessions tab): the analysed ones first, then those in progress
         now, then the rest (left out, stopped, no pizza, declined; listgroup 0 / 1 / 2), each group in the chosen order.
         Returns (rows, total, finished, how many are in group 2)."""
@@ -282,9 +299,11 @@ class Store:
         db = self.db()
         cut = idle_cutoff()
         total = db.execute("SELECT COUNT(*), SUM(stage = 'done'), SUM(" + LIST_GROUP_SQL + " = 2) FROM sessions" + w, [cut] + a).fetchone()
+        pics = (", (SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'pz_final') AS pz_final_pic, "
+                "(SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'pz_summary') AS pz_summary_pic") if thumbs else ''
         rows = db.execute('SELECT *, ' + INCL_SQL + ' AS inclusion, ' + ANALYSIS_SQL + ' AS analysis, ' + AUTO_IN_SQL + ' AS auto_in, ' + FINISHED_SQL + ' AS pz_finished, '
-                          + LIST_GROUP_SQL + ' AS listgroup, ' + CLIENT_SQL + ' FROM sessions%s ORDER BY %s%s %s, pid LIMIT ? OFFSET ?'
-                          % (w, 'listgroup, ' if grouped else '', sort, 'DESC' if desc else 'ASC'), [cut] + a + [limit, offset]).fetchall()
+                          + LIST_GROUP_SQL + ' AS listgroup, ' + STATUS_SQL + ' AS status, ' + CLIENT_SQL + pics + ' FROM sessions%s ORDER BY %s%s %s, pid LIMIT ? OFFSET ?'
+                          % (w, 'listgroup, ' if grouped else '', sort, 'DESC' if desc else 'ASC'), [cut, cut] + a + [limit, offset]).fetchall()
         return [dict(r) for r in rows], total[0], total[1] or 0, total[2] or 0
 
     def distinct(self, col, study=None):
@@ -303,12 +322,16 @@ class Store:
         return None if not v else (v[len(v) // 2] if len(v) % 2 else (v[len(v) // 2 - 1] + v[len(v) // 2]) / 2)
 
     def counts_by_study(self):
-        """{study: (sessions, finished, built a pizza, in progress now, synthetic, declined consent)} of the real sessions
-        (the synthetic ones are counted apart); the rest of the unfinished real ones have stopped."""
-        return {r['study']: (r['n'] or 0, r['done'] or 0, r['built'] or 0, r['active'] or 0, r['syn'] or 0, r['declined'] or 0) for r in self.db().execute(
-            "SELECT study, SUM(NOT %s) n, SUM(NOT %s AND stage = 'done') done, SUM(NOT %s AND n_pieces IS NOT NULL AND %s) built, "
-            "SUM(NOT %s AND stage NOT IN ('done', 'declined') AND updated >= ?) active, SUM(%s) syn, SUM(NOT %s AND stage = 'declined') declined FROM sessions GROUP BY study"
-            % (SYN_SQL, SYN_SQL, SYN_SQL, INCLUDED_SQL, SYN_SQL, SYN_SQL, SYN_SQL), (idle_cutoff(),))}   # built = their pizza is in the reports
+        """{study: {'n': real sessions, 'done': reached the thank-you page, 'syn': synthetic sessions, 'status': {status:
+        count}}}: the statuses of the real sessions add up to n."""
+        out = {}
+        for r in self.db().execute('SELECT study, ' + STATUS_SQL + ' AS status, COUNT(*) n, SUM(stage = \'done\') done FROM sessions WHERE NOT '
+                                   + SYN_SQL + ' GROUP BY study, status', (idle_cutoff(),)):
+            c = out.setdefault(r['study'], {'n': 0, 'done': 0, 'syn': 0, 'status': {k: 0 for k in STATUSES}})
+            c['n'] += r['n']; c['done'] += r['done'] or 0; c['status'][r['status']] = r['n']
+        for r in self.db().execute('SELECT study, COUNT(*) n FROM sessions WHERE ' + SYN_SQL + ' GROUP BY study'):
+            out.setdefault(r['study'], {'n': 0, 'done': 0, 'syn': 0, 'status': {k: 0 for k in STATUSES}})['syn'] = r['n']
+        return out
 
     # ---- settings kept in the database
     def meta(self, k):

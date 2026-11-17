@@ -204,6 +204,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-17 | Claude Code (cloud) | One status per session (STATUS_SQL, both servers): tiles add up, Status badge + Your choice on the Sessions tab, pizza thumbnails toggle; live data read (11 of 20 pilot sessions excluded by hand explained the counts) |
 | 2026-11-17 | Claude Code (cloud) | Unfinished pizzas pending for 24 h (listed with those in progress), then abandoned (left out, folded); both servers + analysis |
 | 2026-11-17 | Claude Code (cloud) | Overview / Sessions simplified: six tiles, empty filters and constant columns hidden, short report intro, nutrition and normality sections fit small pilots |
 | 2026-11-17 | Claude Code (cloud) | Sessions tab grouped (analysed / in progress / folded rest); overview lists every started pizza (in progress shown, rest folded); live strip of new pizzas since the reports |

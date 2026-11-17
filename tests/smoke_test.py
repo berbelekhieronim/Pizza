@@ -417,6 +417,12 @@ def researcher_access_checks(base, key, study, n_study, n_all, other_pid, label)
           and api(base, 'sessions', key, study=study, stage='active')['total'] == row['active']
           and api(base, 'sessions', key, study=study, stage='stopped')['total'] == row['stopped'],
           label + 'sessions split into finished, in progress and stopped (no save for 30 minutes), with filters')
+    stt = row['status']
+    tiles = {'analysed': stt['analysed'], 'in_progress': stt['active'] + stt['pending'], 'excluded': stt['excluded'] + stt['excluded_auto'],
+             'abandoned': stt['abandoned'], 'no_pizza': stt['no_pizza']}
+    check(sum(stt.values()) == row['n'] and row['built'] == stt['analysed']
+          and all(api(base, 'sessions', key, study=study, stage=k)['total'] == v for k, v in tiles.items()),
+          label + 'researcher page: every session has one status; the tiles add up to "opened the link" and each lists exactly its sessions')
     skey = key_of(next(s['researcher_link'] for s in st['studies'] if s['id'] == study))
     sst, d = api(base, 'state', skey, study='main'), api(base, 'sessions', skey, study='main')
     check(sst['scope'] == 'study' and [s['id'] for s in sst['studies']] == [study] and not sst.get('global_link') and 'researcher_link' not in sst['studies'][0]

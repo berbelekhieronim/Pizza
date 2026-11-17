@@ -5,7 +5,7 @@ export const SORTABLE = ['pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stag
 // survey: the study's questions asked before the pizza (survey_when = before); followup: after it (as store.py)
 export const STAGES = ['intro', 'survey', 'practice', 'build', 'typical', 'followup', 'done', 'declined'];   // declined: said no to the consent
 export const ACTIVITY = ['active', 'stopped'];     // extra "where" filter values, from the time of the last save
-export const ANALYSIS = ['included', 'pending', 'left_out', 'flagged', 'synthetic', 'real'];  // ... from whether the session's pizza is analysed, needs a look, or is synthetic
+export const ANALYSIS = ['included', 'pending', 'left_out', 'flagged', 'synthetic', 'real', 'analysed', 'in_progress', 'excluded', 'abandoned', 'no_pizza'];  // ... from whether the session's pizza is analysed, needs a look, or is synthetic
 const SYN_SQL = "pid LIKE 'SYN-%'";               // synthetic sessions of a test study (analysis/synthetic.py), as in store.py
 // The researcher's choice for a session (field 'inclusion', never taken from a participant's save), as in store.py
 export const INCLUSION_VALUES = ['include', 'exclude', 'auto'];
@@ -28,8 +28,15 @@ const PENDING_SQL = `(${INCL_SQL} = '' AND n_pieces IS NOT NULL AND NOT ${FINISH
   + `AND stage NOT IN ('done', 'declined') AND updated >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-${ABANDON_HOURS} hours'))`;
 const LEFT_OUT_SQL = `(${INCL_SQL} = 'exclude' OR (${INCL_SQL} = '' AND n_pieces IS NOT NULL AND NOT ${AUTO_IN_SQL} AND NOT ${PENDING_SQL}))`;
 const INCLUDED_SQL = `(${INCL_SQL} = 'include' OR (${INCL_SQL} = '' AND ${AUTO_IN_SQL}))`;
-// the Sessions tab's groups (as store.py LIST_GROUP_SQL): 0 analysed, 1 in progress now, 2 the rest, folded away
-const LIST_GROUP_SQL = `(CASE WHEN ${INCLUDED_SQL} AND n_pieces IS NOT NULL THEN 0 WHEN ${PENDING_SQL} OR (stage NOT IN ('done', 'declined') AND updated >= ?) THEN 1 ELSE 2 END)`;
+// every session's one status (as store.py STATUS_SQL; one ? = idleCutoff()): the tiles count them, the Sessions tab
+// groups and labels by them
+export const STATUSES = ['analysed', 'active', 'pending', 'excluded', 'excluded_auto', 'abandoned', 'no_pizza', 'declined'];
+const STATUS_SQL = `(CASE WHEN stage = 'declined' THEN 'declined' `
+  + `WHEN n_pieces IS NULL THEN (CASE WHEN stage != 'done' AND updated >= ? THEN 'active' ELSE 'no_pizza' END) `
+  + `WHEN ${INCLUDED_SQL} THEN 'analysed' WHEN ${INCL_SQL} = 'exclude' THEN 'excluded' `
+  + `WHEN ${PENDING_SQL} THEN 'pending' WHEN ${FLAGGED_OUT_SQL} THEN 'excluded_auto' ELSE 'abandoned' END)`;
+// the Sessions tab's groups: 0 in the reports, 1 in progress (active or pending), 2 the rest (folded); one ?
+const LIST_GROUP_SQL = `(CASE ${STATUS_SQL} WHEN 'analysed' THEN 0 WHEN 'active' THEN 1 WHEN 'pending' THEN 1 ELSE 2 END)`;
 // browser trouble worth a look before analysing (docs/BROWSERS.md): the "needs a look" filter, as store.py REVIEW_SQL
 export const REVIEW_FLAGS = ['translated', 'coarse-timer', 'forced-colors', 'small-window', 'automated'];
 const REVIEW_SQL = '(' + REVIEW_FLAGS.map((f) => `${FLAGS} LIKE '% ${f} %'`).join(' OR ')
@@ -136,6 +143,10 @@ export class Store {
     if (f.stage === 'left_out') sql.push(LEFT_OUT_SQL);
     if (f.stage === 'flagged') sql.push(REVIEW_SQL);
     if (f.stage === 'pending') sql.push(PENDING_SQL);
+    if (['analysed', 'in_progress', 'excluded', 'abandoned', 'no_pizza'].includes(f.stage)) {     // by status (the tiles)
+      const want = { in_progress: ['active', 'pending'], excluded: ['excluded', 'excluded_auto'] }[f.stage] || [f.stage];
+      sql.push(`${STATUS_SQL} IN (${want.map(() => '?').join(', ')})`); args.push(idleCutoff(), ...want);
+    }
     if (f.stage === 'synthetic') sql.push(SYN_SQL);
     if (f.stage === 'real') sql.push('NOT ' + SYN_SQL);
     for (const col of ['grp', 'source', 'stage', 'cond']) if (f[col] && !(col === 'stage' && (ACTIVITY.includes(f[col]) || ANALYSIS.includes(f[col])))) { sql.push(col + ' = ?'); args.push(f[col]); }
@@ -148,15 +159,18 @@ export class Store {
     return [sql.length ? ' WHERE ' + sql.join(' AND ') : '', args];
   }
 
-  async query(f, sort = 'started', desc = true, limit = 100, offset = 0, grouped = false) {
+  async query(f, sort = 'started', desc = true, limit = 100, offset = 0, grouped = false, thumbs = false) {
     // grouped (the Sessions tab): analysed first, then in progress now, then the rest (listgroup 0 / 1 / 2; as store.py)
     const [w, a] = Store.where(f);
     sort = SORTABLE.includes(sort) ? sort : 'started';
     const cut = idleCutoff();
     const [total, rows] = await this.db.batch([
       this.db.prepare(`SELECT COUNT(*) AS n, SUM(stage = 'done') AS done, SUM(${LIST_GROUP_SQL} = 2) AS folded FROM sessions${w}`).bind(cut, ...a),
-      this.db.prepare(`SELECT *, ${INCL_SQL} AS inclusion, ${ANALYSIS_SQL} AS analysis, ${AUTO_IN_SQL} AS auto_in, ${FINISHED_SQL} AS pz_finished, ${LIST_GROUP_SQL} AS listgroup, ${CLIENT_SQL} `
-        + `FROM sessions${w} ORDER BY ${grouped ? 'listgroup, ' : ''}${sort} ${desc ? 'DESC' : 'ASC'}, pid LIMIT ? OFFSET ?`).bind(cut, ...a, limit, offset),
+      this.db.prepare(`SELECT *, ${INCL_SQL} AS inclusion, ${ANALYSIS_SQL} AS analysis, ${AUTO_IN_SQL} AS auto_in, ${FINISHED_SQL} AS pz_finished, ${LIST_GROUP_SQL} AS listgroup, `
+        + `${STATUS_SQL} AS status, ${CLIENT_SQL}`
+        + (thumbs ? ", (SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'pz_final') AS pz_final_pic, "
+          + "(SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'pz_summary') AS pz_summary_pic" : '')
+        + ` FROM sessions${w} ORDER BY ${grouped ? 'listgroup, ' : ''}${sort} ${desc ? 'DESC' : 'ASC'}, pid LIMIT ? OFFSET ?`).bind(cut, cut, ...a, limit, offset),
     ]);
     return { rows: rows.results, total: total.results[0].n, done: total.results[0].done || 0, folded: total.results[0].folded || 0 };
   }
@@ -191,12 +205,19 @@ export class Store {
   }
 
   async countsByStudy() {
-    // {study: [sessions, finished, built a pizza, in progress now, synthetic]} of the real sessions (the synthetic ones
-    // are counted apart); the rest of the unfinished real ones have stopped
-    const { results } = await this.db.prepare(`SELECT study, SUM(NOT ${SYN_SQL}) AS n, SUM(NOT ${SYN_SQL} AND stage = 'done') AS done, `
-      + `SUM(NOT ${SYN_SQL} AND n_pieces IS NOT NULL AND ${INCLUDED_SQL}) AS built, SUM(NOT ${SYN_SQL} AND stage NOT IN ('done', 'declined') AND updated >= ?) AS active, `
-      + `SUM(${SYN_SQL}) AS syn, SUM(NOT ${SYN_SQL} AND stage = 'declined') AS declined FROM sessions GROUP BY study`).bind(idleCutoff()).all();
-    return Object.fromEntries(results.map((r) => [r.study, [r.n || 0, r.done || 0, r.built || 0, r.active || 0, r.syn || 0, r.declined || 0]]));
+    // {study: {n, done, syn, status: {status: count}}}: the real sessions' statuses add up to n (as store.py)
+    const empty = () => ({ n: 0, done: 0, syn: 0, status: Object.fromEntries(STATUSES.map((k) => [k, 0])) });
+    const [byStatus, syn] = await this.db.batch([
+      this.db.prepare(`SELECT study, ${STATUS_SQL} AS status, COUNT(*) AS n, SUM(stage = 'done') AS done FROM sessions WHERE NOT ${SYN_SQL} GROUP BY study, status`).bind(idleCutoff()),
+      this.db.prepare(`SELECT study, COUNT(*) AS n FROM sessions WHERE ${SYN_SQL} GROUP BY study`),
+    ]);
+    const out = {};
+    for (const r of byStatus.results) {
+      const c = (out[r.study] = out[r.study] || empty());
+      c.n += r.n; c.done += r.done || 0; c.status[r.status] = r.n;
+    }
+    for (const r of syn.results) (out[r.study] = out[r.study] || empty()).syn = r.n;
+    return out;
   }
 
   async syncSynthetic(study, add, keep, version) {
