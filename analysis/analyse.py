@@ -1862,8 +1862,9 @@ def nutrition_section(recs, groups):
     out = [dot_plot('Energy of the finished pizza (whole pizza with its base; shown to the participant or not)', vals('nut_kcal', recs), lo=0.0, fmt='%.0f', unit='kcal')]
     offered = [r for r in recs if num(r, 'nutrition_reveal') == 1]
     if not offered:
-        return ('<p class="muted">Nutrition information was not offered to anyone here (study setting <code>nutrition_reveal</code>), so there is '
-                'nothing on looking or changing; the energy of every pizza is computed anyway.</p>' + ''.join(out))
+        shown = any(num(r, 'nutrition_panel') == 1 for r in recs)
+        return (('<p class="muted">The nutrition table was in view the whole time they built (study setting <code>nutrition_panel</code>).</p>' if shown else
+                 '<p class="muted">No nutrition information was shown; the energy of every pizza is computed anyway.</p>') + ''.join(out))
     gl = [g for g in groups if any(r['_group'] == g for r in offered)]
     rows = [('All', Counter())] + ([(g, Counter()) for g in gl] if len(gl) > 1 else [])
     for r in offered:
@@ -2023,7 +2024,7 @@ def data_check_html(c):
     if 'ok' in c:
         if c['ok']:
             items.append(li('<span class="ok">✓ Consistent:</span> the analysed own pizzas match the %d sessions whose pizza was finished '
-                            '(the researcher page\'s "built a pizza").' % c['built_sessions']))
+                            '(the researcher page\'s "pizzas in the reports").' % c['built_sessions']))
         else:
             bad = []
             if c['built_without_pizza']:
@@ -2132,6 +2133,19 @@ document.addEventListener('click', function (e) {
 </script>"""
 
 
+def short_normal(small, n_ref, html):
+    """With a reference of fewer than NORM_MIN_REF pizzas (no separate reference set), "How normal is each pizza?" cannot
+    say anything yet: one line instead of the chart, the explanation and an empty "most unusual" list."""
+    if not small:
+        return html
+    i, j = html.find('<h2 id="normal">'), html.find('<h2 id="', html.find('<h2 id="normal">') + 5)
+    if i < 0 or j < 0:
+        return html
+    note = ('<h2 id="normal">How normal is each pizza?</h2><p class="muted">Needs at least %d pizzas to compare with (now %d); it appears here '
+            'by itself once there are enough.</p>' % (NORM_MIN_REF, n_ref))
+    return html[:i] + note + html[j:]
+
+
 def dashboard_report(entries, ref_info, group_label, check=None, pending=None):
     recs = [r for r, _ in entries]
     if not recs:
@@ -2148,7 +2162,7 @@ def dashboard_report(entries, ref_info, group_label, check=None, pending=None):
             groups.append(r['_group'])
     med = lambda k: statistics.median([r[k] for r in recs if isinstance(r.get(k), (int, float))] or [0])
     kpis = ''.join('<div class="kpi"><b>%s</b><span>%s</span></div>' % (v, esc(l)) for v, l in [
-        (len(recs), 'pizzas'), (len(groups), 'groups' if len(groups) > 1 else 'group'), ('%.0f' % med('n_pieces'), 'median pieces'),
+        (len(recs), 'pizzas')] + ([(len(groups), 'groups')] if len(groups) > 1 else []) + [('%.0f' % med('n_pieces'), 'median pieces'),
         ('%.0f' % med('n_distinct'), 'median toppings'), ('%.0f s' % (med('t_active') / 1000), 'median build time'),
         ('%d' % ref_info['n'], 'pizzas in the reference')])
     legend = '<div class="legend">%s</div>' % ''.join('<span><i class="%s"></i>%s</span>' % (k, esc(l)) for k, l in PIZZA_CLASSES)
@@ -2247,11 +2261,11 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
     feelings = ('<h2 id="feelings">Strong feelings</h2><p class="muted">From the follow-up: which ingredients people have strong feelings about, and why '
                 '(texture, smell, taste, look, touching other food), whether they are safe foods, must be a certain way, or are craved.</p>'
                 + strong_feelings_chart(entries, groups) + feel_plots) if any(r.get('n_strong') is not None for r in recs) else ''
-    return (('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
+    small_ref = not ref_info['external'] and ref_info['n'] < NORM_MIN_REF
+    return short_normal(small_ref, ref_info['n'], ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
             '<title>Pizza Data Preview</title><style>%s%s%s%s</style></head><body><div class="wrap">'
-            '<h1>Overview</h1><p class="muted">%d pizzas, compared by <code>%s</code>. Every number comes from the recorded coordinates, sizes and timestamps; '
-            'formulas are on the Methods page. Charts are descriptive: every participant is a dot, groups of 5 or more get a median and interquartile range '
-            '(the middle half). Tests between groups are on the Explore page.</p><div class="kpis">%s</div>'
+            '<h1>Overview</h1><p class="muted">%d pizzas%s. One dot per person; groups of 5 or more also get a median and range. '
+            'Tests between groups are on the Explore page, every formula on the Methods page.</p><div class="kpis">%s</div>'
             '<nav class="toc"><a href="#check">Data check</a><a href="#diet">Diet</a><a href="#nutrition">Nutrition</a><a href="#normal">How normal</a><a href="#feelings">Strong feelings</a>'
             '<a href="#space">Space</a><a href="#size">Size and amount</a><a href="#time">Time</a><a href="#people">Every participant</a></nav>%s'
             '<h2 id="diet">Diet: vegan, vegetarian, pescatarian or meat</h2><p class="muted">Each topping has a diet class, and so does the base: dairy cheese and white sauce make a '
@@ -2268,7 +2282,7 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
             '<h2 id="people">Every participant</h2><p class="muted">Click a column to sort. Pizzas started but not analysed (still being built, '
             'stopped, or left out) are at the end.</p><div class="tablewrap"><table class="people"><thead>%s</thead><tbody>%s</tbody>%s</table></div>'
             '</div>%s</body></html>'
-            % (REPORT_CSS, DASH_TOKENS, DASH_CSS, PENDING_CSS, len(recs), esc(group_label), kpis, data_check_html(check), legend, diet, pieces, cross, nutrition_section(recs, groups),
+            % (REPORT_CSS, DASH_TOKENS, DASH_CSS, PENDING_CSS, len(recs), (', compared by <code>%s</code>' % esc(group_label)) if len(groups) > 1 else '', kpis, data_check_html(check), legend, diet, pieces, cross, nutrition_section(recs, groups),
                esc(ref_txt), hist, bands, examples, feelings, space, size, time_, head, ''.join(body), pending_rows(pending, len(DASH_COLS)), sort_js + FOLD_JS)
            ).replace('<a href="#feelings">Strong feelings</a>', '<a href="#feelings">Strong feelings</a>' if feelings else ''))
 

@@ -37,6 +37,7 @@ h1{font-size:1.35rem;margin:4px 0 4px}h2{font-size:1.05rem;margin:0 0 10px}
 .kpi.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--panel))}.kpi.ok b{color:var(--ok)}
 .kpi.warn{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--panel))}.kpi.warn b{color:var(--warn)}
 b.warn{color:var(--warn)}
+.synbar[hidden]{display:none}
 .synbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:10px 0 0;padding:8px 12px;border:1px solid #7b3fa0;border-left-width:4px;border-radius:10px;background:color-mix(in srgb,#7b3fa0 7%,var(--panel));font-size:.9rem}
 .synbar b{color:#7b3fa0}.synbar select{padding:3px 6px}
 .syn{display:inline-block;margin-left:6px;font-size:.72rem;padding:0 6px;border-radius:999px;border:1px solid #7b3fa0;color:#7b3fa0;font-weight:600}
@@ -87,6 +88,7 @@ a.pidlink{color:inherit;text-decoration:underline dotted;cursor:pointer}
 #table tr.grouprow td,#table tr.foldrow td{background:var(--bg);font-size:.82rem;color:var(--muted);font-weight:600;padding:6px 8px}
 #table tr.foldrow td{font-weight:400} #table tr.g1 td:first-child{box-shadow:inset 3px 0 0 #d08a12}
 #table tr.g2 td{opacity:.8}
+.kpinote{flex-basis:100%;margin:2px 0 0}
 /* the Overview's live strip: pizzas started or changed since the reports were built (the reports list them after a build) */
 .live{border:1px solid color-mix(in srgb,#d08a12 45%,transparent);background:color-mix(in srgb,#d08a12 7%,transparent);border-radius:12px;padding:10px 12px;margin:8px 0 12px}
 .live h3{margin:0 0 6px;font-size:.95rem} .live .cards{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
@@ -332,6 +334,10 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       sel.innerHTML = '<option value="">any</option>' + vals.map(function (v) { return '<option value="' + esc(v) + '">' + esc((names || {})[v] || v) + '</option>'; }).join('');
     }
     opts(f.grp, S.options.grp); opts(f.source, S.options.source); opts(f.cond, S.options.cond);
+    // a filter with nothing to choose from (no groups, sources or conditions in this study) is left out
+    [['grp', S.options.grp], ['source', S.options.source], ['cond', S.options.cond], ['neuro', Object.keys(S.neuro || {})]].forEach(function (x) {
+      f[x[0]].closest('label').hidden = !(x[1] && x[1].length);
+    });
     opts(f.stage, Object.keys(S.stages).concat(['active', 'stopped', 'included', 'left_out', 'flagged', 'real', 'synthetic']),
       Object.assign({}, S.stages, { active: 'in progress now', stopped: 'stopped (no activity ' + (S.idle_minutes || 30) + ' min)',
         included: 'pizza in the analysis', left_out: 'pizza left out of the analysis', flagged: 'needs a look (browser flags, page errors)', synthetic: 'synthetic (simulated) only', real: 'real participants only' })); opts(f.neuro, Object.keys(S.neuro), S.neuro);
@@ -372,7 +378,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     } else if (r) {
       var c = r.check || {}, extra = [];
       if (c.typical) extra.push(c.typical + ' typical-participant pizza' + (c.typical === 1 ? '' : 's') + ' analysed separately');
-      if (c.left_out) extra.push(c.left_out + ' unfinished build' + (c.left_out === 1 ? '' : 's') + ' left out');
+      if (c.left_out) extra.push(c.left_out + ' left out');
       html = '<span class="msg">Reports built ' + esc(when(r.when)) + ' from ' + r.n + ' finished pizza' + (r.n === 1 ? '' : 's')
         + (extra.length ? ' (' + esc(extra.join('; ')) + ')' : '') + ' · up to date'
         + (c.ok === false ? ' · <b class="warn">Data check: ' + r.n + ' pizzas analysed but ' + c.built_sessions + ' sessions got past the build; see Overview → Data check</b>'
@@ -412,32 +418,22 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     if (!p) return '–';
     return (+p.day) + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+p.month - 1] + ' ' + p.hour + ':' + p.minute;
   }
-  function analysisTile() {
-    // is everything so far in the reports? green when yes, amber while new data waits or is being analysed
-    var r = S.reports, b = S.build, st = b && b.status;
-    if (!b) return ['kpi', 'on open', 'reports are built when opened'];
-    if (st && (st.state === 'running' || st.state === 'queued' || st.state === 'waiting')) return ['kpi warn', 'Analysing…', 'new data is being analysed'];
-    if (r && r.fresh) return ['kpi ok', '✓ All analysed', 'every session so far is in the reports'];
-    if (r && r.code_changed && !b.pending) return ['kpi warn', 'Analysis updated', 'press Build reports'];
-    if (r) return ['kpi warn', 'New data', (b.auto ? 'not yet in the reports' : 'press Build reports') + ' (reports from ' + shortTime(r.when) + ')'];
-    return ['kpi warn', 'Not analysed', b.auto ? 'no reports yet' : 'press Build reports'];
-  }
   function kpiRefresh() {
     var d = S.study === 'all' ? S.all : current();
     if (!d) return;
-    var a = analysisTile();
     var idle = S.idle_minutes || 30;
     var syn = (S.study === 'all' ? S.studies : [d]).reduce(function (t, x) { return t + (x.synthetic ? x.synthetic.stored : 0); }, 0);
+    // the counts that matter, in the order a session goes; the rest (median time, last start) in one line under them
     $('kpis').innerHTML = [[d.n, 'opened the link' + (syn ? ' (+' + syn + ' synthetic)' : ''), 'every real session: a participant (or a new tab) opened the link'
       + (syn ? '; the synthetic test sessions are not counted in these tiles' : '')],
-      [d.built, 'built a pizza', 'pressed "I\'m done" on the build: their pizza is in the reports'],
-      [d.done + ' · ' + pct(d.done, d.n - (d.declined || 0)), 'finished', 'reached the thank-you page after the questions (% of those who agreed to take part)'],
+      [d.done + ' · ' + pct(d.done, d.n - (d.declined || 0)), 'finished', 'reached the thank-you page (% of those who agreed to take part)'],
+      [d.built, 'pizzas in the reports', 'their pizza is analysed: they pressed "I\'m done" (or you included it), and it was not left out'],
       [d.active, 'in progress now', 'unfinished, saved within the last ' + idle + ' minutes'],
       [d.stopped, 'stopped', 'unfinished, no activity for ' + idle + ' minutes (they can still come back)']]
       .concat(d.declined ? [[d.declined, 'declined consent', 'said NO to the consent: the study ended there; only the answer is kept']] : []).concat([
-      [mins(d.median_seconds), 'median time (finished)', ''], [shortTime(d.last), 'last started', '']])
+      ])
       .map(function (k) { return '<div class="kpi" title="' + esc(k[2]) + '"><b>' + esc(k[0]) + '</b><span>' + esc(k[1]) + '</span></div>'; }).join('')
-      + '<div class="' + a[0] + '" title="' + esc(a[2]) + '"><b>' + esc(a[1]) + '</b><span>' + esc(a[2]) + '</span></div>';
+      + '<p class="muted small kpinote">' + (d.last ? 'last started ' + esc(shortTime(d.last)) : 'nobody yet') + (d.median_seconds != null ? ' · median time to finish ' + esc(mins(d.median_seconds)) : '') + '</p>';
   }
   // A test study's synthetic data: how many synthetic pizzas it holds (0 = none), chosen here, always on top of the page
   function synStudy() {
@@ -577,7 +573,8 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       var cols = [['pid', 'Participant'], ['inclusion', 'Analysis'], ['study', 'Study'], ['grp', 'Group'], ['source', 'Source'], ['neuro', 'Says they are'], ['cond', 'Condition'],
         ['stage', 'Where'], ['n_pieces', 'Pieces'], ['started', 'Started (Warsaw)'], ['seconds', 'Time taken'], ['restarts', 'Restarts'], ['os', 'Device']];
       // columns nobody on this page has a value in (e.g. no groups or conditions in this study) are left out, to save room
-      cols = cols.filter(function (c) { return ['grp', 'source', 'neuro', 'cond'].indexOf(c[0]) < 0 || d.rows.some(function (r) { return r[c[0]]; }); });
+      cols = cols.filter(function (c) { return ['grp', 'source', 'neuro', 'cond', 'restarts'].indexOf(c[0]) < 0 || d.rows.some(function (r) { return r[c[0]] && r[c[0]] !== '0'; }); });
+      if (S.study && S.study !== 'all') cols = cols.filter(function (c) { return c[0] !== 'study'; });   // one study: its name on every row says nothing
       var head = '<tr>' + cols.map(function (c) {
         if (c[0] === 'inclusion') return '<th title="Whether this session\'s pizza is analysed. Automatic: yes once they pressed &quot;I\'m done&quot;; '
           + 'a pizza they stopped building is left out. Choose Include or Exclude to override; the reports rebuild.">' + c[1] + '</th>';

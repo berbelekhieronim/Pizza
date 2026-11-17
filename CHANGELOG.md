@@ -5,6 +5,18 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Overview and Sessions, simpler.**
+- Researcher page: six tiles in the order a session goes (opened the link, finished, pizzas in the reports, in
+  progress, stopped, declined consent when any); "built a pizza" is now "pizzas in the reports" (what it counts);
+  last start and median time in one line under them; the reports-status tile is gone (the bar above the report says
+  it). The empty synthetic-data bar no longer shows for studies without synthetic data.
+- Sessions tab: filters with nothing to choose from (no groups, sources, conditions) are left out; the Study column
+  is left out inside one study, Restarts when nobody came back.
+- Overview report: a one-line introduction; no "compared by" or group count with a single group; Nutrition says the
+  table was in view while building (instead of "not offered") when the study shows it without the reveal button;
+  "How normal is each pizza?" is one line until there are 20 pizzas to compare with (no empty chart or list). The
+  bar above it says "N left out" (not all of them are unfinished).
+
 **Excluded sessions folded away; every started pizza on the overview.**
 - Sessions tab: three groups, sorted by the servers (both): the analysed pizzas, then the sessions in progress now
   (a pizza being built shows at once, marked), then the rest (left out, stopped, no pizza, declined consent), folded
