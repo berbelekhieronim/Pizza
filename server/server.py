@@ -464,8 +464,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 page = max(1, int(self.arg('page', '1')))
             except ValueError:
                 page = 1
-            rows, total, done = st.query(f, self.arg('sort', 'started'), self.arg('dir', 'desc') != 'asc', PAGE, (page - 1) * PAGE)
-            return self.send(200, json.dumps({'rows': rows, 'total': total, 'done': done, 'page': page, 'pages': max(1, -(-total // PAGE))}), 'application/json')
+            rows, total, done, folded = st.query(f, self.arg('sort', 'started'), self.arg('dir', 'desc') != 'asc', PAGE, (page - 1) * PAGE, grouped=self.arg('flat') != '1')
+            return self.send(200, json.dumps({'rows': rows, 'total': total, 'done': done, 'folded': folded, 'page': page, 'pages': max(1, -(-total // PAGE))}), 'application/json')
         if route == '/admin/api/session':                  # one session with every field (the Sessions tab's session panel)
             rec = st.get(self.arg('pid', ''))
             if not rec or (scope[0] == 'study' and (rec.get('study') or '') != scope[1]):
@@ -473,7 +473,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             row = next(iter(st.query({'study': None, 'pids': rec['pid']}, limit=1)[0]), {})
             return self.send(200, json.dumps({'record': rec, 'row': row}), 'application/json')
         if route == '/admin/sessions.csv':                 # the session list as shown (filtered, sorted), quick: no analysis
-            rows, _, _ = st.query(f, self.arg('sort', 'started'), self.arg('dir', 'desc') != 'asc', limit=10 ** 9)
+            rows = st.query(f, self.arg('sort', 'started'), self.arg('dir', 'desc') != 'asc', limit=10 ** 9)[0]
             buf = io.StringIO()
             w = csv.writer(buf)
             w.writerow(['group' if c == 'grp' else c for c in SESSION_CSV])

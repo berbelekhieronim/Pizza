@@ -1,7 +1,7 @@
 // The study's database on Cloudflare D1: the same tables and queries as server/store.py (SQLite), so a copy of it
 // reads exactly like server/data/study.db. D1 has no BEGIN/COMMIT: a write that must be atomic is one batch().
 
-export const SORTABLE = ['pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces', 'started', 'seconds', 'restarts'];
+export const SORTABLE = ['pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces', 'started', 'updated', 'seconds', 'restarts'];
 // survey: the study's questions asked before the pizza (survey_when = before); followup: after it (as store.py)
 export const STAGES = ['intro', 'survey', 'practice', 'build', 'typical', 'followup', 'done', 'declined'];   // declined: said no to the consent
 export const ACTIVITY = ['active', 'stopped'];     // extra "where" filter values, from the time of the last save
@@ -24,6 +24,8 @@ const FLAGGED_OUT_SQL = '(' + AUTO_EXCLUDE_FLAGS.map((f) => `${FLAGS} LIKE '% ${
 const AUTO_IN_SQL = `(n_pieces IS NOT NULL AND ${FINISHED_SQL} AND NOT ${FLAGGED_OUT_SQL})`;
 const LEFT_OUT_SQL = `(${INCL_SQL} = 'exclude' OR (${INCL_SQL} = '' AND n_pieces IS NOT NULL AND NOT ${AUTO_IN_SQL}))`;
 const INCLUDED_SQL = `(${INCL_SQL} = 'include' OR (${INCL_SQL} = '' AND ${AUTO_IN_SQL}))`;
+// the Sessions tab's groups (as store.py LIST_GROUP_SQL): 0 analysed, 1 in progress now, 2 the rest, folded away
+const LIST_GROUP_SQL = `(CASE WHEN ${INCLUDED_SQL} AND n_pieces IS NOT NULL THEN 0 WHEN stage NOT IN ('done', 'declined') AND updated >= ? THEN 1 ELSE 2 END)`;
 // browser trouble worth a look before analysing (docs/BROWSERS.md): the "needs a look" filter, as store.py REVIEW_SQL
 export const REVIEW_FLAGS = ['translated', 'coarse-timer', 'forced-colors', 'small-window', 'automated'];
 const REVIEW_SQL = '(' + REVIEW_FLAGS.map((f) => `${FLAGS} LIKE '% ${f} %'`).join(' OR ')
@@ -141,14 +143,17 @@ export class Store {
     return [sql.length ? ' WHERE ' + sql.join(' AND ') : '', args];
   }
 
-  async query(f, sort = 'started', desc = true, limit = 100, offset = 0) {
+  async query(f, sort = 'started', desc = true, limit = 100, offset = 0, grouped = false) {
+    // grouped (the Sessions tab): analysed first, then in progress now, then the rest (listgroup 0 / 1 / 2; as store.py)
     const [w, a] = Store.where(f);
     sort = SORTABLE.includes(sort) ? sort : 'started';
+    const cut = idleCutoff();
     const [total, rows] = await this.db.batch([
-      this.db.prepare(`SELECT COUNT(*) AS n, SUM(stage = 'done') AS done FROM sessions${w}`).bind(...a),
-      this.db.prepare(`SELECT *, ${INCL_SQL} AS inclusion, ${ANALYSIS_SQL} AS analysis, ${AUTO_IN_SQL} AS auto_in, ${FINISHED_SQL} AS pz_finished, ${CLIENT_SQL} FROM sessions${w} ORDER BY ${sort} ${desc ? 'DESC' : 'ASC'}, pid LIMIT ? OFFSET ?`).bind(...a, limit, offset),
+      this.db.prepare(`SELECT COUNT(*) AS n, SUM(stage = 'done') AS done, SUM(${LIST_GROUP_SQL} = 2) AS folded FROM sessions${w}`).bind(cut, ...a),
+      this.db.prepare(`SELECT *, ${INCL_SQL} AS inclusion, ${ANALYSIS_SQL} AS analysis, ${AUTO_IN_SQL} AS auto_in, ${FINISHED_SQL} AS pz_finished, ${LIST_GROUP_SQL} AS listgroup, ${CLIENT_SQL} `
+        + `FROM sessions${w} ORDER BY ${grouped ? 'listgroup, ' : ''}${sort} ${desc ? 'DESC' : 'ASC'}, pid LIMIT ? OFFSET ?`).bind(cut, ...a, limit, offset),
     ]);
-    return { rows: rows.results, total: total.results[0].n, done: total.results[0].done || 0 };
+    return { rows: rows.results, total: total.results[0].n, done: total.results[0].done || 0, folded: total.results[0].folded || 0 };
   }
 
   async setInclusion(pid, value, study = null) {

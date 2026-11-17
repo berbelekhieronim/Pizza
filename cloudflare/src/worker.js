@@ -329,8 +329,8 @@ class Request_ {
     }
     if (route === '/admin/api/sessions') {
       const page = Math.max(1, parseInt(this.arg('page', '1'), 10) || 1);
-      const { rows, total, done } = await st.query(f, this.arg('sort', 'started'), this.arg('dir', 'desc') !== 'asc', 100, (page - 1) * 100);
-      return json({ rows, total, done, page, pages: Math.max(1, Math.ceil(total / 100)) });
+      const { rows, total, done, folded } = await st.query(f, this.arg('sort', 'started'), this.arg('dir', 'desc') !== 'asc', 100, (page - 1) * 100, this.arg('flat') !== '1');
+      return json({ rows, total, done, folded, page, pages: Math.max(1, Math.ceil(total / 100)) });
     }
     if (route === '/admin/sessions.csv') {
       const { rows } = await st.query(f, this.arg('sort', 'started'), this.arg('dir', 'desc') !== 'asc', 1e9);

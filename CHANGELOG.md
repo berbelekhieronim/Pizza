@@ -5,6 +5,18 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Excluded sessions folded away; every started pizza on the overview.**
+- Sessions tab: three groups, sorted by the servers (both): the analysed pizzas, then the sessions in progress now
+  (a pizza being built shows at once, marked), then the rest (left out, stopped, no pizza, declined consent), folded
+  behind *Show the N sessions not analysed* below the others. A filter that asks for them (where / ids / participant)
+  shows them open.
+- Overview report, *Every participant*: after the analysed pizzas, every own pizza that was started but is not
+  analysed: in progress when the report was made (shown, with where they are and when they last saved, Warsaw time),
+  and stopped or left out ones folded behind a button. Every session id there opens the session.
+- Overview tab, live: *New since these reports were built*: every pizza started or changed after the last build
+  (including ones being built now), newest first, with its picture and state; a click opens the session. So new
+  trials show at once, also on Cloudflare before the reports are built again.
+
 **Task 0.17.0: Pizza Pilot 11.2026 asks its questions before the pizza** (`"survey_when": "before"`,
 `docs/SURVEY.md`). Consent, then the metryczka (*Najpierw kilka pytań o Ciebie*, *Dalej*), then the practice, the pizza
 and the baked pizza. What that touched, so nothing breaks:

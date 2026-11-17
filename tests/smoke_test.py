@@ -358,6 +358,12 @@ def counting_checks(base, key, fields, label):
     check(st1 == 'survey' and st2 == 'practice' and back.get('answered') is True and json.loads(http('GET', base + '/api/start?pid=CNTFRESH')[1]).get('answered') is False,
           label + 'questions before the pizza: stage "survey" comes before the practice, is never returned to, and a returning participant\'s answers are known')
     pids.append(q)
+    lst = api(base, 'sessions', key, study='main')
+    groups = [int(r['listgroup']) for r in lst['rows']]
+    byid = {r['pid']: int(r['listgroup']) for r in lst['rows']}
+    check(groups == sorted(groups) and byid[pids[0]] == 0 and byid[pids[1]] == 1 and byid[pids[3]] == 2 and lst['folded'] == groups.count(2) + 0 * len(groups)
+          and api(base, 'sessions', key, study='main', flat='1')['rows'][0].get('listgroup') is not None,
+          label + 'Sessions tab: analysed first, then in progress now, then the rest (counted, folded away on the page)')
     flagged = {r['pid'] for r in api(base, 'sessions', key, study='main', stage='flagged')['rows']}
     check(pids[3] in flagged and pids[0] not in flagged, label + 'Sessions tab: the "needs a look" filter finds browser flags')
     for p_ in pids:
@@ -746,7 +752,8 @@ def main():
             dash = open(os.path.join(tmp, 'pilot', 'dashboard.html'), encoding='utf-8').read() if ok else ''
             check(pst.get('survey_when') == 'before' and new.get('survey_when') == 'before' and old.get('survey_when') == 'after'
                   and dchk.get('answered_no_pizza') == [pids[3]] and sorted(dchk.get('survey_when') or {}) == ['after', 'before']
-                  and 'questions asked at different points' in dash and 'answered the questions and then left before building' in dash and 'id="feelings"' not in dash,
+                  and 'questions asked at different points' in dash and 'answered the questions and then left before building' in dash and 'id="feelings"' not in dash
+,
                   'Pizza Pilot 11.2026: the questions come before the pizza; the data says when each person answered (survey_when), the Data check lists a mix '
                   'and those who answered but left before building; no strong-feelings section')
             counting_checks(base, 'smoke-key', fields, '')
@@ -818,6 +825,16 @@ def main():
             check(not raw_storage and "addEventListener('visibilitychange'" in pg and "keepalive: true" in pg and "'error-callback'" in pg
                   and "go('practice')" not in pg and "go(order()[1])" in pg and 'name="darkreader-lock"' in pg and 'content="only light"' in pg and '<noscript>' in pg and 'r.status === 429' in pg,
                   'participant page: works with storage blocked, saves on leaving without sendBeacon, retries busy starts, never waits forever on the person check, keeps its colours, explains when JavaScript is off')
+            # the overview's "Every participant": started but not analysed pizzas at the end, in progress shown, the rest folded
+            nowt = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+            pend = [{'pid': 'PEND1', 'reason': 'not finished', 'stage': 'build', 'last_saved': nowt, 'group': None, 'summary': {}, 'pieces': [{'ing': 'pep', 'x': 0, 'y': 0, 'rot': 0, 'g': 1, 's': 1}]},
+                    {'pid': 'PEND2', 'reason': 'not finished', 'stage': 'build', 'last_saved': '2020-01-01T00:00:00Z', 'group': None, 'summary': {}, 'pieces': []},
+                    {'pid': 'PEND3', 'reason': 'excluded by the researcher', 'stage': 'done', 'last_saved': nowt, 'group': None, 'summary': {}, 'pieces': []}]
+            ph = FB.A.pending_rows(pend, 5)
+            shown, folded = ph.split('class="pending folded" hidden')
+            check('PEND1' in shown and 'in progress: building' in shown and 'PEND2' in folded and 'stopped while building' in folded and 'PEND3' in folded
+                  and 'Show the 2 pizzas not analysed' in shown,
+                  'overview: every pizza started is listed at the end of "Every participant"; in progress shown, stopped and left out folded behind a button')
             # Warsaw time (session list download): the EU summer-time rule in server.py (and the Worker, checked against it
             # above) agrees with the time-zone database of node / the researcher's browser, around both changes of the clock
             sys.path.insert(0, os.path.join(ROOT, 'server'))

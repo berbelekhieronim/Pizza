@@ -285,6 +285,9 @@ The researcher page starts with a **study chooser**; each study then opens in on
 Profiles, Symmetry, Methods, Links & data). Its session list:
 - **Filter** by study, group, recruitment source, condition, where people are (intro … finished), what they say they
   are, start date and participant id; click a column heading to **sort**; 100 sessions per page.
+- **Grouped**: the analysed pizzas first, then the sessions in progress now (a pizza being built shows at once), each
+  in the chosen order; the rest (left out, stopped, no pizza, declined) are folded behind *Show the N sessions not
+  analysed* (shown at once when the filter asks for them).
 - **Times are Warsaw time** (stored in UTC). The **Device** column shows each participant's browser and system (hover:
   time zone); **⚠** marks a session whose saves had to be retried or whose page had errors (hover for what happened).
   Recorded from study server 0.13.0; the full list of what is kept is in `CODEBOOK.md` → *Study server session fields*.

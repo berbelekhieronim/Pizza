@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS study_keys (study TEXT PRIMARY KEY, key TEXT NOT NULL
 """
 FIELD_RE = re.compile(r'^[a-z_]{2,40}$')
 INVITE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789'     # no 0/o, 1/l/i: easy to read out or type
-SORTABLE = ('pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces', 'started', 'seconds', 'restarts')
+SORTABLE = ('pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces', 'started', 'updated', 'seconds', 'restarts')
 # survey: the study's questions asked before the pizza (study setting survey_when = before); followup: after it
 STAGES = ('intro', 'survey', 'practice', 'build', 'typical', 'followup', 'done', 'declined')   # declined: said no to the consent
 IDLE_MINUTES = 30            # an unfinished session with no save for this long counts as stopped (it can still resume)
@@ -86,6 +86,9 @@ FLAGGED_OUT_SQL = '(' + ' OR '.join("(' ' || COALESCE((SELECT value FROM fields 
 AUTO_IN_SQL = '(n_pieces IS NOT NULL AND ' + FINISHED_SQL + ' AND NOT ' + FLAGGED_OUT_SQL + ')'
 LEFT_OUT_SQL = '(' + INCL_SQL + " = 'exclude' OR (" + INCL_SQL + " = '' AND n_pieces IS NOT NULL AND NOT " + AUTO_IN_SQL + '))'
 INCLUDED_SQL = '(' + INCL_SQL + " = 'include' OR (" + INCL_SQL + " = '' AND " + AUTO_IN_SQL + '))'
+# the Sessions tab's groups: 0 analysed, 1 in progress now (unfinished, saved within IDLE_MINUTES; a pizza being built
+# shows here), 2 the rest (left out, stopped, no pizza, declined), folded away under a button. One ? = idle_cutoff().
+LIST_GROUP_SQL = "(CASE WHEN " + INCLUDED_SQL + " AND n_pieces IS NOT NULL THEN 0 WHEN stage NOT IN ('done', 'declined') AND updated >= ? THEN 1 ELSE 2 END)"
 # browser trouble worth a look before analysing (participant page, docs/BROWSERS.md): the "needs a look" filter
 REVIEW_FLAGS = ('translated', 'coarse-timer', 'forced-colors', 'small-window', 'automated')
 REVIEW_SQL = '(' + ' OR '.join("(' ' || COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'browser_flags'), '') || ' ') LIKE '%% %s %%'" % f
@@ -260,14 +263,19 @@ class Store:
             sql.append('started < ?'); args.append(f['until'] + 'T99')
         return (' WHERE ' + ' AND '.join(sql)) if sql else '', args
 
-    def query(self, f, sort='started', desc=True, limit=100, offset=0):
+    def query(self, f, sort='started', desc=True, limit=100, offset=0, grouped=False):
+        """The matching sessions, sorted; grouped (the Sessions tab): the analysed ones first, then those in progress
+        now, then the rest (left out, stopped, no pizza, declined; listgroup 0 / 1 / 2), each group in the chosen order.
+        Returns (rows, total, finished, how many are in group 2)."""
         w, a = self.where(f)
         sort = sort if sort in SORTABLE else 'started'
         db = self.db()
-        total = db.execute("SELECT COUNT(*), SUM(stage = 'done') FROM sessions" + w, a).fetchone()
-        rows = db.execute('SELECT *, ' + INCL_SQL + ' AS inclusion, ' + ANALYSIS_SQL + ' AS analysis, ' + AUTO_IN_SQL + ' AS auto_in, ' + FINISHED_SQL + ' AS pz_finished, ' + CLIENT_SQL + ' FROM sessions%s ORDER BY %s %s, pid LIMIT ? OFFSET ?' % (w, sort, 'DESC' if desc else 'ASC'),
-                          a + [limit, offset]).fetchall()
-        return [dict(r) for r in rows], total[0], total[1] or 0
+        cut = idle_cutoff()
+        total = db.execute("SELECT COUNT(*), SUM(stage = 'done'), SUM(" + LIST_GROUP_SQL + " = 2) FROM sessions" + w, [cut] + a).fetchone()
+        rows = db.execute('SELECT *, ' + INCL_SQL + ' AS inclusion, ' + ANALYSIS_SQL + ' AS analysis, ' + AUTO_IN_SQL + ' AS auto_in, ' + FINISHED_SQL + ' AS pz_finished, '
+                          + LIST_GROUP_SQL + ' AS listgroup, ' + CLIENT_SQL + ' FROM sessions%s ORDER BY %s%s %s, pid LIMIT ? OFFSET ?'
+                          % (w, 'listgroup, ' if grouped else '', sort, 'DESC' if desc else 'ASC'), [cut] + a + [limit, offset]).fetchall()
+        return [dict(r) for r in rows], total[0], total[1] or 0, total[2] or 0
 
     def distinct(self, col, study=None):
         w, a = self.where({'study': study})

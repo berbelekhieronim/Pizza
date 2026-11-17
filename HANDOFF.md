@@ -204,6 +204,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-17 | Claude Code (cloud) | Sessions tab grouped (analysed / in progress / folded rest); overview lists every started pizza (in progress shown, rest folded); live strip of new pizzas since the reports |
 | 2026-11-16 | Claude Code (cloud) | 0.17.0 (task): pilot asks the metryczka before the pizza (survey_when, stage survey, pzf_data.when / survey_when, Data check: mix and answered-but-left; old-flow participants still asked) |
 | 2026-11-10 | Claude Code (cloud) | Review: declined consent tile (not stopped), Codespace reports rebuilt on analysis-code change, Data check wording, texts sheet per survey |
 | 2026-11-10 | Claude Code (cloud) | 0.16.0 (task): post-pizza survey per study (study.json survey, docs/SURVEY.md), q_<id> columns, Explore groupings from it; build per study; To review links + session panel (#sessions/<id>) |

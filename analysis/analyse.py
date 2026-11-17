@@ -35,6 +35,7 @@ import shutil
 import sqlite3
 import statistics
 import sys
+import time
 from collections import Counter
 
 CATS = {'pep': 'meat', 'ham': 'meat', 'chk': 'meat', 'anc': 'seafood', 'mus': 'veg', 'grp': 'veg', 'oni': 'veg',
@@ -2060,12 +2061,87 @@ def data_check_html(c):
     return '<h2 id="check">Data check</h2><ul class="check">%s</ul>' % ''.join(items)
 
 
-def dashboard_report(entries, ref_info, group_label, check=None):
+STAGE_WORDS = dict([('intro', 'reading the intro'), ('survey', 'answering the questions'), ('practice', 'practising'), ('build', 'building'),
+                    ('typical', 'typical pizza'), ('followup', 'answering the questions'), ('done', 'finished'), ('declined', 'declined')])
+
+
+def warsaw_time(t):
+    """A stored UTC time as Warsaw time 'YYYY-MM-DD HH:MM' (CET, or CEST from the last Sunday of March to the last
+    Sunday of October, 01:00 UTC; the same rule as the study servers' session list)."""
+    import calendar as _cal
+    import datetime as _dt
+    try:
+        u = _dt.datetime.strptime(str(t)[:19], '%Y-%m-%dT%H:%M:%S')
+    except ValueError:
+        return str(t or '')
+    def last_sunday(month):
+        d = _dt.datetime(u.year, month, _cal.monthrange(u.year, month)[1], 1)
+        return d - _dt.timedelta(days=(d.weekday() + 1) % 7)
+    return (u + _dt.timedelta(hours=2 if last_sunday(3) <= u < last_sunday(10) else 1)).strftime('%Y-%m-%d %H:%M')
+
+
+IDLE_MINUTES = 30      # as the study servers: an unfinished session with no save for this long has stopped
+
+
+def pending_rows(pending, ncols):
+    """The end of "Every participant": every own pizza that was started but is not analysed. Pizzas still being built
+    (saved within the last 30 minutes when the report was made) are shown; stopped ones and those left out by the
+    researcher or for the browser are folded behind a button, as on the Sessions tab. Session ids are links (REVIEW_JS)."""
+    if not pending:
+        return ''
+    cut = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - IDLE_MINUTES * 60))
+    def live(p):
+        return p['reason'] == 'not finished' and (p.get('last_saved') or '') >= cut
+    def row(p):
+        if live(p):
+            what = 'in progress: %s' % STAGE_WORDS.get(p['stage'], p['stage'] or 'started')
+        elif p['reason'] == 'not finished':
+            what = 'stopped while %s' % STAGE_WORDS.get(p['stage'], p['stage'] or 'building')
+        else:
+            what = 'left out: ' + p['reason']
+        when = (' · last saved %s (Warsaw)' % warsaw_time(p['last_saved'])) if p.get('last_saved') else ''
+        return ('<tr id="p-%s" class="pending"><td>%s</td><td class="l"><a class="pid" href="#p-%s" data-pid="%s">%s</a></td><td class="l">%s</td>'
+                '<td class="l" colspan="%d"><span class="tag">%s</span>%s · %d pieces so far</td></tr>'
+                % (esc(p['pid']), thumb(p['pieces'], p['summary'] or {}), esc(p['pid']), esc(p['pid']), esc(p['pid']), esc(p.get('group') or '-'), ncols,
+                   esc(what), esc(when), len(p['pieces'])))
+    started = sorted([p for p in pending if live(p)], key=lambda p: p.get('last_saved') or '', reverse=True)
+    out = sorted([p for p in pending if not live(p)], key=lambda p: p.get('last_saved') or '', reverse=True)
+    html = ''
+    if started:
+        html += ('<tbody class="pending"><tr class="grouprow"><td colspan="%d">In progress when this report was made (%d): not in the numbers above until '
+                 'they press "I\'m done"</td></tr>%s</tbody>' % (ncols + 3, len(started), ''.join(row(p) for p in started)))
+    if out:
+        html += ('<tbody class="pending"><tr class="grouprow"><td colspan="%d"><button type="button" class="foldbtn" aria-expanded="false" data-n="%d">▸ Show the %d '
+                 'pizza%s not analysed</button> <span class="muted">stopped before "I\'m done", or left out by the researcher or for the browser</span></td></tr></tbody>'
+                 '<tbody class="pending folded" hidden>%s</tbody>' % (ncols + 3, len(out), len(out), '' if len(out) == 1 else 's', ''.join(row(p) for p in out)))
+    return html
+
+
+PENDING_CSS = ("table.people tbody.pending tr.pending td { opacity: .78; } table.people tbody.pending .tag { display: inline-block; padding: 0 7px; "
+               "border-radius: 999px; background: color-mix(in srgb, #d08a12 16%, transparent); margin-right: 4px; } "
+               "table.people tr.grouprow td { font-size: .82rem; color: var(--muted, #777); font-weight: 600; padding-top: 12px; } "
+               "table.people a.pid { color: inherit; text-decoration: underline dotted; } "
+               "button.foldbtn { font: inherit; font-size: .85rem; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line, #ddd); background: transparent; color: inherit; cursor: pointer; }")
+FOLD_JS = """<script>
+document.addEventListener('click', function (e) {
+  var b = e.target.closest('button.foldbtn'); if (!b) return;
+  var t = b.closest('tbody').nextElementSibling, open = t.hidden;
+  t.hidden = !open; b.setAttribute('aria-expanded', String(open));
+  b.textContent = (open ? '▾ Hide the ' : '▸ Show the ') + b.dataset.n + ' pizza' + (b.dataset.n === '1' ? '' : 's') + ' not analysed';
+});
+</script>"""
+
+
+def dashboard_report(entries, ref_info, group_label, check=None, pending=None):
     recs = [r for r, _ in entries]
     if not recs:
+        rows = pending_rows(pending, 1)
         return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
-                '<title>Pizza Data Preview</title></head><body style="font:16px system-ui,sans-serif;max-width:640px;margin:0 auto;padding:24px 16px">'
-                '<h1>Pizza data preview</h1><p>No finished pizzas yet.</p>%s</body></html>' % data_check_html(check))
+                '<title>Pizza Data Preview</title><style>%s %s table.people { border-collapse: collapse; } table.people td { padding: 4px 8px; vertical-align: middle; } '
+                'table.people svg { width: 54px; height: 54px; }</style></head><body style="font:16px system-ui,sans-serif;max-width:760px;margin:0 auto;padding:24px 16px">'
+                '<h1>Pizza data preview</h1><p>No finished pizzas yet.</p>%s%s</body></html>'
+                % (PENDING_CSS, '.check li { margin: 4px 0; }', data_check_html(check),
+                   ('<h2 id="people">Every participant</h2><table class="people">%s</table>' % rows + REVIEW_JS + FOLD_JS) if rows else ''))
     groups = []
     for r in recs:
         if r['_group'] not in groups:
@@ -2145,7 +2221,8 @@ def dashboard_report(entries, ref_info, group_label, check=None):
                 cells.append('<td data-v="%s">%.1f</td>' % (v, v / 1000))
             else:
                 cells.append('<td data-v="%s">%s</td>' % (v, f % v))
-        body.append('<tr id="p-%s"><td>%s</td><td class="l" data-v="%s">%s</td><td class="l" data-v="%s">%s</td>%s</tr>' % (esc(r['pid']), thumb(p, {}), esc(r['pid']), esc(r['pid']), esc(r['_group']), esc(r['_group']), ''.join(cells)))
+        body.append('<tr id="p-%s"><td>%s</td><td class="l" data-v="%s"><a class="pid" href="#p-%s" data-pid="%s">%s</a></td><td class="l" data-v="%s">%s</td>%s</tr>'
+                    % (esc(r['pid']), thumb(p, {}), esc(r['pid']), esc(r['pid']), esc(r['pid']), esc(r['pid']), esc(r['_group']), esc(r['_group']), ''.join(cells)))
     sort_js = REVIEW_JS + """<script>
 document.querySelectorAll('table.people th').forEach(function (th, i) {
   if (i === 0) return;
@@ -2171,7 +2248,7 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
                 '(texture, smell, taste, look, touching other food), whether they are safe foods, must be a certain way, or are craved.</p>'
                 + strong_feelings_chart(entries, groups) + feel_plots) if any(r.get('n_strong') is not None for r in recs) else ''
     return (('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
-            '<title>Pizza Data Preview</title><style>%s%s%s</style></head><body><div class="wrap">'
+            '<title>Pizza Data Preview</title><style>%s%s%s%s</style></head><body><div class="wrap">'
             '<h1>Overview</h1><p class="muted">%d pizzas, compared by <code>%s</code>. Every number comes from the recorded coordinates, sizes and timestamps; '
             'formulas are on the Methods page. Charts are descriptive: every participant is a dot, groups of 5 or more get a median and interquartile range '
             '(the middle half). Tests between groups are on the Explore page.</p><div class="kpis">%s</div>'
@@ -2188,10 +2265,11 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
             '<h3>Most unusual pizzas</h3><div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">%s</div>'
             '%s'
             '<h2 id="space">Space</h2>%s<h2 id="size">Size and amount</h2>%s<h2 id="time">Time</h2>%s'
-            '<h2 id="people">Every participant</h2><p class="muted">Click a column to sort.</p><div class="tablewrap"><table class="people"><thead>%s</thead><tbody>%s</tbody></table></div>'
+            '<h2 id="people">Every participant</h2><p class="muted">Click a column to sort. Pizzas started but not analysed (still being built, '
+            'stopped, or left out) are at the end.</p><div class="tablewrap"><table class="people"><thead>%s</thead><tbody>%s</tbody>%s</table></div>'
             '</div>%s</body></html>'
-            % (REPORT_CSS, DASH_TOKENS, DASH_CSS, len(recs), esc(group_label), kpis, data_check_html(check), legend, diet, pieces, cross, nutrition_section(recs, groups),
-               esc(ref_txt), hist, bands, examples, feelings, space, size, time_, head, ''.join(body), sort_js)
+            % (REPORT_CSS, DASH_TOKENS, DASH_CSS, PENDING_CSS, len(recs), esc(group_label), kpis, data_check_html(check), legend, diet, pieces, cross, nutrition_section(recs, groups),
+               esc(ref_txt), hist, bands, examples, feelings, space, size, time_, head, ''.join(body), pending_rows(pending, len(DASH_COLS)), sort_js + FOLD_JS)
            ).replace('<a href="#feelings">Strong feelings</a>', '<a href="#feelings">Strong feelings</a>' if feelings else ''))
 
 
@@ -3750,6 +3828,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
 def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force=None, covariates=None):
     rnd = random.Random(seed)
     people, ing_long, ev_long, svgs, arrangement, piece_long, rem_long, adj_long = [], [], [], [], [], [], [], []
+    pending = []       # own pizzas started but not analysed (unfinished, or left out): listed at the end of the overview
     left_out = []      # builds saved part-way (the task saves while building) but never finished: not a choice, so not analysed
     for row in rows:
         pid = row['_pid']
@@ -3767,6 +3846,11 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             if reason:
                 left_out.append({'pid': pid, 'build': prefix.rstrip('_'), 'reason': reason, 'stage': row.get('stage') or None,
                                  'n_pieces': len(final), 'last_saved': row.get('updated') or None, 'study': row.get('study') or None})
+                if prefix == builds[0]:      # for the overview's list: every pizza started, analysed or not
+                    pending.append({'pid': pid, 'reason': reason, 'stage': row.get('stage') or None, 'last_saved': row.get('updated') or None,
+                                    'group': field(row, 'group') or row.get('group') or None, 'summary': summary,
+                                    'pieces': [{'ing': f[1], 'x': f[2], 'y': f[3], 'rot': f[4], 'g': (f[8] if len(f) > 8 else 1),
+                                                's': f[5] * (f[8] if len(f) > 8 else 1)} for f in final]})
                 continue
             events = loads(field(row, prefix + 'events'), []) or []
             # 's' is the drawn size: the small random variation times how much the participant grew the piece (hold to grow)
@@ -4032,7 +4116,7 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
     with open(os.path.join(out_dir, 'arrangement.html'), 'w', encoding='utf-8') as f:
         f.write(flag(arrangement_report(arrangement, group_label)))
     with open(os.path.join(out_dir, 'dashboard.html'), 'w', encoding='utf-8') as f:
-        f.write(flag(dashboard_report(own_entries, ref_info, group_label, check)))
+        f.write(flag(dashboard_report(own_entries, ref_info, group_label, check, pending)))
     prof = profile_analysis(own_entries, k_force)
     for (rec, _), z, lab in zip(own_entries, prof['Z'], prof['labels']):
         rec['cluster'] = lab + 1 if prof['k'] > 1 else None
