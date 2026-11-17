@@ -86,7 +86,7 @@ The build summary has `move: {n, straight, pausesPerDrag, dwell, hold, path}` (m
 `nDoneCancelled` (times they went back to edit), `tFirstPick`, `tFirstAdd`, `tLast` · `nPieces`, `nDistinct`, `counts` {code: n} · `sauce`, `cheese` · `tray` order ·
 `n` {event type: count} · `nGrown`, `nShrunk` (pieces made bigger / smaller) · `dragMsMedian` · `addGapMsMedian` · `hiddenMs`, `hides` ·
 `pointer` (first pointer type used) · `coarse` (touch-first device) · `hover` (device can hover) · `vw`, `vh`, `dpr` ·
-`pizzaPx` (pizza diameter on screen in CSS px) · `layout` (`wide` side-by-side or `narrow` stacked) · `trimmed` (hover events dropped to save space).
+`pizzaPx` (pizza diameter on screen in CSS px) · `layout` (`wide` side-by-side, `narrow` stacked, or `columns` from task 0.17.1: pizza, toppings and the nutrition panel in three columns fitted to the window) · `trimmed` (hover events dropped to save space).
 Practice only: `targetErr` (distance from the target centre for each attempt, max 3), `stepT` (time each step was completed), `stepsDone`.
 
 ### `<prefix>counts`

@@ -39,7 +39,7 @@ SECTIONS = [
         ('sauce, cheese', 'The base chosen: sauce none / tomato / white / bbq; cheese none / light / normal / extra.', 'analyse'),
         ('n_pieces, n_{ing}', 'Pieces on the finished pizza, in total and per topping. n_{ing} is NA when that topping was not on the person\'s tray (e.g. tofu before task 0.15.0), so “not offered” never reads as “left off”.', 'analyse'),
         ('n_ev_{ev}', 'Number of events of that type in the log (pick, add, reject, tap, grab, move, remove, resize, abort, undo, clear, hover).', 'analyse'),
-        ('pointer, coarse, layout, pizzaPx, vw, vh, dpr, hiddenMs, hides', 'Device record: pointer used first (mouse / touch / pen), coarse pointer (1/0), task layout, pizza width in px, window size, pixel ratio, ms the tab was hidden, times hidden.', 'analyse'),
+        ('pointer, coarse, layout, pizzaPx, vw, vh, dpr, hiddenMs, hides', 'Device record: pointer used first (mouse / touch / pen), coarse pointer (1/0), task layout (wide, narrow, or columns: the three-column layout with the nutrition panel, from task 0.17.1), pizza width in px, window size, pixel ratio, ms the tab was hidden, times hidden.', 'analyse'),
         ('pid, build, t_ms, type, a, b, x, y, drag_ms, snapped', '<b>events_long.csv</b>: one row per logged event: time since the task started (ms), event type, its first two fields (topping, piece id), drop position, drag duration, snapped (0/1).', 'analyse'),
     ]),
     ('Composition and variety', None, [

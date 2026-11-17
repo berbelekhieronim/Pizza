@@ -4,7 +4,7 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-11-16, task version 0.17.0, server 0.14.0)
+## Snapshot (2026-11-17, task version 0.17.1, server 0.14.0)
 
 - **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
@@ -204,6 +204,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-17 | Claude Code (cloud) | 0.17.1 (task): three-column layout with the nutrition table (pizza / toppings + buttons / nutrition) fitted to the window height, no scrolling from 1280×610; Sessions tab: status and include/exclude in one dropdown, column tooltips |
 | 2026-11-17 | Claude Code (cloud) | One status per session (STATUS_SQL, both servers): tiles add up, Status badge + Your choice on the Sessions tab, pizza thumbnails toggle; live data read (11 of 20 pilot sessions excluded by hand explained the counts) |
 | 2026-11-17 | Claude Code (cloud) | Unfinished pizzas pending for 24 h (listed with those in progress), then abandoned (left out, folded); both servers + analysis |
 | 2026-11-17 | Claude Code (cloud) | Overview / Sessions simplified: six tiles, empty filters and constant columns hidden, short report intro, nutrition and normality sections fit small pilots |

@@ -5,6 +5,14 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Task 0.17.1: the pizza task fits the window, nutrition included.** With the nutrition table (Pizza Pilot 11.2026),
+the table sat under the pizza and the toppings ran below the window, so people had to scroll to reach *Gotowe* and the
+table. Now, on a computer window at least about 1100 px wide, the page widens and the task is three columns (pizza |
+toppings, sauce, cheese and buttons | nutrition, one line per nutrient), sized to the window height: the toppings use
+5 or 6 columns and the largest bowls that fit, the pizza the remaining height. Text sizes are unchanged (names 11.5 px,
+nutrition 13.6 px). No scrolling at 1280×610 up to 1920×945. Recorded as `summary.layout = "columns"`; positions are
+stored relative to the pizza as before, so the data compare across layouts. Narrower windows keep the earlier layout.
+
 **One status per session; the tiles add up.** The top tiles counted different things that did not add up (finished =
 reached the thank-you page; pizzas in the reports = analysed; stopped = whatever was left), and sessions excluded by
 hand appeared in none of them. Now every session has exactly one status, computed in one place on both servers

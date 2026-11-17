@@ -16,7 +16,7 @@
   'use strict';
   if (global.PizzaBuilder) return;
 
-  var VERSION = '0.17.0';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
+  var VERSION = '0.17.1';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
   var VIEW = 105;        // half-width of every pizza viewBox; the pizza's outer radius is 100
   var R_SNAP = 0.9;      // with snapIn, a topping centre dropped on the crust is pulled in to this radius
   var R_OFF = 1.0;       // dropped further out than this = off the pizza
@@ -489,6 +489,27 @@
     '.pzb-ncompact .pzb-ngrid{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:3px 10px}.pzb-ncompact .pzb-ncell,.pzb-ncompact .pzb-nkcal{font-size:.74em}',
     '.pzb-nhide{font:inherit;font-size:.85em;border:1px solid var(--pzb-line);background:#fff;border-radius:8px;padding:2px 10px;cursor:pointer;color:var(--pzb-ink)}',
     '.pzb-dialog.pzb-wide{max-width:620px}.pzb-dialog.pzb-wide .pzb-nutri{margin:0 0 16px}',
+    // a computer with the nutrition panel: three columns (pizza | toppings and buttons | nutrition), all sized to the
+    // window so nothing needs scrolling; _layout picks the toppings' columns and bowl size, the text keeps its size
+    '.pzb-ncol .pzb-side{flex:none;width:var(--pzb-sidew,404px)}',
+    '.pzb-ncol .pzb-tray{grid-template-columns:repeat(var(--pzb-tcols,5),1fr);gap:6px}',
+    '.pzb-ncol .pzb-item{padding:6px 2px 5px;gap:3px}',
+    '.pzb-ncol .pzb-bowl{width:var(--pzb-bowl,46px);height:var(--pzb-bowl,46px)}',
+    '.pzb-ncol .pzb-iname{font-size:11.5px}',
+    '.pzb-ncol .pzb-ctl{margin-top:10px;gap:6px}',
+    '.pzb-ncol .pzb-main>.pzb-nutri{flex:0 0 300px;width:300px;margin-top:0;padding:10px 12px}',
+    '.pzb-ncol .pzb-nutri .pzb-nh{flex-direction:column;gap:2px;margin-bottom:8px}',
+    '.pzb-ncol .pzb-nutri .pzb-ngrid{grid-template-columns:1fr;gap:3px}',
+    '.pzb-ncol .pzb-nutri .pzb-nkcal{grid-column:auto;margin-bottom:4px}',
+    '.pzb.pzb-ncol{max-width:none}.pzb-ncol .pzb-prompt{max-width:1180px;margin-left:auto;margin-right:auto}',
+    '.pzb-ncol .pzb-nutri .pzb-nh{font-size:.88em}.pzb-ncol .pzb-nutri .pzb-nh span{font-size:.92em;line-height:1.25}',
+    // one line per nutrient (name, amount, % of the reference intake) with its bar drawn along the bottom of the line
+    '.pzb-ncol .pzb-nutri .pzb-ncell{position:relative;grid-template-columns:1fr auto 3.3em;column-gap:8px;align-items:baseline;padding-bottom:4px}',
+    '.pzb-ncol .pzb-nutri .pzb-ncell span{grid-column:auto}',
+    '.pzb-ncol .pzb-nutri .pzb-ncell i{position:absolute;left:0;right:0;bottom:0;margin:0;height:3px}',
+    '.pzb-ncol .pzb-nutri .pzb-nkcal{display:grid;grid-template-columns:auto 1fr;align-items:baseline;column-gap:8px}',
+    '.pzb-ncol .pzb-nutri .pzb-nkcal b{font-size:1.45em;text-align:right}.pzb-ncol .pzb-nutri .pzb-nkcal>small,.pzb-ncol .pzb-nutri .pzb-nkcal>.pzb-nmac{grid-column:1/3}',
+    '.pzb-ncol .pzb-nutri .pzb-ncell b{white-space:nowrap}',
     '@media (prefers-reduced-motion: reduce){.pzb *,.pzb-ghost,.pzb-toast{animation:none!important;transition:none!important}}'
   ].join('\n');
 
@@ -871,6 +892,33 @@
     // the column keeps the width it had with the table hidden: showing the table shrinks the pizza, not the layout
     if (this.revealBtn && this.revealEl.hidden && !narrow) this.revealBtn.parentNode.style.width = (size + 24) + 'px';
     this.layout = narrow ? 'narrow' : 'wide';
+    this._fitColumns(W, narrow, vh, top);
+  };
+
+  // With the nutrition panel on a computer wide enough, it becomes a third column and the whole task fits the window
+  // height: the toppings take 5 or 6 columns with the largest bowls that fit (46 down to 34 px; the names keep their
+  // size), and the pizza gets the rest of the height and width (at most 600 px). Elsewhere the panel stays below.
+  Builder.prototype._fitColumns = function (W, narrow, vh, top) {
+    if (!this.nutriEl) return;
+    var ncol = !narrow && W >= 1080, main = this.w.querySelector('.pzb-main'), w = this.w;
+    if (ncol && this.nutriEl.parentNode !== main) main.appendChild(this.nutriEl);
+    if (!ncol && this.nutriEl.parentNode !== w) w.appendChild(this.nutriEl);
+    w.classList.toggle('pzb-ncol', ncol);
+    if (ncol) this.layout = 'columns';   // recorded (summary.layout): pizza | toppings | nutrition side by side
+    if (ncol) w.classList.remove('pzb-cols4');
+    if (!ncol) return;
+    var side = w.querySelector('.pzb-side'), availH = vh - top - 30, TILE = 78, GAP = 18, best = null;
+    var tries = [[5, 46], [5, 42], [6, 46], [6, 42], [6, 38], [6, 34]];
+    for (var i = 0; i < tries.length; i++) {
+      w.style.setProperty('--pzb-tcols', tries[i][0]); w.style.setProperty('--pzb-bowl', tries[i][1] + 'px');
+      w.style.setProperty('--pzb-sidew', (tries[i][0] * TILE + (tries[i][0] - 1) * 6) + 'px');
+      best = tries[i];
+      if (side.offsetHeight <= availH) break;
+    }
+    var sideW = best[0] * TILE + (best[0] - 1) * 6, room = W - sideW - 300 - 2 * GAP - 24;
+    var size = Math.max(260, Math.floor(Math.min(room, availH - 24, 600)));
+    this.pizzaEl.style.width = this.pizzaEl.style.height = size + 'px';
+    this.fit = { cols: best[0], bowl: best[1], pizza: size };
   };
 
   Builder.prototype._bind = function () {

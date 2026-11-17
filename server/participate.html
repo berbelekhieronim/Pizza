@@ -34,6 +34,9 @@
   .choice p { margin:0; font-weight:600; flex-basis:100%; }
   .choice button { min-width:7em; }
   button.alt { background:#fff; color:var(--ink); border:1px solid var(--line); }
+  /* the pizza task with the nutrition panel: wider, so pizza, toppings and nutrition sit side by side in the window */
+  body.wide .wrap { max-width:1400px; padding-top:8px; padding-bottom:8px; }
+  body.wide .sheet { padding-top:10px; padding-bottom:10px; }
   .baked { display:flex; justify-content:center; margin:14px 0 6px; }
 </style>
 </head>
@@ -274,6 +277,7 @@
     widget = null;
     stage.innerHTML = '';
     next.hidden = true;
+    document.body.classList.remove('wide');
     var o = order(), i = o.indexOf(name);     // no "part i of n": the participant only sees the task itself
     window.scrollTo(0, 0);
     send(true);
@@ -310,6 +314,7 @@
       if (show) opts.nutritionShow = show;
       if ((cs.nutrition_base != null ? cs.nutrition_base : S.study.nutrition_base) === false) opts.nutritionBase = false;
     }
+    document.body.classList.toggle('wide', !!opts.nutrition && (name === 'build' || name === 'typical'));
     widget = PizzaBuilder.mount(box, opts);
   }
   function intro() {

@@ -18,6 +18,14 @@ be analysed together (see *Changing the builder without breaking the data* below
 3. Optional, per study: a nutrition table (`nutrition_panel`), nutrition on request (`nutrition_reveal`), a
    "typical participant" pizza (`pzt_`), and the follow-up questions (`pzf_data`).
 
+**Fits the window (task 0.17.1).** With the nutrition table on a computer at least about 1100 px wide, the task is
+three columns: the pizza, the toppings with the sauce, cheese and *Gotowe* buttons, and the nutrition table (one line
+per nutrient, its bar under the line). Everything is sized to the window height so nobody has to scroll: the toppings
+take 5 or 6 columns with the largest bowls that fit (46 down to 34 px; the names stay 11.5 px, the nutrition text
+13.6 px) and the pizza takes the remaining height (at most 600 px). Checked with no scrolling at 1280×610, 1366×657,
+1440×789, 1536×730, 1920×945 and 1280×900 (browser windows of common laptop and desktop screens). Recorded as
+`layout: "columns"` in the summary; narrower windows keep the earlier layout (table below the pizza).
+
 ## Sauces
 
 | code | English | Polish | on the button | diet of the base | nutrition (per 30 cm pizza) |
