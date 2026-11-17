@@ -79,8 +79,10 @@ CLIENT_SQL = ', '.join("(SELECT value FROM fields WHERE fields.pid = sessions.pi
 # while the pizza bakes, or two saves arriving out of order, can leave a finished pizza at stage "build"), unless the
 # browser was driven by a program (browser_flags in AUTO_EXCLUDE_FLAGS). The researcher's choice overrides both.
 AUTO_EXCLUDE_FLAGS = ('automated',)
-FINISHED_SQL = ("(COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'pz_summary'), '') NOT LIKE '%\"finished\":false%' "
-                "AND COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'pz_summary'), '') NOT LIKE '%\"finished\": false%')")
+# finished: the pizza's summary says so, or the session got past the build (the next part only opens after "I'm done",
+# so a pizza whose last saves were lost on the way still counts as submitted, as last saved; analyse.py SUBMITTED_STAGES)
+FINISHED_SQL = ("(stage IN ('typical', 'followup', 'done') OR (COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'pz_summary'), '') NOT LIKE '%\"finished\":false%' "
+                "AND COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'pz_summary'), '') NOT LIKE '%\"finished\": false%'))")
 FLAGGED_OUT_SQL = '(' + ' OR '.join("(' ' || COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'browser_flags'), '') || ' ') LIKE '%% %s %%'" % f
                                     for f in AUTO_EXCLUDE_FLAGS) + ')'
 AUTO_IN_SQL = '(n_pieces IS NOT NULL AND ' + FINISHED_SQL + ' AND NOT ' + FLAGGED_OUT_SQL + ')'
@@ -112,9 +114,12 @@ STATUS_SQL = ("(CASE WHEN stage = 'declined' THEN 'declined' "
 # the Sessions tab's groups: 0 in the reports, 1 in progress (active or pending), 2 the rest (folded); one ?
 LIST_GROUP_SQL = "(CASE " + STATUS_SQL + " WHEN 'analysed' THEN 0 WHEN 'active' THEN 1 WHEN 'pending' THEN 1 ELSE 2 END)"
 # browser trouble worth a look before analysing (participant page, docs/BROWSERS.md): the "needs a look" filter
-REVIEW_FLAGS = ('translated', 'coarse-timer', 'forced-colors', 'small-window', 'automated')
+REVIEW_FLAGS = ('translated', 'coarse-timer', 'forced-colors', 'automated')    # small-window: information only from 0.18.1 (the task waits until it fits)
+# page errors other than Chrome's "ResizeObserver loop" notice (harmless; no longer recorded from 0.18.1): more entries
+# (each ends with "]) than mentions of the notice
+REAL_ERRORS_SQL = "(LENGTH(value) - LENGTH(REPLACE(value, '\"]', ''))) / 2 > (LENGTH(value) - LENGTH(REPLACE(value, 'ResizeObserver loop', ''))) / 19"
 REVIEW_SQL = '(' + ' OR '.join("(' ' || COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'browser_flags'), '') || ' ') LIKE '%% %s %%'" % f
-                               for f in REVIEW_FLAGS) + " OR EXISTS (SELECT 1 FROM fields WHERE fields.pid = sessions.pid AND name = 'client_errors'))"
+                               for f in REVIEW_FLAGS) + " OR EXISTS (SELECT 1 FROM fields WHERE fields.pid = sessions.pid AND name = 'client_errors' AND " + REAL_ERRORS_SQL + "))"
 # what the analysis does with a session: included / left_out / no_pizza (shown on the Sessions tab and in sessions.csv)
 ANALYSIS_SQL = "CASE WHEN n_pieces IS NULL THEN 'no_pizza' WHEN %s THEN 'included' WHEN %s THEN 'pending' ELSE 'left_out' END" % (INCLUDED_SQL, PENDING_SQL)
 
@@ -170,6 +175,15 @@ def summary_columns(fields):
             pass
     return out
 
+
+
+def stale_save(new, old):
+    """True when save_seq new ("<page load>:<n>") is older than the stored one from the same page load."""
+    try:
+        a, b = (new or '').split(':'), (old or '').split(':')
+        return len(a) == 2 and len(b) == 2 and a[0] == b[0] and int(a[1]) < int(b[1])
+    except ValueError:
+        return False
 
 class Store:
     def __init__(self, path):
@@ -227,7 +241,7 @@ class Store:
             db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', (k, str(n + 1)))
         return conds[n % len(conds)]
 
-    def save(self, pid, fields, stage):
+    def save(self, pid, fields, stage):  # noqa: C901
         """Merges fields into a session (only names like pz_final; string values) and records where they are."""
         clean = {k: v for k, v in fields.items() if isinstance(k, str) and FIELD_RE.match(k) and k != INCLUSION and isinstance(v, str)}
         t = now()
@@ -235,6 +249,10 @@ class Store:
             row = db.execute('SELECT started, finished, stage FROM sessions WHERE pid = ?', (pid,)).fetchone()
             if row is None:
                 return False
+            # a save older than one already stored from the same page (they can arrive out of order) changes nothing:
+            # save_seq = "<page load id>:<count>" (participate.html); another page load (a reload) always counts
+            if stale_save(clean.get('save_seq'), (db.execute("SELECT value FROM fields WHERE pid = ? AND name = 'save_seq'", (pid,)).fetchone() or {'value': None})['value']):
+                clean = {}
             db.executemany('INSERT INTO fields (pid, name, value, updated) VALUES (?, ?, ?, ?) '
                            'ON CONFLICT(pid, name) DO UPDATE SET value = excluded.value, updated = excluded.updated',
                            [(pid, k, v, t) for k, v in clean.items()])

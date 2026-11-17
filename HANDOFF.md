@@ -4,7 +4,7 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-11-17, task version 0.18.0, server 0.14.0)
+## Snapshot (2026-11-17, task version 0.18.1, server 0.14.0)
 
 - **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
@@ -213,6 +213,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-17 | Claude Code (cloud) | 0.18.1: lost saves fixed (keepalive quota: one save at a time, timeout, save_seq stale guard on both servers, past-the-build = submitted, Data check saves_lost); live scan of 32 sessions, Pad0b44f1 recovered (included); small window covers the task until it fits (small-window info only); plain-language ⚠/ℹ tooltips; ResizeObserver notice ignored |
 | 2026-11-17 | Claude Code (cloud) | 0.18.0: nutrition hidden until asked (blurred + button, reveal measures, nutrition_mode); Settings tab (nutrition, questions, conditions; global and per study; both servers, settings.py = settings.js); defaults shown + before; green pulsing Gotowe (nudges); whole flow fits 1366×657 |
 | 2026-11-17 | Claude Code (cloud) | 0.17.1 (task): three-column layout with the nutrition table (pizza / toppings + buttons / nutrition) fitted to the window height, no scrolling from 1280×610; Sessions tab: status and include/exclude in one dropdown, column tooltips |
 | 2026-11-17 | Claude Code (cloud) | One status per session (STATUS_SQL, both servers): tiles add up, Status badge + Your choice on the Sessions tab, pizza thumbnails toggle; live data read (11 of 20 pilot sessions excluded by hand explained the counts) |

@@ -1922,7 +1922,7 @@ STAGE_LABELS = [('intro', 'reading the intro'), ('survey', 'questions before the
 # browser flags (participant page, docs/BROWSERS.md) that leave a session's pizza out automatically, as AUTO_EXCLUDE_FLAGS
 # in server/store.py and cloudflare/src/store.js: a browser driven by a program is not a participant
 AUTO_EXCLUDE_FLAGS = ('automated',)
-REVIEW_FLAGS = ('translated', 'coarse-timer', 'forced-colors', 'small-window', 'automated')
+REVIEW_FLAGS = ('translated', 'coarse-timer', 'forced-colors', 'automated')   # small-window: information only from 0.18.1 (the task waits until it fits)
 
 
 def browser_flags(row):
@@ -1934,11 +1934,20 @@ def browser_flags(row):
 ABANDON_HOURS = 24
 
 
+SUBMITTED_STAGES = ('typical', 'followup', 'done')    # parts that open only after "I'm done" (store.py FINISHED_SQL)
+
+
+def saves_lost(row, summary):
+    """The participant finished the pizza (the session got past the build), but its last saves never reached the server
+    (task 0.18.0 and earlier: the browser refused overlapping saves): the pizza is analysed as last saved."""
+    return summary.get('finished') is False and (row.get('stage') or '') in SUBMITTED_STAGES
+
+
 def auto_reason(row, summary):
     """Why the automatic rule leaves this pizza out, or None: not finished yet (pending: saved within ABANDON_HOURS, they
     may still finish it), not finished (abandoned), or a flagged browser. Without a save time (a Qualtrics export):
     'not finished'."""
-    if summary.get('finished') is False:
+    if summary.get('finished') is False and not saves_lost(row, summary):
         up = row.get('updated')
         if not up:
             return 'not finished'
@@ -1988,6 +1997,7 @@ def data_check(rows, builds, people, left_out):
            'researcher_included': sorted(p for p, c in choices.items() if c == 'include'),
            'no_pizza': sum(1 for r in rows if loads(field(r, builds[0] + 'final')) is None),
            # with the questions before the pizza: answered them, then left before building (their answers are not analysed)
+           'saves_lost': sorted(r['_pid'] for r in rows if saves_lost(r, loads(field(r, builds[0] + 'summary'), {}) or {})),
            'answered_no_pizza': sorted(r['_pid'] for r in rows if loads(field(r, builds[0] + 'final')) is None and loads(field(r, 'pzf_data'))),
            'stages': {k: stages.get(k, 0) for k, _ in STAGE_LABELS if stages.get(k)},
            'flags': {k: sorted(p['pid'] for p in mine if p.get(k)) for k in ('flag_fast', 'flag_empty', 'flag_tab_away')},
@@ -2051,6 +2061,10 @@ def data_check_html(c):
     if c['no_pizza']:
         items.append(li('%d sessions never placed a topping on their own pizza (stopped in the intro, the questions or the practice, or just opened the link).'
                         % c['no_pizza']))
+    if c.get('saves_lost'):
+        items.append(li('<b>%d pizzas were finished, but their last saves never reached the server</b> (the session got past the pizza, its last '
+                        'saved state is unfinished): analysed as last saved, so the last seconds of building may be missing: %s.'
+                        % (len(c['saves_lost']), pid_links(c['saves_lost']) + show_all(c['saves_lost']))))
     if c.get('answered_no_pizza'):
         items.append(li('%d of them answered the questions and then left before building (asked before the pizza): %s. Their answers are kept in '
                         'the sessions, not in the analysis, which starts from a pizza; compare them with those who stayed to see who drops out.'

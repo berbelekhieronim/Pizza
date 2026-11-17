@@ -26,10 +26,17 @@
   .status:empty { display:none; }   /* no empty line under the task: the page fits the window */
   .notice { background:#f4efe9; border-radius:10px; padding:8px 12px; margin:0 0 10px; font-size:.95rem; }
   .notice[hidden] { display:none; }
+  /* during the task the note floats over it for a few seconds instead of taking room above it */
+  body.task .notice { position:fixed; left:50%; top:12px; transform:translateX(-50%); z-index:2147483500; margin:0; box-shadow:0 6px 20px rgba(0,0,0,.15); max-width:90vw; }
   /* a request the participant can act on (switch the translation off, enlarge the window); never translated itself */
   .ask { background:#fff4d6; border:1px solid #e8c56a; border-radius:10px; padding:8px 12px; margin:0 0 10px; font-size:.95rem; }
   .ask[hidden] { display:none; }
   .ask p { margin:2px 0; }
+  /* the window cannot show the whole task: a screen over it until the window is big enough (nothing to scroll, ever) */
+  .blocker { position:fixed; inset:0; z-index:2147483600; background:rgba(246,242,237,.97); display:flex; align-items:center; justify-content:center; padding:20px; }
+  .blocker[hidden] { display:none; }
+  .blocker div { max-width:34em; background:#fff; border:1px solid #e8c56a; border-radius:14px; padding:18px 22px; font-size:1.05rem; box-shadow:0 8px 30px rgba(0,0,0,.12); }
+  .blocker p { margin:6px 0; }
   .choice { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin:18px 0 4px; max-width:62ch; }
   .choice p { margin:0; font-weight:600; flex-basis:100%; }
   .choice button { min-width:7em; }
@@ -47,6 +54,7 @@
   <div class="sheet">
     <p class="notice" id="notice" hidden></p>
     <div class="ask" id="ask" hidden translate="no" role="status"></div>
+    <div class="blocker" id="blocker" hidden translate="no" role="alertdialog" aria-live="assertive"><div></div></div>
     <div id="stage"><noscript><h1>JavaScript</h1><p lang="pl">To badanie działa tylko z włączonym JavaScriptem. Włącz go dla tej strony (albo otwórz link w innej przeglądarce) i odśwież stronę.</p>
       <p lang="en">This study needs JavaScript. Turn it on for this page (or open the link in another browser) and reload.</p></noscript></div>
     <div class="next" id="next" hidden><button class="go" type="button"></button></div>
@@ -91,7 +99,8 @@
     document.documentElement.lang = ownLang = WORDS[lang] ? lang : 'en'; next.querySelector('button').textContent = L.next;
   }
   var stage = document.getElementById('stage'), next = document.getElementById('next'), status = document.getElementById('status'), notice = document.getElementById('notice');
-  var widget = null, timer = null, pending = false;
+  var widget = null, timer = null, pending = false, again = false, fails = 0, seq = 0;
+  var LOAD = Math.random().toString(36).slice(2, 10);    // this page load: saves are numbered within it (save_seq)
   var ownLang = null;   // the page's own language (words()); another one means the browser translated the page
   var acked = {};       // the value of each field the server last confirmed: leaving the page sends only what is newer
   // sessionStorage keeps the participant id across a reload. With cookies blocked (Chrome, Firefox and Edge settings,
@@ -104,19 +113,33 @@
 
   // Save to the server: batched every 4 seconds while working, at once at the end of each page, and on leaving the page
   // (fewer requests and database writes; at most the last 4 seconds are lost if the browser crashes).
+  // One save at a time: a save asked for while one is on its way goes right after it. Regular saves are not "keepalive":
+  // the browser allows keepalive requests only up to 64 KB in flight altogether, and refuses the rest as a network
+  // error, which showed participants "connection lost" while nothing was wrong (task 0.18.1). Leaving the page uses
+  // keepalive (flush). Each save is numbered (save_seq), so the server ignores one that arrives after a newer one.
   function send(now) {
     clearTimeout(timer);
     if (!now) { timer = setTimeout(function () { send(true); }, 4000); return; }
     if (!S.pid) return;
+    if (pending) { again = true; return; }
+    S.fields.save_seq = LOAD + ':' + (++seq);
     var snap = {}; for (var k in S.fields) snap[k] = S.fields[k];
     var body = JSON.stringify({ pid: S.pid, stage: S.stage, fields: snap });
     pending = true;
-    return fetch('api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: body.length < 60000 })
-      .then(function (r) {
-        pending = false; status.textContent = r.ok ? '' : L.saveFail;
-        if (r.ok) { for (var k in snap) acked[k] = snap[k]; } else { failed(); send(); }
-      })
-      .catch(function () { pending = false; status.textContent = L.offline; failed(); send(); });
+    function after(ok) {
+      pending = false;
+      if (ok) { fails = 0; status.textContent = ''; for (var k in snap) acked[k] = snap[k]; }
+      else {
+        // a single failed save is retried quietly; the message shows when the browser is offline or saves keep failing
+        fails++; failed();
+        status.textContent = navigator.onLine === false ? L.offline : fails >= 3 ? L.saveFail : '';
+      }
+      if (again) { again = false; send(true); } else if (!ok) send();
+    }
+    // a save that hangs (a stalled connection) counts as failed after 20 s, so the next one is not held up behind it
+    var ctl = window.AbortController ? new AbortController() : null, tm = ctl ? setTimeout(function () { ctl.abort(); }, 20000) : null;
+    return fetch('api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { clearTimeout(tm); after(r.ok); }, function () { clearTimeout(tm); after(false); });
   }
   // saves that did not go through (offline, server busy): counted, so the researcher can see a session had trouble
   function failed() { S.fields.save_fails = String((+S.fields.save_fails || 0) + 1); }
@@ -128,9 +151,10 @@
     if (!S.pid) return;
     var fresh = {}, any = false;
     for (var k in S.fields) if (acked[k] !== S.fields[k]) { fresh[k] = S.fields[k]; any = true; }
+    if (any) { S.fields.save_seq = fresh.save_seq = LOAD + ':' + (++seq); }
     var body = JSON.stringify({ pid: S.pid, stage: S.stage, fields: fresh });
     function beacon() { try { return !!(navigator.sendBeacon && navigator.sendBeacon('api/save', new Blob([body], { type: 'application/json' }))); } catch (e) { return false; } }
-    if (body.length < 60000) {
+    if (new Blob([body]).size < 60000) {     // bytes, not characters (Polish letters take two)
       try {
         fetch('api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true })
           .then(function (r) { if (r.ok) { for (var k in fresh) acked[k] = fresh[k]; } else beacon(); }, beacon);
@@ -144,6 +168,7 @@
   // errors in the page (a broken browser extension, an old browser): kept with the session, at most 20
   function pageError(msg) {
     if (!S.pid) return;
+    if (/ResizeObserver loop/.test(String(msg))) return;     // a browser notice about layout timing, not an error (nothing breaks)
     try {
       var list = JSON.parse(S.fields.client_errors || '[]');
       if (list.length >= 20) return;
@@ -212,8 +237,8 @@
   var ASK = {
     translated: '<p lang="pl"><b>Przeglądarka przetłumaczyła tę stronę.</b> Prosimy o powrót do oryginału (w pasku przeglądarki: „Pokaż oryginał” / ikona tłumaczenia), aby wszyscy widzieli te same słowa.</p>'
       + '<p lang="en"><b>Your browser has translated this page.</b> Please switch back to the original ("Show original" in the browser\'s translate menu) so that everyone sees the same wording.</p>',
-    small: '<p lang="pl"><b>Okno przeglądarki jest za małe na to zadanie.</b> Powiększ je (np. dwuklik na pasku tytułu albo F11) lub pomniejsz stronę (Ctrl i minus).</p>'
-      + '<p lang="en"><b>The browser window is too small for this task.</b> Please make it bigger (e.g. double-click the title bar, or F11), or zoom out (Ctrl and minus).</p>'
+    small: '<p lang="pl"><b>Okno przeglądarki jest za małe, żeby pokazać całe zadanie.</b> Powiększ je (np. dwuklik na pasku tytułu albo F11) lub pomniejsz stronę (Ctrl i minus). Zadanie pojawi się, gdy tylko się zmieści.</p>'
+      + '<p lang="en"><b>The browser window is too small to show the whole task.</b> Please make it bigger (e.g. double-click the title bar, or F11), or zoom out (Ctrl and minus). The task comes back as soon as it fits.</p>'
   };
   var asks = {};
   function asking(kind, on) {
@@ -221,17 +246,28 @@
     var box = document.getElementById('ask'), html = Object.keys(asks).filter(function (k) { return asks[k]; }).map(function (k) { return ASK[k]; }).join('');
     box.innerHTML = html; box.hidden = !html;
   }
-  // The task needs room: the pizza and the tray side by side. A window smaller than 900 x 600 while building is asked to
-  // grow (flag small-window and the smallest size seen, field small_window, so the researcher can look at it).
+  // The task must be seen whole: the pizza, the toppings, the buttons and the nutrition, without scrolling. The task
+  // sizes itself to the window; when even that does not fit (a small window or a large zoom), a screen covers the task
+  // and asks for a bigger window, and goes away by itself once the task fits (0.18.1; before, a note above the task,
+  // and the session was flagged). Kept: the smallest size seen (small_window), how long the screen was up
+  // (small_window_ms), flag small-window (for information only).
+  var blockedAt = null;
+  function fits() {
+    var d = document.documentElement, w = window.innerWidth, h = window.innerHeight;
+    return w >= 900 && h >= 520 && d.scrollHeight <= h + 2 && d.scrollWidth <= w + 2;
+  }
   function windowCheck() {
-    if (!S.pid || ['practice', 'build', 'typical'].indexOf(S.stage) < 0) { if (asks.small) asking('small', false); return; }
-    var w = window.innerWidth, h = window.innerHeight, small = w < 900 || h < 600;
+    var task = S.pid && ['practice', 'build', 'typical'].indexOf(S.stage) >= 0, small = task && !fits();
+    var w = window.innerWidth, h = window.innerHeight, bl = document.getElementById('blocker');
     if (small) {
       var prev = (S.fields.small_window || '').split('x'), mw = Math.min(w, +prev[0] || w), mh = Math.min(h, +prev[1] || h);
       if (S.fields.small_window !== mw + 'x' + mh) { S.fields.small_window = mw + 'x' + mh; send(); }
       if (S.flagList && S.flagList.indexOf('small-window') < 0) { S.flagList.push('small-window'); S.fields.browser_flags = S.flagList.join(' '); send(); }
+      if (blockedAt === null) { blockedAt = Date.now(); bl.firstChild.innerHTML = ASK.small; bl.hidden = false; }
+    } else if (blockedAt !== null) {
+      S.fields.small_window_ms = String((+S.fields.small_window_ms || 0) + Date.now() - blockedAt); send();
+      blockedAt = null; bl.hidden = true;
     }
-    if (!!asks.small !== small) asking('small', small);
   }
   window.addEventListener('resize', function () { clearTimeout(windowCheck.t); windowCheck.t = setTimeout(windowCheck, 400); });
   // the smallest step of the page's clock in ms (about 0.1 normally; 16-100 with fingerprinting protection, which
@@ -299,8 +335,9 @@
     if (name === 'intro') return intro();
     if (name === 'done') return done();
     if (name === 'declined') return declined();
-    if (S.resumed) S.resumed = false; else notice.hidden = true;
-    setTimeout(windowCheck, 50);   // the "welcome back" note shows on the part they came back to only
+    if (S.resumed) { S.resumed = false; clearTimeout(notice.t); notice.t = setTimeout(function () { if (document.body.classList.contains('task')) notice.hidden = true; }, 6000); }
+    else notice.hidden = true;
+    setTimeout(windowCheck, 300); setTimeout(windowCheck, 1500);   // the "welcome back" note shows on the part they came back to only
     var box = document.createElement('div');
     stage.appendChild(box);
     var opts = { mode: name === 'typical' ? 'build' : name === 'survey' ? 'followup' : name, onSave: onSave, condition: S.cond,

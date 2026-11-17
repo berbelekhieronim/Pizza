@@ -103,6 +103,25 @@ def settings_checks(base, key, who):
           who + 'Settings tab: a global change applies where the study sets nothing itself (its own study.json line wins); saving nothing undoes it')
 
 
+def save_order_checks(base, key, who):
+    """Saves that arrive out of order (participate.html numbers them, save_seq) and a pizza whose last saves were lost:
+    an older save from the same page changes nothing; a reload's saves always count; a session past the pizza whose
+    stored pizza is unfinished counts as submitted (FINISHED_SQL)."""
+    pid = json.loads(http('GET', base + '/api/start?study=pilot-asd&pid=SEQTEST1')[1])['pid']
+    new = json.dumps({'v': 'x', 'finished': True, 'nPieces': 2})
+    old = json.dumps({'v': 'x', 'finished': False, 'nPieces': 1})
+    fin = json.dumps([['a', 'mus', 0.1, 0.1, 0, 1, 0, 0, 1], ['b', 'mus', -0.1, 0.1, 0, 1, 0, 0, 1]])
+    http('POST', base + '/api/save', {'pid': pid, 'stage': 'build', 'fields': {'pz_summary': new, 'pz_final': fin, 'save_seq': 'pageA:5'}})
+    http('POST', base + '/api/save', {'pid': pid, 'stage': 'build', 'fields': {'pz_summary': old, 'save_seq': 'pageA:3'}})
+    rec = json.loads(http('GET', base + '/admin/api/session?key=%s&pid=%s' % (key, pid))[1])['record']
+    kept = rec.get('pz_summary') == new and rec.get('save_seq') == 'pageA:5'
+    http('POST', base + '/api/save', {'pid': pid, 'stage': 'done', 'fields': {'pz_summary': old, 'save_seq': 'pageB:1'}})
+    got = json.loads(http('GET', base + '/admin/api/session?key=%s&pid=%s' % (key, pid))[1])
+    check(kept and got['record'].get('pz_summary') == old and got['row'].get('status') == 'analysed',
+          who + 'saves: an older save arriving late changes nothing, a reload\'s save counts, and a pizza past the build counts as submitted although its last save was lost')
+    return pid
+
+
 def deploy_api_checks():
     """cloudflare/deploy.py's use of Cloudflare's API (account, workers.dev address, Turnstile), against a stand-in."""
     import http.server
@@ -276,6 +295,7 @@ def cloudflare_checks(tmp, fields):
         check(r.returncode == 0 and started == 'Started: 1 to build (main).' and api(base, 'state', key, study='main')['reports']['fresh']
               and not api(base, 'state', key, study='all')['reports']['fresh'],
               '"Build reports" on a study\'s page builds that study only (not "all" or the other studies)' + ('' if r.returncode == 0 else ' - ' + r.stderr[-300:]))
+        save_order_checks(base, key, 'Worker: ')         # last: it adds a session
     finally:
         os.killpg(srv.pid, 15)
         srv.wait(timeout=20)
@@ -804,6 +824,7 @@ def main():
             after = next(r for r in api(base, 'sessions', 'smoke-key', study='main', pids=pend['pid'])['rows'])
             check(pend['analysis'] == 'pending' and int(pend['listgroup']) == 1 and after['analysis'] == 'left_out' and int(after['listgroup']) == 2,
                   'a pending pizza (not finished, saved in the last 24 hours) is listed with those in progress; after 24 hours without a save it is abandoned and folded')
+            save_order_checks(base, 'smoke-key', '')         # last: it adds a session
         finally:
             srv.terminate()
             srv.wait(timeout=10)

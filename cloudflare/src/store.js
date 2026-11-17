@@ -18,7 +18,8 @@ const CLIENT_SQL = CLIENT_FIELDS.map((k) => `(SELECT value FROM fields WHERE fie
 // unless the browser was driven by a program; the researcher's choice overrides both
 export const AUTO_EXCLUDE_FLAGS = ['automated'];
 const SUMMARY = "COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'pz_summary'), '')";
-const FINISHED_SQL = `(${SUMMARY} NOT LIKE '%"finished":false%' AND ${SUMMARY} NOT LIKE '%"finished": false%')`;
+// finished: the summary says so, or the session got past the build (a pizza whose last saves were lost still counts; store.py)
+const FINISHED_SQL = `(stage IN ('typical', 'followup', 'done') OR (${SUMMARY} NOT LIKE '%"finished":false%' AND ${SUMMARY} NOT LIKE '%"finished": false%'))`;
 const FLAGS = "(' ' || COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'browser_flags'), '') || ' ')";
 const FLAGGED_OUT_SQL = '(' + AUTO_EXCLUDE_FLAGS.map((f) => `${FLAGS} LIKE '% ${f} %'`).join(' OR ') + ')';
 const AUTO_IN_SQL = `(n_pieces IS NOT NULL AND ${FINISHED_SQL} AND NOT ${FLAGGED_OUT_SQL})`;
@@ -38,9 +39,11 @@ const STATUS_SQL = `(CASE WHEN stage = 'declined' THEN 'declined' `
 // the Sessions tab's groups: 0 in the reports, 1 in progress (active or pending), 2 the rest (folded); one ?
 const LIST_GROUP_SQL = `(CASE ${STATUS_SQL} WHEN 'analysed' THEN 0 WHEN 'active' THEN 1 WHEN 'pending' THEN 1 ELSE 2 END)`;
 // browser trouble worth a look before analysing (docs/BROWSERS.md): the "needs a look" filter, as store.py REVIEW_SQL
-export const REVIEW_FLAGS = ['translated', 'coarse-timer', 'forced-colors', 'small-window', 'automated'];
+export const REVIEW_FLAGS = ['translated', 'coarse-timer', 'forced-colors', 'automated'];   // small-window: information only from 0.18.1
+// page errors other than Chrome's harmless "ResizeObserver loop" notice (store.py REAL_ERRORS_SQL)
+const REAL_ERRORS_SQL = `(LENGTH(value) - LENGTH(REPLACE(value, '"]', ''))) / 2 > (LENGTH(value) - LENGTH(REPLACE(value, 'ResizeObserver loop', ''))) / 19`;
 const REVIEW_SQL = '(' + REVIEW_FLAGS.map((f) => `${FLAGS} LIKE '% ${f} %'`).join(' OR ')
-  + " OR EXISTS (SELECT 1 FROM fields WHERE fields.pid = sessions.pid AND name = 'client_errors'))";
+  + ` OR EXISTS (SELECT 1 FROM fields WHERE fields.pid = sessions.pid AND name = 'client_errors' AND ${REAL_ERRORS_SQL}))`;
 const STAGE_RANK = { intro: 0, survey: 1, practice: 2, build: 3, typical: 4, followup: 5, done: 6, declined: 6 };
 export function laterStage(old, stage) {
   // a save never moves a session back to an earlier part (saves can arrive out of order); done and declined are final
@@ -54,6 +57,12 @@ const ANALYSIS_SQL = `CASE WHEN n_pieces IS NULL THEN 'no_pizza' WHEN ${INCLUDED
 export const IDLE_MINUTES = 30;                    // an unfinished session with no save for this long counts as stopped
 const idleCutoff = () => new Date(Date.now() - IDLE_MINUTES * 60000).toISOString().slice(0, 19) + 'Z';
 const FIELD_RE = /^[a-z_]{2,40}$/;
+
+// true when save_seq a ("<page load>:<n>") is older than the stored b from the same page load (store.py stale_save)
+export function staleSave(a, b) {
+  const x = String(a || '').split(':'), y = String(b || '').split(':');
+  return x.length === 2 && y.length === 2 && x[0] === y[0] && /^\d+$/.test(x[1]) && /^\d+$/.test(y[1]) && +x[1] < +y[1];
+}
 const INVITE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';     // no 0/o, 1/l/i: easy to read out or type
 
 export function now() {
@@ -119,6 +128,12 @@ export class Store {
     const clean = Object.fromEntries(Object.entries(fields).filter(([k, v]) => FIELD_RE.test(k) && k !== 'inclusion' && typeof v === 'string'));
     const row = await this.db.prepare('SELECT started, finished, stage FROM sessions WHERE pid = ?').bind(pid).first();
     if (!row) return { ok: false };
+    // a save older than one already stored from the same page (they can arrive out of order) changes nothing
+    // (store.py stale_save; save_seq = "<page load id>:<count>" from participate.html)
+    if (clean.save_seq) {
+      const old = await this.db.prepare("SELECT value FROM fields WHERE pid = ? AND name = 'save_seq'").bind(pid).first();
+      if (staleSave(clean.save_seq, old ? old.value : null)) for (const k of Object.keys(clean)) delete clean[k];
+    }
     const t = now();
     const st = laterStage(row.stage, stage);
     const finished = row.finished || (st === 'done' ? t : null);

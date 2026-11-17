@@ -16,7 +16,7 @@
   'use strict';
   if (global.PizzaBuilder) return;
 
-  var VERSION = '0.18.0';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
+  var VERSION = '0.18.1';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
   var VIEW = 105;        // half-width of every pizza viewBox; the pizza's outer radius is 100
   var R_SNAP = 0.9;      // with snapIn, a topping centre dropped on the crust is pulled in to this radius
   var R_OFF = 1.0;       // dropped further out than this = off the pizza
@@ -520,6 +520,7 @@
     '.pzb-ncol .pzb-nutri .pzb-nkcal{display:grid;grid-template-columns:auto 1fr;align-items:baseline;column-gap:8px}',
     '.pzb-ncol .pzb-nutri .pzb-nkcal b{font-size:1.45em;text-align:right}.pzb-ncol .pzb-nutri .pzb-nkcal>small,.pzb-ncol .pzb-nutri .pzb-nkcal>.pzb-nmac{grid-column:1/3}',
     '.pzb-ncol .pzb-nutri .pzb-ncell b{white-space:nowrap}',
+    '.pzb-ntight .pzb-nutri .pzb-nkcal>small,.pzb-ntight .pzb-nutri .pzb-nh>span{display:none}.pzb-ntight .pzb-nutri .pzb-nkcal{margin-bottom:0}',
     '@media (prefers-reduced-motion: reduce){.pzb *,.pzb-ghost,.pzb-toast{animation:none!important;transition:none!important}}'
   ].join('\n');
 
@@ -932,7 +933,10 @@
     if (ncol) w.classList.remove('pzb-cols4');
     if (!ncol) return;
     var side = w.querySelector('.pzb-side'), availH = vh - top - 30, TILE = 78, GAP = 18, best = null;
-    var tries = [[5, 46], [5, 42], [6, 46], [6, 42], [6, 38], [6, 34]];
+    var tries = [[5, 46], [5, 42], [6, 46], [6, 42], [6, 38], [6, 34], [7, 38], [7, 34]];
+    // a short window: the nutrition table drops its per-slice line and colour key (the numbers stay, same size)
+    w.classList.remove('pzb-ntight');
+    if (this.nutriEl.offsetHeight > availH) w.classList.add('pzb-ntight');
     for (var i = 0; i < tries.length; i++) {
       w.style.setProperty('--pzb-tcols', tries[i][0]); w.style.setProperty('--pzb-bowl', tries[i][1] + 'px');
       w.style.setProperty('--pzb-sidew', (tries[i][0] * TILE + (tries[i][0] - 1) * 6) + 'px');
@@ -951,7 +955,16 @@
       move: function (e) { self._move(e); },
       up: function (e) { self._up(e, false); },
       cancel: function (e) { self._up(e, true); },
-      resize: function () { self._layout(); },
+      // once per frame, and only when the space really changed: sizing the columns inside the observer's callback
+      // made Chrome and Edge report "ResizeObserver loop completed with undelivered notifications" (0.18.1)
+      resize: function () {
+        if (self.rafL) return;
+        self.rafL = (global.requestAnimationFrame || setTimeout)(function () {
+          self.rafL = null;
+          var k = (self.root.clientWidth || 0) + 'x' + (global.innerHeight || 0) + '@' + Math.round(self.boardEl ? self.boardEl.getBoundingClientRect().top + (global.scrollY || 0) : 0);
+          if (k !== self.lastSize || !self.layout) { self.lastSize = k; self._layout(); }
+        });
+      },
       vis: function () {
         var hidden = document.visibilityState === 'hidden';
         if (hidden) { self.hiddenAt = now(); self.log('hide'); }

@@ -5,6 +5,28 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Task 0.18.1: saves never pile up; the task is always seen whole.**
+- **"Utracono połączenie" while the connection was fine.** Every save was sent as a *keepalive* request; browsers allow
+  those only up to 64 KB in flight altogether and refuse the rest as a network error. A pilot session now saves 15-25 KB
+  each time (questions, practice and pizza), so two or three overlapping saves (a slow reply, a stage change) failed,
+  showed the message and kept retrying (one session: 213 failures). Worse, an older save could land after a newer one:
+  one participant's finished pizza was stored as unfinished. Now: one save at a time (a save asked for meanwhile goes
+  right after), regular saves are ordinary requests (keepalive only when leaving the page, measured in bytes), each
+  save gives up after 20 s, the note shows only when the browser is offline or three saves in a row failed, and saves
+  are numbered (`save_seq`): both servers ignore one that arrives after a newer one from the same page.
+- **A pizza is submitted once the session is past it.** The next part opens only after "I'm done", so a session at the
+  typical pizza, the questions after or the end counts its pizza as finished even when its last save was lost; it is
+  analysed as last saved and listed in the Data check (`saves_lost`). Both servers (`FINISHED_SQL`) and the analysis.
+- **Recovered:** live session Pad0b44f1 (finished, stored as unfinished) is in the reports. All 32 real pizza sessions
+  were checked; no other one lost its end (P27dec2c4, P94f8aeeb and P1e445dd3 have a gap between their last pizza
+  event and their last save, maybe idle time; already decided by hand).
+- **Too small a window: the task waits, it is not flagged.** When the task cannot fit the window even after shrinking
+  (more topping columns, a compact nutrition table), a screen covers it and asks for a bigger window or a smaller zoom,
+  and goes away by itself when it fits. `small-window` is now for information only (ℹ), with how long the screen was up
+  (`small_window_ms`). The "welcome back" note floats over the task for 6 s instead of taking room above it.
+- **⚠ / ℹ on the Sessions tab say why in plain words** (e.g. "the browser translated the page…"). Chrome's harmless
+  "ResizeObserver loop" notice, which the window fitting set off, is no longer recorded nor counted as a page error.
+
 **Task 0.18.0: nutrition hidden until asked; a Settings tab; the finish button stands out.**
 - **Nutrition hidden until asked** (`nutrition: "hidden"`): the nutrition table next to the pizza is blurred, with
   *Pokaż wartości odżywcze* over it; it is not updated while blurred, so the blur gives nothing away, and one click shows
