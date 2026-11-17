@@ -1906,10 +1906,21 @@ def browser_flags(row):
     return set((field(row, 'browser_flags') or '').split())
 
 
+# an unfinished pizza is pending while its session saved within this many hours (the participant may still finish
+# it), then abandoned; as ABANDON_HOURS in server/store.py and cloudflare/src/store.js
+ABANDON_HOURS = 24
+
+
 def auto_reason(row, summary):
-    """Why the automatic rule leaves this pizza out, or None: unfinished (still building, or stopped), or a flagged browser."""
+    """Why the automatic rule leaves this pizza out, or None: not finished yet (pending: saved within ABANDON_HOURS, they
+    may still finish it), not finished (abandoned), or a flagged browser. Without a save time (a Qualtrics export):
+    'not finished'."""
     if summary.get('finished') is False:
-        return 'not finished'
+        up = row.get('updated')
+        if not up:
+            return 'not finished'
+        cut = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - ABANDON_HOURS * 3600))
+        return 'not finished yet (pending)' if up >= cut else 'not finished (abandoned)'
     bad = sorted(browser_flags(row) & set(AUTO_EXCLUDE_FLAGS))
     return 'browser: ' + ', '.join(bad) if bad else None
 
@@ -1946,7 +1957,8 @@ def data_check(rows, builds, people, left_out):
     out = {'sessions': len(rows), 'own': len(mine), 'typical': sum(p['build'] == typ for p in people),
            'left_out': sum(x['build'] == own for x in left_out), 'left_out_typical': sum(x['build'] == typ for x in left_out),
            'researcher_excluded': sorted(p for p, c in choices.items() if c == 'exclude'),
-           'left_out_unfinished': sum(x['build'] == own and x['reason'] == 'not finished' for x in left_out),
+           'left_out_unfinished': sum(x['build'] == own and x['reason'].startswith('not finished') and 'pending' not in x['reason'] for x in left_out),
+           'pending': sum(x['build'] == own and 'pending' in x['reason'] for x in left_out),
            'left_out_researcher': sum(x['build'] == own and x['reason'] == 'excluded by the researcher' for x in left_out),
            'left_out_browser': sum(x['build'] == own and x['reason'].startswith('browser') for x in left_out),
            'browser_flags': {f: sorted(r['_pid'] for r in rows if f in browser_flags(r)) for f in REVIEW_FLAGS if any(f in browser_flags(r) for r in rows)},
@@ -2001,8 +2013,10 @@ def data_check_html(c):
              li('<b>%d own pizzas analysed</b>: everyone who pressed "I\'m done" on their own pizza. Every chart, test and download uses these.' % c['own'])]
     if c['left_out']:
         parts = []
+        if c.get('pending'):
+            parts.append('%d not finished yet (pending: saved in the last %d hours, they may still press "I\'m done")' % (c['pending'], ABANDON_HOURS))
         if c['left_out_unfinished']:
-            parts.append('%d saved part-way, but the participant stopped before "I\'m done", so the pizza is not a finished choice' % c['left_out_unfinished'])
+            parts.append('%d abandoned before "I\'m done" (no save for %d hours), so the pizza is not a finished choice' % (c['left_out_unfinished'], ABANDON_HOURS))
         if c['left_out_researcher']:
             parts.append('%d left out by the researcher (%s)' % (c['left_out_researcher'], pid_links(c['researcher_excluded'])))
         if c.get('left_out_browser'):
@@ -2085,19 +2099,19 @@ IDLE_MINUTES = 30      # as the study servers: an unfinished session with no sav
 
 
 def pending_rows(pending, ncols):
-    """The end of "Every participant": every own pizza that was started but is not analysed. Pizzas still being built
-    (saved within the last 30 minutes when the report was made) are shown; stopped ones and those left out by the
-    researcher or for the browser are folded behind a button, as on the Sessions tab. Session ids are links (REVIEW_JS)."""
+    """The end of "Every participant": every own pizza that was started but is not analysed. Pending ones (not finished
+    yet, saved within ABANDON_HOURS when the report was made) are shown with the newest first; abandoned ones and those
+    left out by the researcher or for the browser are folded behind a button, as on the Sessions tab. Session ids are
+    links (REVIEW_JS)."""
     if not pending:
         return ''
-    cut = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - IDLE_MINUTES * 60))
-    def live(p):
-        return p['reason'] == 'not finished' and (p.get('last_saved') or '') >= cut
+    def live(p):          # not finished yet: saved within ABANDON_HOURS (auto_reason), so they may still finish it
+        return 'pending' in p['reason']
     def row(p):
         if live(p):
-            what = 'in progress: %s' % STAGE_WORDS.get(p['stage'], p['stage'] or 'started')
-        elif p['reason'] == 'not finished':
-            what = 'stopped while %s' % STAGE_WORDS.get(p['stage'], p['stage'] or 'building')
+            what = 'pending, not finished yet: %s' % STAGE_WORDS.get(p['stage'], p['stage'] or 'started')
+        elif p['reason'].startswith('not finished'):
+            what = 'abandoned while %s' % STAGE_WORDS.get(p['stage'], p['stage'] or 'building')
         else:
             what = 'left out: ' + p['reason']
         when = (' · last saved %s (Warsaw)' % warsaw_time(p['last_saved'])) if p.get('last_saved') else ''
@@ -2109,11 +2123,11 @@ def pending_rows(pending, ncols):
     out = sorted([p for p in pending if not live(p)], key=lambda p: p.get('last_saved') or '', reverse=True)
     html = ''
     if started:
-        html += ('<tbody class="pending"><tr class="grouprow"><td colspan="%d">In progress when this report was made (%d): not in the numbers above until '
-                 'they press "I\'m done"</td></tr>%s</tbody>' % (ncols + 3, len(started), ''.join(row(p) for p in started)))
+        html += ('<tbody class="pending"><tr class="grouprow"><td colspan="%d">Pending, not finished yet (%d): not in the numbers above until '
+                 'they press "I\'m done"; after %d hours without a save they count as abandoned</td></tr>%s</tbody>' % (ncols + 3, len(started), ABANDON_HOURS, ''.join(row(p) for p in started)))
     if out:
         html += ('<tbody class="pending"><tr class="grouprow"><td colspan="%d"><button type="button" class="foldbtn" aria-expanded="false" data-n="%d">▸ Show the %d '
-                 'pizza%s not analysed</button> <span class="muted">stopped before "I\'m done", or left out by the researcher or for the browser</span></td></tr></tbody>'
+                 'pizza%s not analysed</button> <span class="muted">abandoned before "I\'m done", or left out by the researcher or for the browser</span></td></tr></tbody>'
                  '<tbody class="pending folded" hidden>%s</tbody>' % (ncols + 3, len(out), len(out), '' if len(out) == 1 else 's', ''.join(row(p) for p in out)))
     return html
 

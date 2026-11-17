@@ -343,7 +343,7 @@ def counting_checks(base, key, fields, label):
     http('POST', base + '/api/save', {'pid': pids[2], 'stage': 'build', 'fields': {}})                        # an older save arriving late
     http('POST', base + '/api/save', {'pid': pids[3], 'stage': 'done', 'fields': dict(fields, browser_flags='automated')})
     rows = {r['pid']: r for r in api(base, 'sessions', key, study='main')['rows']}
-    check(built() - before == 2 and rows[pids[0]]['analysis'] == 'included' and rows[pids[1]]['analysis'] == 'left_out'
+    check(built() - before == 2 and rows[pids[0]]['analysis'] == 'included' and rows[pids[1]]['analysis'] == 'pending'
           and rows[pids[2]]['stage'] == 'followup' and rows[pids[2]]['analysis'] == 'included' and rows[pids[3]]['analysis'] == 'left_out',
           label + '"built a pizza" counts the finished pizzas the reports analyse (one closed while baking counts, one still being built does not); '
           'a late older save does not move a session back; a program-driven browser is left out automatically')
@@ -383,7 +383,7 @@ def inclusion_checks(base, key, skey, study, other_pid, label):
     code, body = http('GET', base + '/admin/sessions.csv?' + urllib.parse.urlencode({'key': key, 'study': study}))
     rows = list(csv.DictReader(io.StringIO(body.decode('utf-8-sig')))) if code == 200 else []
     mine = [r for r in rows if r['pid'] == pid]
-    check(mine and mine[0]['analysis'] == 'left_out' and mine[0]['inclusion'] == 'exclude' and all(r['analysis'] in ('included', 'left_out', 'no_pizza') for r in rows),
+    check(mine and mine[0]['analysis'] == 'left_out' and mine[0]['inclusion'] == 'exclude' and all(r['analysis'] in ('included', 'pending', 'left_out', 'no_pizza') for r in rows),
           label + 'the session list download says what the analysis does with each session, and the researcher\'s choice')
     code, _ = post_form(base + '/admin/api/inclusion?key=' + skey, {'pid': other_pid, 'value': 'include'})
     check(code == 404, label + 'a study\'s researcher link cannot change a session of another study')
@@ -757,6 +757,16 @@ def main():
                   'Pizza Pilot 11.2026: the questions come before the pizza; the data says when each person answered (survey_when), the Data check lists a mix '
                   'and those who answered but left before building; no strong-feelings section')
             counting_checks(base, 'smoke-key', fields, '')
+            # a pending pizza whose last save is two days old is abandoned: left out and folded away
+            pp = json.loads(http('GET', base + '/api/start?pid=PENDOLD1')[1])['pid']
+            http('POST', base + '/api/save', {'pid': pp, 'stage': 'build', 'fields': dict(fields, pz_summary=json.dumps(dict(json.loads(fields['pz_summary']), finished=False)))})
+            pend = next(r for r in api(base, 'sessions', 'smoke-key', study='main', stage='pending')['rows'] if r['pid'] == pp)
+            con = sqlite3.connect(os.path.join(data, 'study.db'))
+            con.execute('UPDATE sessions SET updated = ? WHERE pid = ?', (time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - 48 * 3600)), pend['pid']))
+            con.commit(); con.close()
+            after = next(r for r in api(base, 'sessions', 'smoke-key', study='main', pids=pend['pid'])['rows'])
+            check(pend['analysis'] == 'pending' and int(pend['listgroup']) == 1 and after['analysis'] == 'left_out' and int(after['listgroup']) == 2,
+                  'a pending pizza (not finished, saved in the last 24 hours) is listed with those in progress; after 24 hours without a save it is abandoned and folded')
         finally:
             srv.terminate()
             srv.wait(timeout=10)
@@ -827,12 +837,17 @@ def main():
                   'participant page: works with storage blocked, saves on leaving without sendBeacon, retries busy starts, never waits forever on the person check, keeps its colours, explains when JavaScript is off')
             # the overview's "Every participant": started but not analysed pizzas at the end, in progress shown, the rest folded
             nowt = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-            pend = [{'pid': 'PEND1', 'reason': 'not finished', 'stage': 'build', 'last_saved': nowt, 'group': None, 'summary': {}, 'pieces': [{'ing': 'pep', 'x': 0, 'y': 0, 'rot': 0, 'g': 1, 's': 1}]},
-                    {'pid': 'PEND2', 'reason': 'not finished', 'stage': 'build', 'last_saved': '2020-01-01T00:00:00Z', 'group': None, 'summary': {}, 'pieces': []},
+            pend = [{'pid': 'PEND1', 'reason': 'not finished yet (pending)', 'stage': 'build', 'last_saved': nowt, 'group': None, 'summary': {}, 'pieces': [{'ing': 'pep', 'x': 0, 'y': 0, 'rot': 0, 'g': 1, 's': 1}]},
+                    {'pid': 'PEND2', 'reason': 'not finished (abandoned)', 'stage': 'build', 'last_saved': '2020-01-01T00:00:00Z', 'group': None, 'summary': {}, 'pieces': []},
                     {'pid': 'PEND3', 'reason': 'excluded by the researcher', 'stage': 'done', 'last_saved': nowt, 'group': None, 'summary': {}, 'pieces': []}]
+            ago = lambda h: time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - h * 3600))
+            check(FB.A.auto_reason({'updated': ago(1)}, {'finished': False}) == 'not finished yet (pending)'
+                  and FB.A.auto_reason({'updated': ago(48)}, {'finished': False}) == 'not finished (abandoned)'
+                  and FB.A.auto_reason({}, {'finished': False}) == 'not finished' and FB.A.auto_reason({'updated': ago(48)}, {'finished': True}) is None,
+                  'an unfinished pizza is pending for 24 hours after its last save (they may still finish it), then abandoned')
             ph = FB.A.pending_rows(pend, 5)
             shown, folded = ph.split('class="pending folded" hidden')
-            check('PEND1' in shown and 'in progress: building' in shown and 'PEND2' in folded and 'stopped while building' in folded and 'PEND3' in folded
+            check('PEND1' in shown and 'pending, not finished yet: building' in shown and 'PEND2' in folded and 'abandoned while building' in folded and 'PEND3' in folded
                   and 'Show the 2 pizzas not analysed' in shown,
                   'overview: every pizza started is listed at the end of "Every participant"; in progress shown, stopped and left out folded behind a button')
             # Warsaw time (session list download): the EU summer-time rule in server.py (and the Worker, checked against it

@@ -5,6 +5,15 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Unfinished pizzas are pending for 24 hours, then abandoned.** An unfinished pizza (no "I'm done" yet) was called
+"Excluded: not finished (auto)" and folded away as soon as its session had been quiet for 30 minutes, although the
+participant could still come back and finish it. Now it is **Pending: not finished yet** (blue) and listed with the
+sessions in progress, newest first, for 24 hours after its last save (`ABANDON_HOURS`, both servers and the
+analysis); after that it is **Excluded: abandoned**, left out automatically and folded with the rest. Pending pizzas
+are not analysed (an unfinished pizza is not a choice) but are listed as pending on the overview and in
+`excluded.csv` ("not finished yet (pending)" / "not finished (abandoned)"); the session list's `analysis` column has
+`pending`; the Sessions filter *pizza pending*.
+
 **Overview and Sessions, simpler.**
 - Researcher page: six tiles in the order a session goes (opened the link, finished, pizzas in the reports, in
   progress, stopped, declined consent when any); "built a pizza" is now "pizzas in the reports" (what it counts);

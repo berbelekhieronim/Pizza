@@ -5,7 +5,7 @@ export const SORTABLE = ['pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stag
 // survey: the study's questions asked before the pizza (survey_when = before); followup: after it (as store.py)
 export const STAGES = ['intro', 'survey', 'practice', 'build', 'typical', 'followup', 'done', 'declined'];   // declined: said no to the consent
 export const ACTIVITY = ['active', 'stopped'];     // extra "where" filter values, from the time of the last save
-export const ANALYSIS = ['included', 'left_out', 'flagged', 'synthetic', 'real'];  // ... from whether the session's pizza is analysed, needs a look, or is synthetic
+export const ANALYSIS = ['included', 'pending', 'left_out', 'flagged', 'synthetic', 'real'];  // ... from whether the session's pizza is analysed, needs a look, or is synthetic
 const SYN_SQL = "pid LIKE 'SYN-%'";               // synthetic sessions of a test study (analysis/synthetic.py), as in store.py
 // The researcher's choice for a session (field 'inclusion', never taken from a participant's save), as in store.py
 export const INCLUSION_VALUES = ['include', 'exclude', 'auto'];
@@ -22,10 +22,14 @@ const FINISHED_SQL = `(${SUMMARY} NOT LIKE '%"finished":false%' AND ${SUMMARY} N
 const FLAGS = "(' ' || COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'browser_flags'), '') || ' ')";
 const FLAGGED_OUT_SQL = '(' + AUTO_EXCLUDE_FLAGS.map((f) => `${FLAGS} LIKE '% ${f} %'`).join(' OR ') + ')';
 const AUTO_IN_SQL = `(n_pieces IS NOT NULL AND ${FINISHED_SQL} AND NOT ${FLAGGED_OUT_SQL})`;
-const LEFT_OUT_SQL = `(${INCL_SQL} = 'exclude' OR (${INCL_SQL} = '' AND n_pieces IS NOT NULL AND NOT ${AUTO_IN_SQL}))`;
+// an unfinished pizza is pending while its session saved within ABANDON_HOURS, then abandoned (left out); as store.py
+export const ABANDON_HOURS = 24;
+const PENDING_SQL = `(${INCL_SQL} = '' AND n_pieces IS NOT NULL AND NOT ${FINISHED_SQL} AND NOT ${FLAGGED_OUT_SQL} `
+  + `AND stage NOT IN ('done', 'declined') AND updated >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-${ABANDON_HOURS} hours'))`;
+const LEFT_OUT_SQL = `(${INCL_SQL} = 'exclude' OR (${INCL_SQL} = '' AND n_pieces IS NOT NULL AND NOT ${AUTO_IN_SQL} AND NOT ${PENDING_SQL}))`;
 const INCLUDED_SQL = `(${INCL_SQL} = 'include' OR (${INCL_SQL} = '' AND ${AUTO_IN_SQL}))`;
 // the Sessions tab's groups (as store.py LIST_GROUP_SQL): 0 analysed, 1 in progress now, 2 the rest, folded away
-const LIST_GROUP_SQL = `(CASE WHEN ${INCLUDED_SQL} AND n_pieces IS NOT NULL THEN 0 WHEN stage NOT IN ('done', 'declined') AND updated >= ? THEN 1 ELSE 2 END)`;
+const LIST_GROUP_SQL = `(CASE WHEN ${INCLUDED_SQL} AND n_pieces IS NOT NULL THEN 0 WHEN ${PENDING_SQL} OR (stage NOT IN ('done', 'declined') AND updated >= ?) THEN 1 ELSE 2 END)`;
 // browser trouble worth a look before analysing (docs/BROWSERS.md): the "needs a look" filter, as store.py REVIEW_SQL
 export const REVIEW_FLAGS = ['translated', 'coarse-timer', 'forced-colors', 'small-window', 'automated'];
 const REVIEW_SQL = '(' + REVIEW_FLAGS.map((f) => `${FLAGS} LIKE '% ${f} %'`).join(' OR ')
@@ -39,7 +43,7 @@ export function laterStage(old, stage) {
   return STAGE_RANK[stage] > STAGE_RANK[old] ? stage : old;
 }
 // what the analysis does with a session: included / left_out / no_pizza (shown on the Sessions tab and in sessions.csv)
-const ANALYSIS_SQL = `CASE WHEN n_pieces IS NULL THEN 'no_pizza' WHEN ${INCLUDED_SQL} THEN 'included' ELSE 'left_out' END`;
+const ANALYSIS_SQL = `CASE WHEN n_pieces IS NULL THEN 'no_pizza' WHEN ${INCLUDED_SQL} THEN 'included' WHEN ${PENDING_SQL} THEN 'pending' ELSE 'left_out' END`;
 export const IDLE_MINUTES = 30;                    // an unfinished session with no save for this long counts as stopped
 const idleCutoff = () => new Date(Date.now() - IDLE_MINUTES * 60000).toISOString().slice(0, 19) + 'Z';
 const FIELD_RE = /^[a-z_]{2,40}$/;
@@ -131,6 +135,7 @@ export class Store {
     if (f.stage === 'included') sql.push(INCLUDED_SQL);
     if (f.stage === 'left_out') sql.push(LEFT_OUT_SQL);
     if (f.stage === 'flagged') sql.push(REVIEW_SQL);
+    if (f.stage === 'pending') sql.push(PENDING_SQL);
     if (f.stage === 'synthetic') sql.push(SYN_SQL);
     if (f.stage === 'real') sql.push('NOT ' + SYN_SQL);
     for (const col of ['grp', 'source', 'stage', 'cond']) if (f[col] && !(col === 'stage' && (ACTIVITY.includes(f[col]) || ANALYSIS.includes(f[col])))) { sql.push(col + ' = ?'); args.push(f[col]); }

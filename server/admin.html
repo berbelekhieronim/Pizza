@@ -42,9 +42,9 @@ b.warn{color:var(--warn)}
 .synbar b{color:#7b3fa0}.synbar select{padding:3px 6px}
 .syn{display:inline-block;margin-left:6px;font-size:.72rem;padding:0 6px;border-radius:999px;border:1px solid #7b3fa0;color:#7b3fa0;font-weight:600}
 .incl{font-size:.8rem;padding:1px 7px;border-radius:999px;white-space:nowrap;border:1px solid var(--line)}
-.incl.in{color:var(--ok,#2e7d32);border-color:currentColor}.incl.out{color:var(--warn);border-color:currentColor}.incl.none{color:var(--muted)}
+.incl.in{color:var(--ok,#2e7d32);border-color:currentColor}.incl.out{color:var(--warn);border-color:currentColor}.incl.pend{background:color-mix(in srgb,#3f6fb0 10%,var(--panel,#fff));border-color:color-mix(in srgb,#3f6fb0 45%,transparent);color:#2f5a95}.incl.none{color:var(--muted)}
 select.incl{font-size:.8rem;padding:2px 6px;border-radius:999px;border:1.5px solid currentColor;background:var(--panel);cursor:pointer;font-weight:600}
-select.incl.in{color:var(--ok);background:color-mix(in srgb,var(--ok) 8%,var(--panel))}select.incl.out{color:var(--warn);background:color-mix(in srgb,var(--warn) 8%,var(--panel))}
+select.incl.in{color:var(--ok);background:color-mix(in srgb,var(--ok) 8%,var(--panel))}select.incl.out{color:var(--warn);background:color-mix(in srgb,var(--warn) 8%,var(--panel))}select.incl.pend{color:#2f5a95;background:color-mix(in srgb,#3f6fb0 9%,var(--panel))}
 select.incl option{color:var(--fg);font-weight:400}
 .frame{position:relative}.frame .loading{position:absolute;top:24px;left:24px;right:24px;color:var(--muted);font-size:.9rem;pointer-events:none}
 .tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-top:8px}
@@ -309,7 +309,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     $('dlnote').innerHTML = esc('These cover ' + (all ? 'all studies' : 'study ' + s.id) + '. The R download holds every table, variables.csv, load_pizza.R and the raw sessions of the analysed pizzas.')
       + '<br><b>Included / excluded:</b> the R download\'s tables hold only the analysed pizzas (the automatic rule plus your choices on the Sessions tab); '
       + 'the left-out ones are listed in <code>excluded.csv</code> (id and reason only) and are not in <code>raw/</code>. The session list, the raw '
-      + 'sessions and the database keep every session; the session list has columns <code>analysis</code> (included / left_out / no_pizza) and '
+      + 'sessions and the database keep every session; the session list has columns <code>analysis</code> (included / pending / left_out / no_pizza) and '
       + '<code>inclusion</code> (auto / include / exclude). A change on the Sessions tab reaches the R download and the reports after the next rebuild.';
     $('storage').textContent = S.storage ? S.storage : '';
     $('invstudy').innerHTML = studiesHere.map(function (st) { return '<option value="' + esc(st.id) + '">' + esc(st.id) + '</option>'; }).join('');
@@ -338,9 +338,9 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     [['grp', S.options.grp], ['source', S.options.source], ['cond', S.options.cond], ['neuro', Object.keys(S.neuro || {})]].forEach(function (x) {
       f[x[0]].closest('label').hidden = !(x[1] && x[1].length);
     });
-    opts(f.stage, Object.keys(S.stages).concat(['active', 'stopped', 'included', 'left_out', 'flagged', 'real', 'synthetic']),
+    opts(f.stage, Object.keys(S.stages).concat(['active', 'stopped', 'included', 'pending', 'left_out', 'flagged', 'real', 'synthetic']),
       Object.assign({}, S.stages, { active: 'in progress now', stopped: 'stopped (no activity ' + (S.idle_minutes || 30) + ' min)',
-        included: 'pizza in the analysis', left_out: 'pizza left out of the analysis', flagged: 'needs a look (browser flags, page errors)', synthetic: 'synthetic (simulated) only', real: 'real participants only' })); opts(f.neuro, Object.keys(S.neuro), S.neuro);
+        included: 'pizza in the analysis', left_out: 'pizza left out of the analysis', flagged: 'needs a look (browser flags, page errors)', pending: 'pizza pending (not finished yet, last 24 hours)', synthetic: 'synthetic (simulated) only', real: 'real participants only' })); opts(f.neuro, Object.keys(S.neuro), S.neuro);
     copyButtons();
     show(location.hash.slice(1) || 'overview');
   }
@@ -502,7 +502,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       el.hidden = false;
       el.innerHTML = '<h3>' + (since ? 'New since these reports were built' : 'Pizzas so far') + ' (' + rows.length + (rows.length === 16 ? '+' : '') + ', live)</h3>'
         + '<div class="cards">' + rows.map(function (x) {
-          var state = x.analysis === 'included' ? 'finished' : +x.listgroup === 1 ? 'building now' : x.analysis === 'left_out' ? (+x.pz_finished ? 'left out' : 'stopped') : (S.stages[x.stage] || x.stage);
+          var state = x.analysis === 'included' ? 'finished' : x.analysis === 'pending' ? 'pending, not finished yet' : x.analysis === 'left_out' ? (+x.pz_finished ? 'left out' : 'abandoned') : (S.stages[x.stage] || x.stage);
           return '<a class="card" href="#sessions/' + encodeURIComponent(x.pid) + '"><div class="pic" data-pid="' + esc(x.pid) + '"></div><b>' + esc(x.pid) + '</b><br>'
             + '<span class="st">' + esc(state) + '</span><br><span class="muted">' + esc(shortTime(x.updated)) + ' · ' + (x.n_pieces || 0) + ' pieces</span></a>';
         }).join('') + '</div>';
@@ -586,13 +586,13 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       // (a pizza being built shows here at once), and the rest (left out, stopped, no pizza, declined), folded behind a
       // button unless the filter asks for them
       var fold = !view.filters.stage && !view.filters.pids && !view.filters.q && d.folded > 0;
-      var GROUPS = ['Analysed', 'In progress now', 'Not analysed: left out, stopped, no pizza or declined'], last = -1;
+      var GROUPS = ['Analysed', 'In progress now, or pending (a pizza not finished yet, saved in the last 24 hours)', 'Not analysed'], last = -1;
       var body = d.rows.map(function (r) {
         var g = +r.listgroup || 0, head = '';
         if (g !== last) {
           if (g === 2 && fold) head = '<tr class="foldrow"><td colspan="' + cols.length + '"><button type="button" class="alt small" id="foldbtn" aria-expanded="' + !view.folded + '">'
             + (view.folded ? '▸ Show the ' : '▾ Hide the ') + d.folded + ' session' + (d.folded === 1 ? '' : 's') + ' not analysed</button>'
-            + ' <span class="muted small">left out (not finished, or excluded), stopped, no pizza, declined consent</span></td></tr>';
+            + ' <span class="muted small">abandoned (no save for 24 hours), excluded, stopped without a pizza, declined consent</span></td></tr>';
           else head = '<tr class="grouprow"><td colspan="' + cols.length + '">' + esc(GROUPS[g]) + '</td></tr>';
           last = g;
         }
@@ -643,11 +643,12 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     if (r.analysis === 'no_pizza') return '<span class="incl none">No pizza</span>';      // nothing to analyse
     // what the automatic rule decides (as the servers and the analysis): a finished pizza is analysed, unless a program
     // drove the browser (browser flag "automated"); the row says whether the pizza was finished (auto_in, pz_finished)
-    var c = r.inclusion || '', state = r.analysis === 'included' ? 'in' : 'out';
+    var c = r.inclusion || '', state = r.analysis === 'included' ? 'in' : r.analysis === 'pending' ? 'pend' : 'out';
     var robot = (' ' + (r.browser_flags || '') + ' ').indexOf(' automated ') >= 0;
-    var auto = +r.auto_in ? 'Included' : robot && +r.pz_finished ? 'Excluded: automated browser' : 'Excluded: not finished';
+    // pending: not finished yet, saved within the last 24 hours (they may still finish it); abandoned after that
+    var auto = +r.auto_in ? 'Included' : robot && +r.pz_finished ? 'Excluded: automated browser' : r.analysis === 'pending' ? 'Pending: not finished yet' : 'Excluded: abandoned';
     return '<select class="incl ' + state + '" data-incl="' + esc(r.pid) + '" aria-label="Is ' + esc(r.pid) + ' analysed?" title="Auto = the automatic rule: '
-      + 'included once they pressed &quot;I\'m done&quot; on their pizza, unless a program drove the browser. Choose Included or Excluded to override it.">'
+      + 'included once they pressed &quot;I\'m done&quot; on their pizza, unless a program drove the browser; an unfinished pizza is pending for 24 hours after its last save (they may still finish it), then abandoned. Choose Included or Excluded to override it.">'
       + [['', auto + ' (auto)'], ['include', 'Included (your choice)'], ['exclude', 'Excluded (your choice)']].map(function (o) {
         return '<option value="' + o[0] + '"' + (o[0] === c ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
       }).join('') + '</select>';

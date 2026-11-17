@@ -62,7 +62,7 @@ SORTABLE = ('pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stage', 'n_pieces
 STAGES = ('intro', 'survey', 'practice', 'build', 'typical', 'followup', 'done', 'declined')   # declined: said no to the consent
 IDLE_MINUTES = 30            # an unfinished session with no save for this long counts as stopped (it can still resume)
 ACTIVITY = ('active', 'stopped')   # extra values of the "where" filter, from the time of the last save
-ANALYSIS = ('included', 'left_out', 'flagged', 'synthetic', 'real')  # ... from whether the session's pizza is analysed, needs a look, or is synthetic
+ANALYSIS = ('included', 'pending', 'left_out', 'flagged', 'synthetic', 'real')  # ... from whether the session's pizza is analysed, needs a look, or is synthetic
 SYN_SQL = "pid LIKE 'SYN-%'"        # synthetic sessions of a test study (analysis/synthetic.py): ids SYN-001 ...
 # The researcher's choice for a session (field 'inclusion', never taken from a participant's save): 'include',
 # 'exclude' or 'auto' (kept, so that going back to automatic also rebuilds the reports); no field = automatic: a session past the build (its own pizza finished) is analysed, one that stopped
@@ -84,17 +84,25 @@ FINISHED_SQL = ("(COALESCE((SELECT value FROM fields WHERE fields.pid = sessions
 FLAGGED_OUT_SQL = '(' + ' OR '.join("(' ' || COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'browser_flags'), '') || ' ') LIKE '%% %s %%'" % f
                                     for f in AUTO_EXCLUDE_FLAGS) + ')'
 AUTO_IN_SQL = '(n_pieces IS NOT NULL AND ' + FINISHED_SQL + ' AND NOT ' + FLAGGED_OUT_SQL + ')'
-LEFT_OUT_SQL = '(' + INCL_SQL + " = 'exclude' OR (" + INCL_SQL + " = '' AND n_pieces IS NOT NULL AND NOT " + AUTO_IN_SQL + '))'
+# An unfinished pizza (no "I'm done" yet) is PENDING while its session saved within ABANDON_HOURS: the participant may
+# still be building, or come back (reload, the same link). After that it counts as abandoned and is left out. Neither
+# is analysed (an unfinished pizza is not a choice); pending ones are listed with the sessions in progress, never as
+# excluded. (The same in the Worker, cloudflare/src/store.js, and analysis/analyse.py ABANDON_HOURS.)
+ABANDON_HOURS = 24
+PENDING_SQL = ('(' + INCL_SQL + " = '' AND n_pieces IS NOT NULL AND NOT " + FINISHED_SQL + " AND NOT " + FLAGGED_OUT_SQL
+               + " AND stage NOT IN ('done', 'declined') AND updated >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-" + str(ABANDON_HOURS) + " hours'))")
+LEFT_OUT_SQL = '(' + INCL_SQL + " = 'exclude' OR (" + INCL_SQL + " = '' AND n_pieces IS NOT NULL AND NOT " + AUTO_IN_SQL + ' AND NOT ' + PENDING_SQL + '))'
 INCLUDED_SQL = '(' + INCL_SQL + " = 'include' OR (" + INCL_SQL + " = '' AND " + AUTO_IN_SQL + '))'
 # the Sessions tab's groups: 0 analysed, 1 in progress now (unfinished, saved within IDLE_MINUTES; a pizza being built
 # shows here), 2 the rest (left out, stopped, no pizza, declined), folded away under a button. One ? = idle_cutoff().
-LIST_GROUP_SQL = "(CASE WHEN " + INCLUDED_SQL + " AND n_pieces IS NOT NULL THEN 0 WHEN stage NOT IN ('done', 'declined') AND updated >= ? THEN 1 ELSE 2 END)"
+LIST_GROUP_SQL = ("(CASE WHEN " + INCLUDED_SQL + " AND n_pieces IS NOT NULL THEN 0 WHEN " + PENDING_SQL
+                  + " OR (stage NOT IN ('done', 'declined') AND updated >= ?) THEN 1 ELSE 2 END)")
 # browser trouble worth a look before analysing (participant page, docs/BROWSERS.md): the "needs a look" filter
 REVIEW_FLAGS = ('translated', 'coarse-timer', 'forced-colors', 'small-window', 'automated')
 REVIEW_SQL = '(' + ' OR '.join("(' ' || COALESCE((SELECT value FROM fields WHERE fields.pid = sessions.pid AND name = 'browser_flags'), '') || ' ') LIKE '%% %s %%'" % f
                                for f in REVIEW_FLAGS) + " OR EXISTS (SELECT 1 FROM fields WHERE fields.pid = sessions.pid AND name = 'client_errors'))"
 # what the analysis does with a session: included / left_out / no_pizza (shown on the Sessions tab and in sessions.csv)
-ANALYSIS_SQL = "CASE WHEN n_pieces IS NULL THEN 'no_pizza' WHEN %s THEN 'included' ELSE 'left_out' END" % INCLUDED_SQL
+ANALYSIS_SQL = "CASE WHEN n_pieces IS NULL THEN 'no_pizza' WHEN %s THEN 'included' WHEN %s THEN 'pending' ELSE 'left_out' END" % (INCLUDED_SQL, PENDING_SQL)
 
 
 def idle_cutoff():
@@ -239,6 +247,8 @@ class Store:
             sql.append(INCLUDED_SQL)
         elif f.get('stage') == 'left_out':
             sql.append(LEFT_OUT_SQL)
+        elif f.get('stage') == 'pending':
+            sql.append(PENDING_SQL)
         elif f.get('stage') == 'flagged':
             sql.append(REVIEW_SQL)
         elif f.get('stage') == 'synthetic':
