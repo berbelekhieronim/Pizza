@@ -5,6 +5,18 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**The reports' small pizzas look like the Sessions tab's.** The overview (and the other reports) drew its miniatures as simple dots and lines; they are now drawn by the task's own picture code (`PizzaBuilder.picture`, loaded from the study server), the same as on the Sessions tab; the simple drawing stays where the script cannot load (a report opened as a file).
+
+**Explore follows the study's questions (task 0.18.2).** The *Ideas to test* now run only where the study asked what
+they need; the rest are listed as *not asked in this study* (with what they would need) and left out of the correction,
+so the ideas that can run get the full benefit. Four new ideas for the short card's questions: a stated vegetarian /
+vegan diet shows on the pizza (new column `diet_plant`; a check that the task captures real preferences), formal vs
+self-identified autism / ADHD, age (now a covariate), and gender. Any study's own question can carry an `explore` note
+(measures, direction, answer; on the Settings tab or in study.json, checked by both servers), which becomes its own idea;
+the note is saved with the answers. In the pilot: 10 ideas run (6 built-in, 4 new), 3 set apart (they need the
+standard follow-up, nutrition hidden until asked, or the typical pizza). The rules are fixed, not an AI model, so the
+same data always give the same tests (docs/SURVEY.md).
+
 **Reports never quietly out of date.** On the Cloudflare site the reports are built from the sessions at one moment;
 pizzas that came in later reached them only at the next "Build reports", so Explore could say 5 pizzas while 8 were in.
 Now opening a report while it is out of date starts the build by itself (once per visit), and each report says above it

@@ -37,6 +37,7 @@ Each question:
 | `min`, `max` | for `number` |
 | `required` | must be answered before *Dalej*; by default `number` and `single` are, `multi` and `text` are not |
 | `placeholder` | the grey hint in a number or text box |
+| `explore` | optional: what you expect the answer to relate to, which Explore turns into an *idea to test* (below) |
 
 The six questions of the metryczka (`age`, `autism`, `adhd`, `gender`, `trans`, `diet`) need only `id` and `type`:
 their wording and answers come from the task's texts (and the study's texts sheet). They also feed the usual
@@ -81,6 +82,30 @@ pizza can prime answers given after it. Keep one order within an analysis, or co
 - **Explore** compares groups by the study's own questions: a `single` question with 2-8 different answers becomes a
   grouping (`Survey: <id>`), a `number` question a covariate. It also groups by transgender and by a stated special
   diet. The overview leaves out the "strong feelings" section when the study did not ask it.
+
+### Explore adapts to the questions
+
+Explore's *Ideas to test* follow what the study asked (task 0.18.2):
+- The built-in ideas (from the literature on eating in autism and ADHD, and for the short card: a stated vegetarian /
+  vegan diet, formal vs self-identified autism / ADHD, age, gender) run only when the study recorded what they compare
+  and measure. The others are listed as *not asked in this study*, with what they would need, and are left out of the
+  correction, so the ideas that can run are not penalised by those that cannot.
+- Each of the study's own questions can carry an `explore` note, and becomes its own idea:
+
+```json
+{"id": "sleep", "type": "single", "text": "Jak spałeś/spałaś?", "options": [["well", "dobrze"], ["badly", "źle"]],
+ "explore": {"title": "Tired people choose less", "why": "Fatigue narrows choices.",
+             "measures": ["n_distinct", "nut_kcal"], "direction": "lower", "answer": "badly"}}
+```
+
+  `measures`: up to 8 columns of `participants.csv` (Methods lists them); `direction`: `higher`, `lower` or `either`;
+  `answer`: for one answer or several answers, the answer compared with the rest (by default the largest group); a
+  number question is correlated. The note is saved with each person's answers (`pzf_data.survey`), so the analysis
+  needs nothing else. Without a note, a question still appears in Explore's screen (one answer: a grouping; a number:
+  a covariate).
+
+The ideas are chosen by fixed rules, not by an AI model: the same data always give the same tests, which a study's
+analysis needs. A model could help draft `explore` notes from a question's wording, for the researcher to check.
 
 Changing the questions mid-study is possible (the data says what each person was asked), but compare like with like:
 note the date of the change and the task version.

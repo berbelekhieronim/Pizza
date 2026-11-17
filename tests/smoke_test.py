@@ -519,8 +519,21 @@ def main():
         check(len(rows) == 24, 'one row per participant')
         ex = open(os.path.join(out, 'explore.html'), encoding='utf-8').read()
         planned = [r for r in csv.DictReader(open(os.path.join(out, 'explore.csv'), encoding='utf-8')) if r['grouping'] == 'planned']
-        check(ex.count('class="hyp ') == 9 and 'Ideas to test' in ex and ex.count('class="cost"') == 9 and planned and all(r['q'] != '' for r in planned),
-              'Explore: the 9 ideas to test, as their own family, each with its number of tests and the people it needs (rows in explore.csv)')
+        n_cards, apart = ex.count('class="hyp '), re.search(r'Not asked in this study \((\d+) idea', ex)
+        check(n_cards + (int(apart.group(1)) if apart else 0) == 13 and n_cards >= 9 and 'Ideas to test' in ex and ex.count('class="cost"') == n_cards
+              and planned and all(r['q'] != '' for r in planned),
+              'Explore: the 13 ideas, those this study can test as their own family (each with its number of tests and the people it needs; rows in explore.csv), the rest set apart as not asked')
+        sys.path.insert(0, os.path.join(ROOT, 'analysis'))
+        import analyse as AN
+        notes = [{'_explore_notes': [{'id': 'sleep', 'type': 'single', 'explore': {'measures': ['n_distinct', 'nut_kcal'], 'direction': 'lower', 'answer': 'bad', 'title': 'Tired people choose less'}},
+                                     {'id': 'hunger', 'type': 'number', 'explore': {'measures': ['nut_kcal'], 'direction': 'higher'}}]}]
+        got = AN.note_ideas(notes)
+        recs = [{'q_hunger': i, 'nut_kcal': 900 + 40 * i, 'n_distinct': 3 + i % 3, 'nd_autistic': i % 2} for i in range(10)]
+        ran, apart = AN.planned_tests(recs, [], [], [('q_hunger', 'hunger')], __import__('random').Random(1))
+        titles = [h[1] for h, _ in ran]
+        check([g[1] for g in got] == ['Tired people choose less', 'Survey: hunger'] and got[0][3] == [('q_sleep', 'bad')] and got[1][4] == [('nut_kcal', 1)]
+              and 'Fewer, more familiar toppings' in titles and any(h[0] == 'Idea 12' for h, _ in apart) and any(h[0] == 'Idea 8' for h, _ in apart),
+              'Explore: a question\'s "explore" note becomes an idea (its answer, measures and direction); ideas whose questions or measures a study lacks are set apart')
         pr = open(os.path.join(out, 'profiles.html'), encoding='utf-8').read()
         exrows = list(csv.DictReader(open(os.path.join(out, 'explore.csv'), encoding='utf-8')))
         screen = [r for r in exrows if r['grouping'] != 'planned']

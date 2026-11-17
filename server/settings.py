@@ -11,7 +11,8 @@ EDITABLE = ('nutrition', 'survey_when', 'followup', 'survey', 'conditions', 'con
 COND_KEYS = ('nutrition', 'survey_when', 'followup', 'survey')
 CHOICES = {'nutrition': ('visible', 'hidden', 'none'), 'survey_when': ('before', 'after'), 'followup': ('strong', 'ratings', 'metryczka')}
 BUILTIN_QUESTIONS = ('age', 'autism', 'adhd', 'gender', 'trans', 'diet')     # their wording comes from the task's texts
-QUESTION_KEYS = ('id', 'type', 'text', 'options', 'other', 'min', 'max', 'required', 'placeholder')
+QUESTION_KEYS = ('id', 'type', 'text', 'options', 'other', 'min', 'max', 'required', 'placeholder', 'explore')
+EXPLORE_KEYS = ('title', 'why', 'measures', 'direction', 'answer')
 COND_RE = re.compile(r'^[A-Za-z0-9_-]{1,20}$')
 
 
@@ -65,6 +66,17 @@ def survey_problems(survey):
             out.append('%s: min is above max' % qid)
         if q.get('required') is not None and not isinstance(q['required'], bool):
             out.append('%s: "required" must be true or false' % qid)
+        ex = q.get('explore')
+        if ex is not None:
+            ok = (isinstance(ex, dict) and all(k in EXPLORE_KEYS for k in ex) and isinstance(ex.get('measures'), list) and 1 <= len(ex['measures']) <= 8
+                  and all(isinstance(m, str) and re.match(r'^[a-z][a-z0-9_]{0,40}$', m) for m in ex['measures'])
+                  and ex.get('direction', 'either') in ('higher', 'lower', 'either')
+                  and all(isinstance(ex.get(k, ''), str) and len(ex.get(k, '')) <= 300 for k in ('title', 'why', 'answer')))
+            if not ok:
+                out.append('%s: "explore" must be {"measures": [up to 8 column names], "direction": "higher" / "lower" / "either", '
+                           '"answer": an answer code (optional), "title", "why" (optional)}' % qid)
+            elif ex.get('answer') and codes and ex['answer'] not in codes:
+                out.append('%s: "explore" answer must be one of its answer codes' % qid)
     return out
 
 

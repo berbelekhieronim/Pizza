@@ -6,7 +6,8 @@ export const EDITABLE = ['nutrition', 'survey_when', 'followup', 'survey', 'cond
 export const COND_KEYS = ['nutrition', 'survey_when', 'followup', 'survey'];
 export const CHOICES = { nutrition: ['visible', 'hidden', 'none'], survey_when: ['before', 'after'], followup: ['strong', 'ratings', 'metryczka'] };
 const BUILTIN_QUESTIONS = ['age', 'autism', 'adhd', 'gender', 'trans', 'diet'];
-const QUESTION_KEYS = ['id', 'type', 'text', 'options', 'other', 'min', 'max', 'required', 'placeholder'];
+const QUESTION_KEYS = ['id', 'type', 'text', 'options', 'other', 'min', 'max', 'required', 'placeholder', 'explore'];
+const EXPLORE_KEYS = ['title', 'why', 'measures', 'direction', 'answer'];
 const COND_RE = /^[A-Za-z0-9_-]{1,20}$/;
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -40,6 +41,15 @@ export function surveyProblems(survey) {
     for (const k of ['min', 'max']) if (q[k] != null && !isNum(q[k])) out.push(`${qid}: "${k}" must be a number`);
     if (kind === 'number' && isNum(q.min) && isNum(q.max) && q.min > q.max) out.push(`${qid}: min is above max`);
     if (q.required != null && typeof q.required !== 'boolean') out.push(`${qid}: "required" must be true or false`);
+    const ex = q.explore;
+    if (ex != null) {
+      const str = (k) => ex[k] === undefined || (typeof ex[k] === 'string' && ex[k].length <= 300);
+      const ok = isObj(ex) && Object.keys(ex).every((k) => EXPLORE_KEYS.includes(k)) && Array.isArray(ex.measures) && ex.measures.length >= 1 && ex.measures.length <= 8
+        && ex.measures.every((m) => typeof m === 'string' && /^[a-z][a-z0-9_]{0,40}$/.test(m))
+        && ['higher', 'lower', 'either'].includes(ex.direction === undefined ? 'either' : ex.direction) && str('title') && str('why') && str('answer');
+      if (!ok) out.push(`${qid}: "explore" must be {"measures": [up to 8 column names], "direction": "higher" / "lower" / "either", "answer": an answer code (optional), "title", "why" (optional)}`);
+      else if (ex.answer && codes.length && !codes.includes(ex.answer)) out.push(`${qid}: "explore" answer must be one of its answer codes`);
+    }
   });
   return out;
 }

@@ -16,7 +16,7 @@
   'use strict';
   if (global.PizzaBuilder) return;
 
-  var VERSION = '0.18.1';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
+  var VERSION = '0.18.2';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
   var VIEW = 105;        // half-width of every pizza viewBox; the pizza's outer radius is 100
   var R_SNAP = 0.9;      // with snapIn, a topping centre dropped on the crust is pulled in to this radius
   var R_OFF = 1.0;       // dropped further out than this = off the pizza
@@ -1795,14 +1795,17 @@
       return { id: q.id, type: type, text: q.text != null ? word(q.text) : (b[0] || q.id), options: opts, min: q.min != null ? q.min : 0, max: q.max != null ? q.max : 999,
         placeholder: q.placeholder != null ? word(q.placeholder) : q.id === 'age' ? T.metAgePh : q.id === 'diet' ? T.metDietPh : '',
         bad: q.id === 'age' && (q.min == null || q.min === 16) && (q.max == null || q.max === 99) ? T.metAgeBad : (T.metNumberBad || '').replace('{min}', q.min != null ? q.min : 0).replace('{max}', q.max != null ? q.max : 999),
-        other: q.other || null, required: q.required != null ? !!q.required : (type === 'number' || type === 'single') };
+        other: q.other || null, required: q.required != null ? !!q.required : (type === 'number' || type === 'single'),
+        explore: q.explore && typeof q.explore === 'object' ? q.explore : null };
     });
   }
   Followup.prototype._met = function () {
     var T = this.T, r = this.res, self = this, card = el('div', 'pzb-card pzb-about'), upd;
     var qs = surveyQuestions(T, this.o.survey, this.o.lang);
     var m = r.met = { t: {} };
-    r.survey = qs.map(function (q) { return { id: q.id, type: q.type }; });      // what was asked, for the analysis
+    // what was asked, for the analysis; with the question's "explore" note (what the researcher expects it to relate to),
+    // which Explore turns into an idea to test (task 0.18.2)
+    r.survey = qs.map(function (q) { var d = { id: q.id, type: q.type }; if (q.explore) d.explore = q.explore; return d; });
     qs.forEach(function (q) { m[q.id] = q.type === 'multi' ? [] : null; if (q.other) m[q.id + 'Other'] = ''; });
     if (m.diet !== undefined) m.dietOther = m.dietOther || '';
     function stamp(k) { if (m.t[k] == null) m.t[k] = Math.round(now() - self.cardT); }

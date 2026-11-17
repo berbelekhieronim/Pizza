@@ -1848,7 +1848,31 @@ def normality_hist(ref_scores, recs, groups):
 
 
 def thumb(pieces, summary):
-    return ('<svg viewBox="-102 -102 204 204" aria-hidden="true">%s%s</svg>' % (base_svg(summary), ''.join(glyph(p) for p in pieces)))
+    """A small pizza: drawn in the page by the task's own picture (PizzaBuilder.picture, as on the Sessions tab and in the
+    task) when the report is opened from a study server (THUMB_JS); this simple drawing stays where the script cannot
+    load (a report opened as a file)."""
+    rows = [[p.get('id', i), p['ing'], round(p['x'], 4), round(p['y'], 4), p.get('rot') or 0, round(p['s'] / (p.get('g') or 1), 4), p.get('v') or 0, 0, p.get('g') or 1]
+            for i, p in enumerate(pieces)]
+    base = {k: summary.get(k) for k in ('sauce', 'cheese') if summary.get(k)}
+    return ('<span class="pzthumb" data-f="%s" data-s="%s"><svg viewBox="-102 -102 204 204" aria-hidden="true">%s%s</svg></span>'
+            % (esc(json.dumps(rows, separators=(',', ':'))).replace('"', '&quot;'), esc(json.dumps(base)).replace('"', '&quot;'),
+               base_svg(summary), ''.join(glyph(p) for p in pieces)))
+
+
+# the reports' small pizzas drawn like the task draws them (thumb); the study servers serve the task script at /pizza-builder.js
+THUMB_JS = ('<style>.pzthumb{display:inline-block;line-height:0}.pzthumb .pzb-picture{display:inline-block}</style>'
+            '<script src="/pizza-builder.js"></script><script>(function () {'
+            'if (!window.PizzaBuilder || !PizzaBuilder.picture) return;'
+            '[].forEach.call(document.querySelectorAll(".pzthumb"), function (t) {'
+            ' try { var svg = t.querySelector("svg"), w = svg ? (svg.getBoundingClientRect().width || parseFloat(getComputedStyle(svg).width)) : 0;'
+            ' var pic = PizzaBuilder.picture(JSON.parse(t.getAttribute("data-f")), JSON.parse(t.getAttribute("data-s") || "{}"), Math.round(w || 64));'
+            ' t.innerHTML = ""; t.appendChild(pic); } catch (e) {} });'
+            '})();</script>')
+
+
+def with_thumbs(html):
+    """A report with the task's pizza pictures for its small pizzas (thumb)."""
+    return html.replace('</body>', THUMB_JS + '</body>', 1) if 'class="pzthumb"' in html else html
 
 
 DASH_COLS = [  # (key, heading, group, format)
@@ -3112,10 +3136,10 @@ EXPLORE_GROUPINGS = [
     ('neurotype', 'Neurotype (self-described)'), ('nd_any', 'Any neurodivergence (yes / no)'), ('nd_autistic', 'Autistic, incl. AuDHD (yes / no)'), ('nd_adhd', 'ADHD, incl. AuDHD (yes / no)'),
     ('nd_identified', 'Autism / ADHD: formally diagnosed or not'), ('eat_any', 'Any eating difficulty, allergy or intolerance (yes / no)'),
     ('eat_picky', 'Picky eating since childhood (yes / no)'), ('gender', 'Gender'), ('age_band', 'Age'),
-    ('transgender', 'Transgender (yes / no)'), ('diet_special', 'Special diet (vegetarian, vegan or other; yes / no)'),
+    ('transgender', 'Transgender (yes / no)'), ('diet_special', 'Special diet (vegetarian, vegan or other; yes / no)'), ('diet_plant', 'Vegetarian or vegan (yes / no)'),
     ('nutrition_mode', 'Nutrition information: shown / hidden until asked / none'), ('nutrition_panel', 'Nutrition panel shown (yes / no)'), ('nutri_revealed', 'Revealed the nutrition while building (yes / no)'), ('group', 'Recruitment group (study link)'), ('source', 'Recruitment source'), ('study', 'Study'), ('condition', 'Condition'),
 ]
-EXPLORE_COVARIATES = [('self_picky', '"I am a picky eater" (1-7)'), ('self_sensory_food', '"Food textures, smells or looks bother me" (1-7)')]
+EXPLORE_COVARIATES = [('self_picky', '"I am a picky eater" (1-7)'), ('self_sensory_food', '"Food textures, smells or looks bother me" (1-7)'), ('age_years', 'Age (years)')]
 
 
 def midranks(vals):
@@ -3313,7 +3337,7 @@ def explore_measures(recs, tray):
 def group_labels(recs, key):
     """Each pizza's group in a grouping, as text (yes / no for the yes/no groupings), None when unknown."""
     raw = [r.get(key) for r in recs]
-    if key in ('nd_any', 'nd_autistic', 'nd_adhd', 'eat_any', 'eat_picky', 'nutrition_panel', 'nutri_revealed'):
+    if key in ('nd_any', 'nd_autistic', 'nd_adhd', 'eat_any', 'eat_picky', 'nutrition_panel', 'nutri_revealed', 'diet_plant', 'diet_special', 'transgender'):
         raw = [None if v is None else ('yes' if v else 'no') for v in raw]
     return [None if v in (None, '') else str(v) for v in raw]
 
@@ -3328,7 +3352,7 @@ def grouping_levels(recs, key, min_n=3):
 # groupings with a natural reference group: each other group is compared with it, not with everyone else (pooling
 # autistic, ADHD and AuDHD people into "the rest" mixes the groups the study compares)
 GROUPING_REF = {'neurotype': 'Not ND', 'nd_any': 'no', 'nd_autistic': 'no', 'nd_adhd': 'no', 'eat_any': 'no', 'eat_picky': 'no',
-                'nutri_revealed': 'no', 'nutrition_panel': 'no'}       # yes/no groupings read "yes vs no"
+                'nutri_revealed': 'no', 'nutrition_panel': 'no', 'diet_plant': 'no', 'diet_special': 'no'}       # yes/no groupings read "yes vs no"
 
 
 def min_n_to_pass(m, fdr=0.05):
@@ -3565,20 +3589,82 @@ IDEAS = [
      'more unusual?". ADHD novelty seeking points this way; autistic selectivity (idea 1) points the other way, so the two ideas compete. Unusual = the '
      'surprise of the topping set against the other pizzas (bits) and how rare the chosen toppings are.',
      [('nd_any', 'yes'), ('nd_autistic', 'yes'), ('nd_adhd', 'yes')], [('atypicality_bits', 1), ('ingredient_rarity', 1), ('prop_unusual_distinct', 1)]),
+    # from the short card's questions (age, diet, how autism / ADHD was identified, gender): asked in the pilot
+    ('Idea 10', 'A stated diet shows on the pizza', 'A check that the pizza reflects real preferences: people who say they are vegetarian or vegan '
+     'should put fewer animal products on it. If they do not, the task may not capture real choices.',
+     [('diet_plant', 'yes')], [('diet_rank', -1), ('n_meat_pieces', -1), ('n_seafood_pieces', -1)]),
+    ('Idea 11', 'Formal diagnosis or self-identified: the same pizza?', 'Self-identified autism and ADHD are common, especially in adults waiting for '
+     'an assessment. If the patterns hold for both, self-identification can be pooled with diagnosis; if not, the two should be kept apart.',
+     [('nd_identified', 'formal')], [('n_distinct', 0), ('prop_unusual_distinct', 0), ('prop_touching', 0), ('mirror_score', 0)]),
+    ('Idea 12', 'Age and the pizza', 'Food neophobia falls and variety-seeking changes with age; age is also a confound to check before comparing groups.',
+     [('age_years', None)], [('n_distinct', 0), ('prop_unusual_distinct', 0), ('nut_kcal', 0), ('decision_median', 0)]),
+    ('Idea 13', 'Gender and the pizza', 'Men and women differ in average food choices (e.g. meat, energy); a confound to check before comparing '
+     'neurotypes, as autism and ADHD are diagnosed at different rates by gender. The largest gender group against the rest.',
+     [('gender', '*')], [('diet_rank', 0), ('nut_kcal', 0), ('n_pieces', 0)]),
 ]
+# what records an idea's measures, when a study has none of them
+MEASURE_NEEDS = [('n_strong', 'the standard follow-up (strong feelings about the toppings)'), ('n_sensory', 'the standard follow-up (strong feelings about the toppings)'),
+                 ('n_safe', 'the standard follow-up (strong feelings about the toppings)'), ('post_nutri', 'nutrition hidden until asked (Settings → Nutrition)'),
+                 ('typical_', 'the "typical participant" pizza (study setting typical_build)')]
+# the questions each grouping or covariate of an idea needs (to say what to ask when an idea cannot be tested)
+IDEA_NEEDS = {'nd_autistic': 'autism (short card or About you)', 'nd_adhd': 'ADHD (short card or About you)', 'nd_any': 'autism / ADHD',
+              'neurotype': 'autism / ADHD', 'eat_picky': 'eating history (About you, standard follow-up)',
+              'self_sensory_food': 'the sensory food rating (About you, standard follow-up)', 'revealers': 'nutrition hidden until asked (Settings)',
+              'diet_plant': 'diet (short card)', 'nd_identified': 'autism / ADHD with how it was identified', 'age_years': 'age in years (short card)',
+              'gender': 'gender'}
 LARGE_DELTA = 0.474     # a large Cliff's δ (Romano et al. 2006): the effect the sample sizes below are planned for
 SAMPLE_TIP = ('People per group for 80%% power, two-sided: n = 2 (z(α/2) + z(0.80))² / (3 δ²) (Noether 1987), with α = .05 / t for t tests '
               '(Bonferroni over the idea\'s tests). Correlations: n = ((z(α/2) + z(0.80)) / atanh ρ)² + 3. Change within a person (sign test, '
               'dominance d, p = (1 + d) / 2): n = (0.5 z(α/2) + z(0.80) √(p(1 − p)))² / (p − 0.5)². Details: Methods → Sample sizes.')
 
 
+def note_ideas(recs):
+    """Ideas from the study's own questions: each question with an "explore" note (study settings, recorded with the
+    answers in pzf_data.survey) becomes an idea: its measures, in the expected direction, by its answer (a number: a
+    correlation; one answer: that answer, or the largest group, against the rest; several answers: those who chose
+    "answer" against the rest)."""
+    seen, out = set(), []
+    for r in recs:
+        for q in r.get('_explore_notes') or []:
+            qid, ex = q.get('id'), q.get('explore') or {}
+            if qid in seen or not isinstance(ex.get('measures'), list):
+                continue
+            seen.add(qid)
+            sign = {'higher': 1, 'lower': -1}.get(ex.get('direction'), 0)
+            if q.get('type') == 'number':
+                comp = ('q_' + qid, None)
+            elif q.get('type') == 'multi':
+                comp = ('q_%s_%s' % (qid, ex.get('answer')), 'yes') if ex.get('answer') else None
+            else:
+                comp = ('q_' + qid, ex.get('answer') or '*')
+            if comp:
+                out.append(('Your question: ' + qid, ex.get('title') or 'Survey: ' + qid, ex.get('why') or 'Set in the study\'s questions ("explore").',
+                            [comp], [(m, sign) for m in ex['measures'][:8]]))
+    return out
+
+
 def planned_tests(recs, defs, groupings, covariates, rnd):
-    """The ideas (IDEAS) tested on these pizzas: [(idea, [test dicts])], with q over all their tests together."""
-    names = {k: lab for _, k, lab in defs}
+    """The ideas tested on these pizzas: the built-in IDEAS whose questions this study asked, and the ideas from its own
+    questions (note_ideas). Returns ([(idea, [test dicts])], [(idea, what it needs)]): an idea whose comparison or
+    measures were never recorded in this study (a question not asked, no typical pizza, nutrition not hidden) is set
+    apart, so it neither shows as "too few yet" nor adds to the correction; q is over the remaining tests together."""
+    names = dict({'nut_kcal': 'Energy (kcal)', 'n_meat_pieces': 'Meat pieces', 'n_seafood_pieces': 'Fish and seafood pieces', 'diet_rank': 'Animal products'},
+                 **{k: lab for _, k, lab in defs})
     gnames = dict(list(groupings) + list(covariates))
     num = lambda k: [r.get(k) if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool) else None for r in recs]
-    out, family = [], []
-    for hid, title, why, comps, measures in IDEAS:
+    has = lambda k: any(r.get(k) not in (None, '') for r in recs)
+    out, family, skipped = [], [], []
+    for hid, title, why, comps, measures in IDEAS + note_ideas(recs):
+        asked = [c for c in comps if (any(r.get('nutrition_reveal') == 1 for r in recs) if c[0] == 'revealers' else has(c[0]))]
+        avail = [m for m in measures if has(m[0])]
+        if not asked or not avail:
+            if not asked:
+                need = [IDEA_NEEDS.get(c[0], c[0]) for c in comps]
+            else:                                    # what records the measures
+                need = sorted({next((v for pre, v in MEASURE_NEEDS if m[0].startswith(pre)), names.get(m[0], m[0])) for m in measures})
+            skipped.append(((hid, title, why), need))
+            continue
+        comps, measures = asked, avail
         tests = []
         for gkey, level in comps:
             for k, sign in measures:
@@ -3601,6 +3687,9 @@ def planned_tests(recs, defs, groupings, covariates, rnd):
                     continue
                 levels, labels, _ = grouping_levels(recs, gkey)
                 cnt = Counter(v for v in group_labels(recs, gkey) if v is not None)
+                if level == '*':                     # the largest group against the rest
+                    level = levels[0] if levels else (cnt.most_common(1)[0][0] if cnt else 'largest group')
+                    base['level'] = level
                 if not levels or level not in levels:
                     have = cnt.get(level, 0)
                     tests.append(dict(base, level=level, vs='the rest', n1=have, n0=sum(cnt.values()) - have, missing='needs 3+ in each group'))
@@ -3618,10 +3707,10 @@ def planned_tests(recs, defs, groupings, covariates, rnd):
     for t, q in zip(family, bh([t['p'] for t in family])):
         t['q'] = q
         t['right_way'] = None if not t['sign'] or not t['delta'] else (t['delta'] > 0) == (t['sign'] > 0)
-    return out
+    return out, skipped
 
 
-def planned_html(planned, groupings, covariates):
+def planned_html(planned, groupings, covariates, skipped=()):
     """The Ideas to test section of explore.html."""
     gnames = dict(list(groupings) + list(covariates) + [('revealers', 'Within each person')])
     n_all = sum(len(ts) for _, ts in planned)                       # every planned test, run or not yet
@@ -3677,13 +3766,18 @@ def planned_html(planned, groupings, covariates):
                      '<th class="l">Compared</th><th>Expected</th><th>n</th><th>median or %%</th><th>effect</th><th>p</th><th>q</th><th>Direction</th>'
                      '</tr>%s</table></div></div>'
                      % (cls, esc(hid), esc(title), esc(why), esc(verdict), cost, bar, ''.join(rows)))
-    return ('<h2 id="planned">Ideas to test</h2><p class="muted">Leads worth checking, from what is known about eating in autism and ADHD '
-            '(docs/sample-sizes.md). They are <b>not hypotheses</b>: nothing here is preregistered, and some have no expected direction. They are tested '
+    own = sum(1 for (hid, _, _), _ in planned if hid.startswith('Your question'))
+    apart = ('<details class="more"><summary>Not asked in this study (%d idea%s, left out of the tests)</summary><ul>%s</ul></details>'
+             % (len(skipped), '' if len(skipped) == 1 else 's', ''.join('<li><b>%s. %s</b>: needs %s.</li>' % (esc(h), esc(t), esc('; '.join(need))) for (h, t, _), need in skipped))
+             if skipped else '')
+    return ('<h2 id="planned">Ideas to test</h2><p class="muted">Leads worth checking, chosen for <b>what this study asked</b>: from what is known about '
+            'eating in autism and ADHD (docs/sample-sizes.md), about the short card\'s questions (age, diet, gender, how autism / ADHD was identified)%s. '
+            'An idea whose questions were not asked here is set apart below, outside the correction. They are <b>not hypotheses</b>: nothing here is preregistered, and some have no expected direction. They are tested '
             'as one family of %d tests (%d can run on these data), so q is corrected over these only, not over the whole screen below: this is where a '
             'real difference can show first. A test is a strong lead when q &lt; 0.10 and, where a direction is expected, it goes that way. Every test '
             'adds to the correction, so each idea shows how many tests it runs and how many people that takes. To confirm, pick 3-5 ideas, state their '
             'direction in a preregistration, and test them in a new sample. How every sample size here is worked out, with the formulas and worked examples: '
-            '<a href="methods.html#sample-sizes" onclick="if (window.parent !== window) { parent.location.hash = \'methods\'; return false; }">Methods → Sample sizes</a> (hover a number for the formula).</p>%s' % (n_all, n_run, ''.join(cards)))
+            '<a href="methods.html#sample-sizes" onclick="if (window.parent !== window) { parent.location.hash = \'methods\'; return false; }">Methods → Sample sizes</a> (hover a number for the formula).</p>%s%s' % ((', and %d from the study\'s own questions ("explore" notes)' % own) if own else '', n_all, n_run, ''.join(cards), apart))
 
 
 def explore_report(recs, tray, groupings, covariates, seed=1):
@@ -3847,7 +3941,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
                   % (LEAD_MIN, n_screen, SAMPLE_TIP, ''.join(lead_rows))) if lead_rows else (
         '<h2 id="leads">Leads for a larger study</h2><p class="muted">None yet: a lead needs two groups of %d or more in one of the study\'s groupings '
         '(neurotype, eating, nutrition, study, condition). Until then, the tables below describe these people; they are not evidence.</p>' % LEAD_MIN)
-    planned = planned_tests(recs, defs, groupings, covariates, rnd)
+    planned, skipped = planned_tests(recs, defs, groupings, covariates, rnd)
     for (hid, title, _), ts in planned:
         for t in ts:
             if 'p' in t:
@@ -3875,7 +3969,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
             'per group); q the Benjamini-Hochberg false discovery rate over a family of questions (the study\'s groupings with the self-reports; demographics '
             'apart; the ideas apart); bootstrap 95%% intervals for groups of 5 or more.</p><div class="chips">%s</div>'
             % (len(defs), len([d for d in defs if d[0].startswith(TOPPING_AREAS)]), nav)
-            + planned_html(planned, groupings, covariates) + leads_html
+            + planned_html(planned, groupings, covariates, skipped) + leads_html
             + ''.join(body)
             + ('<details class="more" id="other"><summary>Other groupings: demographics and recruitment (%d)</summary>%s</details>' % (len(other_body), ''.join(other_body))
                if other_body else '')
@@ -3915,12 +4009,12 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
                     pending.append({'pid': pid, 'reason': reason, 'stage': row.get('stage') or None, 'last_saved': row.get('updated') or None,
                                     'group': field(row, 'group') or row.get('group') or None, 'summary': summary,
                                     'pieces': [{'ing': f[1], 'x': f[2], 'y': f[3], 'rot': f[4], 'g': (f[8] if len(f) > 8 else 1),
-                                                's': f[5] * (f[8] if len(f) > 8 else 1)} for f in final]})
+                                                's': f[5] * (f[8] if len(f) > 8 else 1), 'v': f[6] if len(f) > 6 else 0} for f in final]})
                 continue
             events = loads(field(row, prefix + 'events'), []) or []
             # 's' is the drawn size: the small random variation times how much the participant grew the piece (hold to grow)
             pieces = [{'id': f[0], 'ing': f[1], 'x': f[2], 'y': f[3], 'rot': f[4], 'g': (f[8] if len(f) > 8 else 1),
-                       's': f[5] * (f[8] if len(f) > 8 else 1)} for f in final]
+                       's': f[5] * (f[8] if len(f) > 8 else 1), 'v': f[6] if len(f) > 6 else 0} for f in final]
             counts = Counter(p['ing'] for p in pieces)
             tray = summary.get('tray') or list(CATS)
             cvec = [counts.get(k, 0) for k in tray]
@@ -4026,6 +4120,10 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             rec['survey_when'] = (follow.get('when') or 'after') if follow else None
             # stated a special diet (vegetarian, vegan, other; from the diet question), for comparing groups
             rec['diet_special'] = None if not diet else int(any(d not in ('none', 'pnts') for d in diet))
+            # vegetarian or vegan by their own account: does it show on the pizza (Explore idea "A stated diet")
+            rec['diet_plant'] = None if not diet or 'pnts' in diet else int(any(d in ('vegetarian', 'vegan') for d in diet))
+            # the "explore" notes of the study's own questions (what the researcher expects each to relate to)
+            rec['_explore_notes'] = [q for q in (follow.get('survey') or []) if isinstance(q, dict) and isinstance(q.get('explore'), dict)] if follow else []
             rec['flag_tab_away'] = int((summary.get('hiddenMs') or 0) > 30000)
             rec['flag_fast'] = int(rec['t_finish'] is not None and rec['t_finish'] < 15000)
             rec['flag_empty'] = int(n == 0)
@@ -4182,14 +4280,14 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
         rec['_group'] = str(v) if v not in (None, '') else ('not stated' if primary == 'neurotype' else 'all')
     flag = synthetic_banner(own_entries)          # on every report when synthetic pizzas are in it
     with open(os.path.join(out_dir, 'arrangement.html'), 'w', encoding='utf-8') as f:
-        f.write(flag(arrangement_report(arrangement, group_label)))
+        f.write(with_thumbs(flag(arrangement_report(arrangement, group_label))))
     with open(os.path.join(out_dir, 'dashboard.html'), 'w', encoding='utf-8') as f:
-        f.write(flag(dashboard_report(own_entries, ref_info, group_label, check, pending)))
+        f.write(with_thumbs(flag(dashboard_report(own_entries, ref_info, group_label, check, pending))))
     prof = profile_analysis(own_entries, k_force)
     for (rec, _), z, lab in zip(own_entries, prof['Z'], prof['labels']):
         rec['cluster'] = lab + 1 if prof['k'] > 1 else None
     with open(os.path.join(out_dir, 'profiles.html'), 'w', encoding='utf-8') as f:
-        f.write(flag(profiles_report(own_entries, prof, group_label)))
+        f.write(with_thumbs(flag(profiles_report(own_entries, prof, group_label))))
     write_csv(os.path.join(out_dir, 'profiles.csv'), [
         dict([('pid', r['pid']), ('group', r['_group']), ('cluster', r.get('cluster'))] + [('z_' + f[1], round(v, 4)) for f, v in zip(PROFILE_FEATURES, z)])
         for (r, _), z in zip(own_entries, prof['Z'])])
@@ -4202,13 +4300,15 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
     covs += [c for c in s_covs + [('age_years', 'Age in years')] if c[0] not in dict(covs)]
     html, tests = explore_report([r for r, _ in own_entries], toppings, groupings, covs, seed)
     with open(os.path.join(out_dir, 'explore.html'), 'w', encoding='utf-8') as f:
-        f.write(flag(html))
+        f.write(with_thumbs(flag(html)))
     write_csv(os.path.join(out_dir, 'explore.csv'), [
         dict({k: t.get(k) for k in ('grouping', 'level', 'vs', 'area', 'key', 'label', 'n1', 'n0', 'm1', 'm0', 'delta', 'n_per_group_80_half')},
              p='%.3g' % t['p'], q='%.3g' % t['q']) for t in tests]
         or [{'grouping': None}])
     for rec, _ in arrangement:
         rec.pop('_group', None)
+    for p in people:
+        p.pop('_explore_notes', None)                 # used by Explore only (the questions' "explore" notes)
     write_csv(os.path.join(out_dir, 'participants.csv'), people)
     import methods                                    # the Methods page: how every number above is counted
     write_methods(methods, os.path.join(out_dir, 'methods.html'))
