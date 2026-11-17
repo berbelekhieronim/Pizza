@@ -14,7 +14,7 @@ tiles show "opened the link = …" one tile per status (a click lists those sess
 many reached the thank-you page. The study cards on the start page use the same counts.
 Sessions tab: a **Status** badge (in plain words: in the reports, building now, pending, excluded by you, abandoned,
 left before the pizza…) and, apart from it, **Your choice** (Auto / Include / Exclude) only where there is a pizza;
-groups follow the statuses; **show the pizzas** draws each session's pizza small in the list. The *Where* filter
+groups follow the statuses; **show the pizzas** (on by default; switching it off is remembered in this browser) draws each session's pizza small in the list. The *Where* filter
 starts with the statuses. The session list download has a `status` column.
 
 **Unfinished pizzas are pending for 24 hours, then abandoned.** An unfinished pizza (no "I'm done" yet) was called

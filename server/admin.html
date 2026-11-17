@@ -735,7 +735,8 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     if (!e.target.closest('#foldbtn')) return;
     view.folded = !view.folded; sessions();
   });
-  try { view.pics = localStorage.getItem('pzb-admin-pics') === '1'; } catch (e) {}
+  view.pics = true;                                   // the pizzas show by default; switching them off is remembered
+  try { view.pics = localStorage.getItem('pzb-admin-pics') !== '0'; } catch (e) {}
   $('pics').checked = !!view.pics;
   $('pics').onchange = function () { view.pics = this.checked; try { localStorage.setItem('pzb-admin-pics', view.pics ? '1' : '0'); } catch (e) {} sessions(); };
   $('kpis').addEventListener('click', function (e) { var b = e.target.closest('button[data-status]'); if (b) showStatus(b.dataset.status); });
