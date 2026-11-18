@@ -555,6 +555,33 @@ def main():
               and both['nd_identified'] == 'formal' and selfid['nd_identified'] == 'self or waiting' and selfid['neurotype'] == 'Autistic'
               and idea6[3] == [('neurotype', 'AuDHD', 'Autistic'), ('neurotype', 'AuDHD', 'ADHD')],
               'AuDHD: yes to both autism and ADHD; counted in both yes / no groupings; diagnosed for one only is "mixed"; idea 6 compares AuDHD with autistic-only and ADHD-only')
+        # an independent recount from the raw sessions, without analyse.py: pieces, kinds of topping, the base and the diet class
+        # of each analysed pizza, and one group difference (Cliff's delta) by hand
+        MEAT, FISH, VEG_ONLY = {'pep', 'ham', 'chk', 'kan'}, {'anc', 'tun', 'shr'}, {'egg', 'gor'}
+        rawp = {}
+        for f in glob.glob(os.path.join(tmp, 'sample', '*.json')):
+            d = json.load(open(f, encoding='utf-8'))
+            fin = d.get('pz_final'); fin = json.loads(fin) if isinstance(fin, str) else fin
+            sm = d.get('pz_summary'); sm = json.loads(sm) if isinstance(sm, str) else (sm or {})
+            rawp[os.path.splitext(os.path.basename(f))[0]] = (fin or [], sm or {})
+        mism = []
+        for r in rows:
+            if r['build'] != 'pz' or r['pid'] not in rawp:
+                continue
+            fin, sm = rawp[r['pid']]
+            ings = {x[1] for x in fin}
+            vb = sm.get('cheese') in ('light', 'normal', 'extra') or sm.get('sauce') == 'white'
+            cls = 'meat' if ings & MEAT else 'pescatarian' if ings & FISH else 'vegetarian' if (ings & VEG_ONLY or vb) else 'vegan'
+            if (str(len(fin)), str(len(ings)), cls) != (r['n_pieces'], r['n_distinct'], r['diet_class']):
+                mism.append(r['pid'])
+        gnames = sorted({r['group'] for r in rows if r['build'] == 'pz' and r.get('group') not in (None, '', 'NA')})
+        grp = [r for r in rows if r['build'] == 'pz' and r.get('group') in gnames[:2]]
+        xa = [float(r['n_pieces']) for r in grp if r['group'] == gnames[0]]; xb = [float(r['n_pieces']) for r in grp if gnames[1:] and r['group'] == gnames[1]]
+        d_hand = (sum(x > y for x in xa for y in xb) - sum(x < y for x in xa for y in xb)) / (len(xa) * len(xb)) if xa and xb else None
+        ex_row = [t for t in csv.DictReader(open(os.path.join(out, 'explore.csv'), encoding='utf-8')) if t['grouping'] == 'group' and t['key'] == 'n_pieces']
+        check(len(rawp) >= 20 and not mism and d_hand is not None and ex_row and abs(abs(float(ex_row[0]['delta'])) - abs(d_hand)) < 1e-6,
+              'Independent recount from the raw sessions: pieces, kinds of topping and diet class of every pizza, and a group difference (δ) by hand, match the analysis'
+              + (' (differ: %s)' % mism[:5] if mism else ''))
         # the plain-language reading (analysis/insight.py): a measure that only follows the number of pieces is caught,
         # a real difference survives the adjustment, a measure stuck at one value is called out
         import insight as INS

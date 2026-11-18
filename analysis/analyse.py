@@ -2438,7 +2438,8 @@ def key_points(recs, check, mc, fl):
     ages = [r['age_years'] for r in recs if isinstance(r.get('age_years'), int)]
     who = []
     if nt:
-        detail = ', '.join('%d %s' % (v, NEURO_WORDS.get(k, k)) for k, v in nt.most_common() if k != 'Not ND')
+        short = {'AuDHD': 'AuDHD', 'Autistic': 'autistic only', 'ADHD': 'ADHD only', 'Other ND': 'otherwise neurodivergent'}
+        detail = ', '.join('%d %s' % (v, short.get(k, k)) for k, v in nt.most_common() if k != 'Not ND')
         who.append('%d neurodivergent by their own account%s and %d not' % (nd, (' (%s)' % detail) if detail else '', nt.get('Not ND', 0)))
     if ages:
         who.append('aged %d to %d (median %d)' % (min(ages), max(ages), statistics.median(ages)))
@@ -3961,7 +3962,11 @@ def fmt_p(p):
 
 EXPLORE_CSS = """
 .hyp { border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 12px 0; background: var(--panel, transparent); }
-.hyp.yes { border-left-color: #2f7d4f; } .hyp.no { border-left-color: #b3261e; } .hyp.wait { border-left-color: #9a6a00; }
+.hyp.yes { border-left-color: #2f7d4f; } .hyp.no { border-left-color: #b3261e; } .hyp.wait { border-left-color: #9a6a00; } .hyp.none { border-left-color: var(--muted); }
+.legend-line { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .85rem; color: var(--muted); margin: 4px 0; }
+.hl { border-left: 4px solid var(--muted); padding-left: 6px; } .hl.yes { border-color: #2f7d4f; } .hl.no { border-color: #b3261e; } .hl.wait { border-color: #9a6a00; }
+.outline { margin: 4px 0 8px; padding-left: 22px; } .outline li { margin: 3px 0; }
+.inwords { margin: 2px 0 8px; padding-left: 20px; max-width: 98ch; } .inwords li { margin: 3px 0; }
 .hyp h3 { margin: 2px 0 4px; } .hyp .verdict { font-weight: 600; margin: 4px 0 8px; }
 .hyp .ok { color: #2f7d4f; font-weight: 600; } .hyp .bad { color: #b3261e; font-weight: 600; } .flag { color: var(--miss); } .hyp tr.na td { color: var(--muted, #6e635b); }
 .ready { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; font-size: .85rem; color: var(--muted, #6e635b); }
@@ -4074,8 +4079,9 @@ IDEAS = [
      'should put fewer animal products on it. If they do not, the task may not capture real choices.',
      [('diet_plant', 'yes')], [('diet_rank', -1), ('n_meat_pieces', -1), ('n_seafood_pieces', -1)]),
     ('Idea 11', 'Formal diagnosis or self-identified: the same pizza?', 'Self-identified autism and ADHD are common, especially in adults waiting for '
-     'an assessment. If the patterns hold for both, self-identification can be pooled with diagnosis; if not, the two should be kept apart.',
-     [('nd_identified', 'formal')], [('n_distinct', 0), ('prop_unusual_distinct', 0), ('prop_touching', 0), ('mirror_score', 0)]),
+     'an assessment. If the patterns hold for both, self-identification can be pooled with diagnosis; if not, the two should be kept apart. '
+     'Diagnosed for every reported condition against self-identified (or waiting) for every one; AuDHD people diagnosed for only one (mixed) are set aside.',
+     [('nd_identified', 'formal', 'self or waiting')], [('n_distinct', 0), ('prop_unusual_distinct', 0), ('prop_touching', 0), ('mirror_score', 0)]),
     ('Idea 12', 'Age and the pizza', 'Food neophobia falls and variety-seeking changes with age; age is also a confound to check before comparing groups.',
      [('age_years', None)], [('n_distinct', 0), ('prop_unusual_distinct', 0), ('nut_kcal', 0), ('decision_median', 0)]),
     ('Idea 13', 'Gender and the pizza', 'Men and women differ in average food choices (e.g. meat, energy); a confound to check before comparing '
@@ -4255,6 +4261,23 @@ def group_words(gkey, level, vs):
     return a, b
 
 
+def grouping_words(recs, gkey, tests):
+    """A grouping's clearest differences in sentences: who is higher, by how much in words, with the pieces taken into
+    account, and whether chance could explain it (q)."""
+    items = []
+    for t in tests:
+        ga, gb = group_words(gkey, t['level'], t['vs'] or 'the rest')
+        hi = t['delta'] > 0
+        adj = '' if t['binary'] else adj_words(t['delta'], adjusted_delta(recs, t['key'], gkey, t['level'], t['vs']), t['key'])
+        chance = ('a lead (q = %.2f)' % t['q']) if t['q'] < 0.1 else ('could well be chance (q = %.2f)' % t['q'])
+        items.append('<li><b>%s</b>: %s %s than %s (%s against %s): %s%s%s; %s.</li>'
+                     % (esc(t['label']), esc(cap(ga)), ('more often' if t['binary'] else 'higher') if hi else ('less often' if t['binary'] else 'lower'), esc(gb),
+                        fmt_m(t['m1'], t['binary'], t['key']), fmt_m(t['m0'], t['binary'], t['key']), esc(IN.size_word(t['delta'])),
+                        (', %d in 10 pairs' % IN.times_out_of_ten(abs(t['delta']))) if abs(t['delta']) >= .147 and not t['binary'] else '',
+                        ('; with the pieces taken into account: %s' % esc(adj)) if adj else '', chance))
+    return ('<p style="margin:8px 0 2px"><b>In words, the clearest three</b></p><ul class="inwords">%s</ul>' % ''.join(items)) if items else ''
+
+
 def seen_html(done):
     """What an idea's tests show, in words: the (up to) three clearest, each with the people as dots."""
     top = sorted(done, key=lambda t: -abs(t['delta']))[:3]
@@ -4318,8 +4341,8 @@ def planned_html(planned, groupings, covariates, skipped=()):
             verdict, cls = ('Too few to pass the correction yet (smallest group %d; over %d tests it takes at least %d). So far %d of %d tests with an expected direction point that way.'
                             % (smallest, n_all, need, as_expected, len(directional))) if directional else ('Too few to pass the correction yet (smallest group %d; it takes at least %d).' % (smallest, need)), 'wait'
         else:
-            verdict, cls = ('No sign yet. %d of %d tests with an expected direction point that way.' % (as_expected, len(directional))
-                            if directional else 'No sign yet.'), 'no'
+            verdict, cls = ('No clear sign yet. %d of %d tests with an expected direction point that way.' % (as_expected, len(directional))
+                            if directional else 'No clear sign yet.'), 'none'
         # how many tests the idea runs, and what that costs in people
         n_meas, n_comp = len({t['key'] for t in tests}), len({(t['grouping'], t['level'], t.get('vs')) for t in tests})
         need_alone, need_all, need_plain = n_per_group(LARGE_DELTA, 0.05 / len(tests)), n_per_group(LARGE_DELTA, 0.05 / n_all), n_per_group(LARGE_DELTA)
@@ -4331,10 +4354,19 @@ def planned_html(planned, groupings, covariates, skipped=()):
             pct = min(100, round(100 * smallest / need_alone))
             bar = ('<div class="ready"><div class="track"><i style="width:%d%%"></i></div><span>%d of %d people in the smaller group (the number above for this idea '
                    'alone)</span></div>' % (pct, smallest, need_alone))
-        against = sum(1 for t in directional if t['right_way'] is False)
-        if done and not lead and directional and against > as_expected and against >= 2:
-            verdict, cls = ('So far against the idea: %d of %d tests with an expected direction go the other way. Worth a look: the idea may be wrong '
-                            'for these people, or the measure may not capture it.' % (against, len(directional))), 'no'
+        # a difference that mostly repeats the number of pieces says little about the idea itself, either way
+        explained = lambda t: t.get('kind') == 'groups' and isinstance(t.get('d_adj'), float) and IN.pieces_explain({'d': t['delta'], 'd_adj': t['d_adj']})
+        against_t = [t for t in directional if t['right_way'] is False]
+        by_pieces = [t for t in against_t if explained(t)]
+        if done and not lead and directional and len(against_t) > as_expected and len(against_t) >= 2:
+            if by_pieces and len(by_pieces) * 2 >= len(against_t):
+                verdict, cls = ('Against the idea at first sight, but %d of the %d differences that go the other way shrink to small once the number of '
+                                'pieces is taken into account: they mostly repeat that these participants put more on their pizza, not the idea itself.'
+                                % (len(by_pieces), len(against_t))), 'none'
+            else:
+                verdict, cls = ('So far against the idea: %d of %d tests with an expected direction go the other way%s. Worth a look: the idea may be wrong '
+                                'for these people, or the measure may not capture it.' % (len(against_t), len(directional),
+                                (', and they hold with the number of pieces taken into account' if not by_pieces else '')), 'no')
         cards.append('<div class="hyp %s"><h3>%s. %s</h3><p class="muted">%s</p><p class="verdict">%s</p>%s'
                      '<details class="more"><summary>The tests behind it: groups, effects, p and q, and the people a confirmation needs</summary>%s%s'
                      '<div class="tbl"><table class="leads"><tr><th class="l">Measure</th>'
@@ -4345,14 +4377,17 @@ def planned_html(planned, groupings, covariates, skipped=()):
     apart = ('<details class="more"><summary>Not asked in this study (%d idea%s, left out of the tests)</summary><ul>%s</ul></details>'
              % (len(skipped), '' if len(skipped) == 1 else 's', ''.join('<li><b>%s. %s</b>: needs %s.</li>' % (esc(h), esc(t), esc('; '.join(need))) for (h, t, _), need in skipped))
              if skipped else '')
-    return ('<h2 id="planned">Ideas to test</h2><p class="muted">Leads worth checking, chosen for <b>what this study asked</b>: from what is known about '
-            'eating in autism and ADHD (docs/sample-sizes.md), about the short card\'s questions (age, diet, gender, how autism / ADHD was identified)%s. '
-            'An idea whose questions were not asked here is set apart below, outside the correction. They are <b>not hypotheses</b>: nothing here is preregistered, and some have no expected direction. They are tested '
-            'as one family of %d tests (%d can run on these data), so q is corrected over these only, not over the whole screen below: this is where a '
-            'real difference can show first. A test is a strong lead when q &lt; 0.10 and, where a direction is expected, it goes that way. Every test '
-            'adds to the correction, so each idea shows how many tests it runs and how many people that takes. To confirm, pick 3-5 ideas, state their '
-            'direction in a preregistration, and test them in a new sample. How every sample size here is worked out, with the formulas and worked examples: '
-            '<a href="methods.html#sample-sizes" onclick="if (window.parent !== window) { parent.location.hash = \'methods\'; return false; }">Methods → Sample sizes</a> (hover a number for the formula).</p>%s%s' % ((', and %d from the study\'s own questions ("explore" notes)' % own) if own else '', n_all, n_run, ''.join(cards), apart))
+    return ('<h2 id="planned">Ideas to test</h2><p class="muted">Each idea is a prediction: from research on eating in autism and ADHD '
+            '(docs/sample-sizes.md), from the short card\'s questions (age, diet, gender, how autism / ADHD was identified)%s. For each: what it predicts, '
+            'what these data show (each dot a person), and whether it can be tested yet. Ideas whose questions this study did not ask are set apart at '
+            'the end and do not count.</p>'
+            '<p class="legend-line"><span class="hl yes">strong lead</span><span class="hl no">so far against the idea</span><span class="hl wait">too few people yet</span>'
+            '<span class="hl none">no clear sign yet</span></p>'
+            '<p class="note">Nothing here is preregistered. To confirm an idea, state its direction in advance and test it in a new sample; the people that '
+            'takes are under each idea, with the statistics. All the ideas share one correction (%d tests, %d of which can run on these data), separate from '
+            'the rest of the page, so a real difference can show here first. How the sample sizes are worked out: '
+            '<a href="methods.html#sample-sizes" onclick="if (window.parent !== window) { parent.location.hash = \'methods\'; return false; }">Methods → Sample sizes</a>.</p>%s%s'
+            % ((', and %d from this study\'s own questions ("explore" notes)' % own) if own else '', n_all, n_run, ''.join(cards), apart))
 
 
 def explore_report(recs, tray, groupings, covariates, seed=1):
@@ -4458,6 +4493,10 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
                        ''.join(rows), 'the group' if len(levels) > 2 or ref else esc(levels[0]), thead, heat_rows(main), thead, heat_rows(tops)))
         if GROUPING_NOTES.get(key):                   # what the groups mean, under the group sizes
             dest[-1] = dest[-1].replace('</div>', '</div><p class="note">%s</p>' % esc(GROUPING_NOTES[key]), 1)
+        # the clearest differences in words, then what the table holds
+        dest[-1] = dest[-1].replace('<div class="tbl">', grouping_words(recs, key, top[:3]) + '<p class="note">The ten clearest comparisons, smallest p first. '
+                                    'n = people in the group / in the comparison; median or % = the typical value in each; the 95% interval of δ is given for groups '
+                                    'of 5 or more.</p><div class="tbl">', 1)
     # links with continuous self-reports
     cov_html = []
     for clabel, res in cov_res:
@@ -4513,13 +4552,12 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
                          % (' class="pass"' if t['q'] < 0.1 else '', esc(t['label']), esc(cap(ga)), word, esc(gb), esc(dict(groupings).get(t['grouping'], t['grouping'])),
                             t['n1'], t['n0'], t['delta'], delta_size(t['delta']), ('<b class="flag">%s</b>' % esc(adj)) if 'mostly the pieces' in adj else esc(adj),
                             fmt_p(t['p']), t['q'], ' ✓' if t['q'] < 0.1 else '', t['n_per_group_80_half'] or ''))
-    leads_html = ('<h2 id="leads">Leads for a larger study</h2><p class="muted">The best-supported group differences in these data (lowest p), one per measure, '
-                  'from the study\'s own groupings (neurotype, eating, nutrition, study, condition), groups of %d or more, and measures of the pizza and its '
-                  'choices (not single toppings or low-level timings). Each could become an idea to test. They are the best of %d comparisons, so their effects '
-                  'are overestimated (the winner\'s curse): the last column plans a new study for <b>half</b> the δ seen, at 80%% power and α = .05. δ size words '
-                  'follow Romano et al. (2006): negligible &lt; .15, small &lt; .33, medium &lt; .47, large. <b>With the pieces taken into account</b>: the same '
-                  'comparison once the number of pieces is allowed for; a lead marked <b>mostly the pieces</b> repeats the difference in how much people put on the '
-                  'pizza rather than adding a new one.</p><div class="tbl"><table class="leads"><tr><th class="l">Pattern</th><th>n</th>'
+    leads_html = ('<h2 id="leads">Leads for a larger study</h2><p class="muted">The clearest differences in these data: the smallest p for each measure, '
+                  'in the study\'s own groupings, with %d or more people in each group, on measures of the pizza and its choices (not single toppings or '
+                  'low-level timings). Each could become an idea to test. They are the best of %d comparisons, so they look bigger than they are (the '
+                  'winner\'s curse): the last column plans a new study for <b>half</b> the difference seen (80%% power, α = .05). A lead marked <b>mostly the '
+                  'pieces</b> repeats the difference in how much people put on the pizza rather than adding a new one.</p>'
+                  '<div class="tbl"><table class="leads"><tr><th class="l">Pattern</th><th>n</th>'
                   '<th>δ</th><th class="l">With the pieces taken into account</th><th>p</th><th>q</th><th title="%s">n/group to confirm (δ halved) ⓘ</th></tr>%s</table></div>'
                   % (LEAD_MIN, n_screen, SAMPLE_TIP, ''.join(lead_rows))) if lead_rows else (
         '<h2 id="leads">Leads for a larger study</h2><p class="muted">None yet: a lead needs two groups of %d or more in one of the study\'s groupings '
@@ -4537,39 +4575,53 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
     # what these data can say: the largest smaller group among the study's groupings
     sizes = [(min(sum(1 for g in u[3] if g == lv) for lv in u[2]), u[1]) for u in used if u[0] in research]
     best = max(sizes) if sizes else (0, '')
-    can = ('<b>Nothing can be tested yet</b>: none of the study\'s groupings (neurotype, eating, nutrition, study, condition) has two groups of 3 or more. '
+    can = ('<b>Nothing can be compared yet</b>: none of the study\'s groupings (neurotype, eating, nutrition, study, condition) has two groups of 3 or more. '
            'The page describes these %d pizzas.' % n if not sizes else
-           '<b>Description only, for now</b>: the best split of the participants (%s) has %d people in its smaller group. That is enough to see patterns, '
-           'not to trust them: even a perfect separation would need %d per group to pass the correction over this page\'s %d tests, and finding a large '
-           'difference reliably takes about 24 per group (Methods → Sample sizes). Use this page to choose what to test in the main study.'
-           % (esc(best[1]), best[0], need_n, n_screen) if best[0] < need_n else
-           '<b>Screening</b>: the best grouping (%s) has %d in its smaller group, enough for a strong difference to pass the correction over this page\'s tests. A large effect needs '
-           'about 24 per group for 80%% power.' % (esc(best[1]), best[0]) if best[0] < 24 else
-           '<b>Testing</b>: the best grouping (%s) has %d in its smaller group, enough to detect large effects (80%% power).' % (esc(best[1]), best[0]))
-    readiness = '<p class="verdict%s">%d pizzas. %s</p>' % (' pass' if best[0] >= 24 else '', n, can)
-    html = (head + readiness + '<div class="howto"><b>How to read this page.</b> It compares groups of participants on every measure, to find patterns '
-            'worth testing in a new sample: it cannot confirm anything. Start with the <b>ideas</b> (what the literature suggests, checked against these data, '
-            'in words first), then the <b>leads</b> (the clearest differences found here), then each grouping in full. The groupings are the same people '
-            'split in different ways (neurotype, any neurodivergence, autism, ADHD, how it was identified), so their results overlap: read them together, not as '
-            'separate findings.'
+           'The largest comparison these data allow (%s) has <b>%d people in its smaller group</b>. That is enough to see patterns, not to trust them: a '
+           'difference has to be large and consistent to stand out from chance, and to pass the correction over this page\'s %d comparisons even groups '
+           'that do not overlap at all would need %d people each. Finding a large difference reliably takes about 24 per group (Methods → Sample sizes). '
+           'Use this page to choose what the main study should test, and how many people it needs.'
+           % (esc(best[1]), best[0], n_screen, need_n) if best[0] < need_n else
+           'The largest comparison (%s) has %d people in its smaller group: enough for a strong difference to pass the correction over this page\'s '
+           'comparisons. A large effect needs about 24 per group for 80%% power.' % (esc(best[1]), best[0]) if best[0] < 24 else
+           'The largest comparison (%s) has %d people in its smaller group: enough to detect large effects (80%% power).' % (esc(best[1]), best[0]))
+    group_links = ', '.join('<a href="#g-%s">%s</a>' % (esc(u[0]), esc(u[1])) for u in used if u[0] in research)
+    outline = ('<ol class="outline">'
+               '<li><a href="#planned"><b>Ideas to test</b></a>: what research on eating in autism and ADHD, and this study\'s own questions, would predict, '
+               'checked against these data, in words first. Start here.</li>'
+               '<li><a href="#leads"><b>Leads</b></a>: the clearest differences these data show, and how many people a new study would need to check each.</li>'
+               + ('<li><b>Each grouping in full</b>: %s. Every measure for one way of splitting the participants. These are the same people split in different '
+                  'ways, so their results overlap: read them together, not as separate findings.</li>' % group_links if group_links else '')
+               + ('<li><a href="#links"><b>Links with self-reports</b></a>: measures that rise or fall with %s.</li>' % esc(', '.join(c[0].lower() for c in cov_res)) if cov_res else '')
+               + ('<li><a href="#other"><b>Other groupings</b></a>: demographics and recruitment (gender, age bands, diet), folded away.</li>' if other_body else '')
+               + '</ol>')
+    readiness = ''
+    html = (head + '<div class="howto"><p style="margin:0 0 6px"><b>What this page does.</b> It compares groups of participants, by neurotype and by their '
+            'other answers, on every measure of the pizza and of how it was built, to find patterns worth testing in a new sample. It describes and '
+            'suggests; it cannot confirm anything.</p><p class="%s" style="margin:0 0 6px"><b>Where these %d pizzas stand.</b> %s</p>'
+            '<p style="margin:8px 0 2px"><b>On this page</b></p>%s'
+            '<details class="more"><summary>How to read the numbers</summary>'
             '<dl><dt>Difference (δ)</dt><dd>Cliff\'s δ, from −1 to 1: 0 means no difference, ±0.47 or more is large. "8 in 10 pairs": take one person from each '
             'group at random, and that is how often the first is higher.</dd>'
             '<dt>With the pieces taken into account</dt><dd>the same comparison once the number of pieces is allowed for. Many measures rise with how much is '
             'on the pizza, so a difference marked <b>mostly the pieces</b> repeats the difference in amount.</dd>'
-            '<dt>p and q</dt><dd>p: how often chance alone would give a difference this large. q: p corrected for the many comparisons on this page; only q '
-            'below 0.10 counts as a lead. With groups under 10, large differences often come from chance.</dd></dl>'
-            '<details class="more"><summary>The statistics in full</summary><p class="muted">%d measures, %d of them per topping. Effects are Cliff\'s δ (how often a value '
-            'from the group is higher than one from the comparison, minus how often lower; for yes/no measures, the difference in percentages); p from a '
-            'Mann-Whitney test (by permutation under 8 per group); q the Benjamini-Hochberg false discovery rate over a family of questions (the study\'s '
-            'groupings with the self-reports; demographics apart; the ideas apart); bootstrap 95%% intervals for groups of 5 or more. The piece-count check '
-            'compares rank residuals of the measure on log(pieces) (Methods → Comparing groups).</p></details></div><div class="chips">%s</div>'
-            % (len(defs), len([d for d in defs if d[0].startswith(TOPPING_AREAS)]), nav)
+            '<dt>p</dt><dd>how often chance alone would give a difference at least this large.</dd>'
+            '<dt>q</dt><dd>p corrected for the many comparisons on the page (the false discovery rate); only q below 0.10 counts as a lead, and a lead is '
+            'still only a suggestion for a new study.</dd>'
+            '<dt>95%% interval</dt><dd>the range the difference would probably fall in with other people like these (groups of 5 or more).</dd>'
+            '<dt>The dots</dt><dd>one per person: orange = the group named, blue = the comparison; the line is the median.</dd></dl>'
+            '<p class="muted">%d measures, %d of them per topping. p from a Mann-Whitney test (by permutation under 8 per group); q is the '
+            'Benjamini-Hochberg correction over a family of questions: the study\'s groupings with the self-reports are one family, the demographics '
+            'another, the ideas a third; bootstrap 95%% intervals; the piece-count check compares rank residuals of the measure on log(pieces) '
+            '(Methods → Comparing groups).</p></details></div>'
+            % ('verdict pass' if best[0] >= 24 else 'verdict', n, can, outline, len(defs), len([d for d in defs if d[0].startswith(TOPPING_AREAS)]))
             + planned_html(planned, groupings, covariates, skipped) + leads_html
             + ''.join(body)
             + ('<details class="more" id="other"><summary>Other groupings: demographics and recruitment (%d)</summary>%s</details>' % (len(other_body), ''.join(other_body))
                if other_body else '')
 
-            + ('<h2>Links with self-reports</h2><p class="muted">Spearman correlations (ρ) of each measure with each continuous self-report.</p>' + ''.join(cov_html) if cov_html else '')
+            + ('<h2 id="links">Links with self-reports</h2><p class="muted">Spearman correlations (ρ) of each measure with each self-report given as a number: '
+               '+1 = rises with it, −1 = falls as it rises, 0 = no link. The ten clearest per self-report.</p>' + ''.join(cov_html) if cov_html else '')
             + '<details class="more"><summary>How the measures go together (correlations)</summary><p class="muted">Spearman correlations between the main measures '
               'across all participants (orange = rise together, blue = one rises as the other falls; hover for the value). Strongly linked measures tell the same story '
               'twice.</p>' + corr_html + '</details>'

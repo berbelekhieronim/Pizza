@@ -5,6 +5,21 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Explore, second pass: outlined and explained; the data checked independently.**
+- **One opening box:** what the page does, where these pizzas stand (the largest comparison and what it can and cannot
+  show), an outline of the sections with one line each, and "how to read the numbers" (δ, pairs, the piece check, p, q,
+  intervals, the dots) folded.
+- **Ideas:** a colour legend (strong lead, against the idea, too few yet, no clear sign; "no clear sign" no longer
+  shares the red of "against"); a shorter introduction; and verdicts that discount differences that are mostly the
+  number of pieces (idea 2, foods kept apart, now reads "against at first sight, but mostly the pieces"). Idea 11
+  compares people diagnosed for every condition with people self-identified for every one; mixed AuDHD are set aside.
+- **Each grouping** opens with its three clearest differences in words (who is higher, how much, with the pieces taken
+  into account, and whether chance could explain it), and says what its table holds.
+- **Checked by hand:** an independent recount of the pilot from the raw sessions (without the analysis code) matched
+  the analysis on who is analysed, neurotype and how it was identified, age, pieces, kinds of topping, base, diet
+  class, time on the pizza, δ, the permutation p (exact 0.0047 against 0.0045), the q correction and the piece check.
+  A compact version of the recount now runs in the smoke test.
+
 **AuDHD: one definition everywhere.** AuDHD = yes to both the autism and the ADHD question (diagnosed by a specialist or
 self-identified; the short card asks them as two questions, the longer follow-up as ticks); autistic only / ADHD only =
 yes to one. This was already how the task and the analysis worked; now everything says so and follows it:
