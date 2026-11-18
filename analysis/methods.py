@@ -252,6 +252,7 @@ SECTIONS = [
     ('Comparing groups (explore.html, explore.csv)', 'Each grouping: groups with ≥ 3 people; two groups → first vs second; neurotype → each group vs Not ND (the reference); other groupings with more groups → each vs all the others. A grouping is not compared on the measures that define it (DEFINED_BY). Screened: the measures of explore_measures less SCREEN_DROP (movement, hovering, interface counters, adjustment reasons, nutrient totals and other parts of screened measures: see docs/analysis-audit.md).', [
         ('grouping, level, vs, area, key, label, n1, n0', 'Which comparison: grouping column, group, comparison group, measure (key = participants.csv column; inc_{ing} on the pizza; neg_/pos_{ing} named with strong feelings; field=value a choice), group sizes.', 'explore_grouping'),
         ('m1, m0', 'Medians (proportions for yes/no measures).', 'explore_grouping'),
+        ('(with the pieces taken into account)', 'Shown in the reports, not in explore.csv. The measure\'s ranks are regressed on the ranks of log(pieces) across all pizzas (least squares), and the two groups are compared on the residuals with Cliff\'s δ (insight.compare). Not done for amount measures (pieces, area, time on the pizza), for measures where 80% or more of the pizzas share one value (ranks of ties carry no information), or when the groups barely overlap in pieces (|δ of pieces| ≥ 0.9: nothing can separate the two). A clear difference (|δ| ≥ 0.33) that falls to under half of itself is marked "mostly the pieces". The same check on the Profiles page uses Spearman ρ between the two measures\' residuals.', 'adjusted_delta'),
         ('delta', 'Cliff\'s δ = [#(x<sub>i</sub> > y<sub>j</sub>) − #(x<sub>i</sub> &lt; y<sub>j</sub>)] / (n1 n0) over all group × comparison pairs. For yes/no measures = difference in proportions. For covariates: Spearman ρ (Pearson r of ranks, ties = mid-ranks).', 'cliff_delta'),
         ('p', 'Mann-Whitney: rank sum R of the group (mid-ranks), two-sided. Smaller group &lt; 8: permutation, (hits + 1) / 4001 with 4000 random relabellings. Else normal approximation with tie correction and 0.5 continuity correction. Spearman: t = ρ √((n − 2) / (1 − ρ²)), df = n − 2.', 'mw_p'),
         ('q', 'Benjamini-Hochberg over a family of questions, not one grouping at a time: the study\'s groupings (neurotype, any neurodivergence, autistic, ADHD, diagnosis, eating, nutrition, study, condition) and the self-reports form one family; the demographic and recruitment groupings another; the ideas to test a third. q<sub>(i)</sub> = min<sub>j ≥ i</sub> p<sub>(j)</sub> m / j.', 'bh'),
@@ -585,6 +586,36 @@ table.calc td { padding: 3px 12px 3px 0; font-variant-numeric: tabular-nums; } t
 """
 
 
+# What a reader needs before the tables: the principles every report follows, in plain words
+READING_GUIDE = [
+    ('The unit is the person', 'Every number describes people: one pizza per person, each person counts once. Pieces are never pooled across people '
+     '(a pizza with 90 pieces would otherwise outweigh one with 9).'),
+    ('Description first, tests second', 'The Overview describes these people (medians, ranges, every pizza drawn); Explore runs tests between groups and '
+     'labels them as exploration. Nothing here is a confirmed finding: a pattern becomes one when it is stated in advance and tested in a new sample.'),
+    ('Small groups', 'With fewer than about 10 people per group, large differences often come from chance, and a test can only pass the correction for '
+     'many comparisons when the groups separate almost perfectly. Sample sizes below says how many people a test needs.'),
+    ('How much is on the pizza', 'Many measures rise or fall with the number of pieces (touching, stacking, coverage, the number of toppings, how pieces are '
+     'grouped). When groups differ in pieces, a difference in such a measure can just repeat that one difference. The reports show each comparison twice: '
+     'as it is, and with the number of pieces taken into account (the ranks of the measure regressed on the ranks of log pieces, groups compared on what '
+     'is left; insight.residuals_on_pieces). A difference that shrinks to under half is marked <b>mostly the pieces</b>.'),
+    ('Does a measure work?', 'Before comparing groups, the Overview checks each key measure: does it vary between people, is it stuck at one value (80% '
+     'or more the same: a floor or ceiling hides differences), and how strongly does it follow the number of pieces (Spearman ρ; ±0.7 or more: '
+     'mostly a measure of amount, ±0.45 or more: partly). insight.measure_check.'),
+    ('Effect sizes in words', 'Cliff\'s δ (−1 to 1) is also given as "in 8 of 10 pairs": take one person from each group at random, and that is how '
+     'often the first is higher, (δ + 1) / 2 (the common-language effect size). Size words follow Romano et al. (2006): under 0.15 no real '
+     'difference, under 0.33 small, under 0.47 medium, otherwise large.'),
+    ('p and q', 'p: how often chance alone would give a difference at least this large. q: p corrected for the number of comparisons in a family '
+     '(Benjamini-Hochberg false discovery rate); only q under 0.10 counts as a lead, and a lead is still a suggestion for a new study.'),
+    ('The key points', 'The Overview\'s opening sentences come from fixed rules on these numbers (analysis/analyse.py key_points), not from a person or '
+     'an AI model, so the same data always give the same sentences.'),
+]
+
+
+def reading_guide():
+    return ('<h2 class="sec" id="reading">How to read these reports</h2><table class="m">%s</table>'
+            % ''.join('<tr><td class="c"><b>%s</b></td><td colspan="2">%s</td></tr>' % (A.esc(t), x) for t, x in READING_GUIDE))
+
+
 def build_page():
     secs = []
     for title, intro, rows in SECTIONS:
@@ -597,10 +628,10 @@ def build_page():
     return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
             '<title>Pizza Methods</title><style>%s%s</style></head><body><div class="wrap"><h1>Methods: how every number is counted</h1>'
             '<p class="muted">Pizza coordinates: centre (0, 0), crust edge at radius 1 (= 15 cm), y up; 1 drawing unit = 1.5 mm. n = pieces on the pizza. '
-            'Each row names the function in <code>analysis/analyse.py</code> that computes it. Built from %s on %s.</p>%s'
+            'Each row names the function in <code>analysis/analyse.py</code> that computes it. Built from %s on %s.</p>%s%s'
             '<h2 class="sec">Worked examples</h2><p class="note">Computed by the code above while this page was built, and checked against the hand calculation shown.</p>'
             '<table class="m"><tr><td class="c"><b>measure</b></td><td><b>input</b></td><td><b>calculation</b></td></tr>%s</table>%s'
-            '</div></body></html>' % (A.REPORT_CSS, CSS, A.esc(version()), time.strftime('%Y-%m-%d %H:%M'), ''.join(secs), small_examples(), sample_size_section()))
+            '</div></body></html>' % (A.REPORT_CSS, CSS, A.esc(version()), time.strftime('%Y-%m-%d %H:%M'), reading_guide(), ''.join(secs), small_examples(), sample_size_section()))
 
 
 def write(path):

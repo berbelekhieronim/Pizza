@@ -534,6 +534,27 @@ def main():
         check([g[1] for g in got] == ['Tired people choose less', 'Survey: hunger'] and got[0][3] == [('q_sleep', 'bad')] and got[1][4] == [('nut_kcal', 1)]
               and 'Fewer, more familiar toppings' in titles and any(h[0] == 'Idea 12' for h, _ in apart) and any(h[0] == 'Idea 8' for h, _ in apart),
               'Explore: a question\'s "explore" note becomes an idea (its answer, measures and direction); ideas whose questions or measures a study lacks are set apart')
+        # the plain-language reading (analysis/insight.py): a measure that only follows the number of pieces is caught,
+        # a real difference survives the adjustment, a measure stuck at one value is called out
+        import insight as INS
+        rnd2 = __import__('random').Random(5)
+        people = []
+        for i in range(16):
+            nd = int(i < 8)
+            pieces = (24 if nd else 16) + rnd2.randint(-9, 9)              # the groups overlap in pieces, as in the pilot
+            people.append({'nd_any': nd, 'n_pieces': pieces, 'prop_touching': min(1, pieces / 45 + rnd2.uniform(-.03, .03)),
+                           'decision_median': (800 if nd else 1300) + rnd2.randint(-100, 100), 'prop_unusual_distinct': 0.0 if i else 0.5})
+        artefact = INS.compare(people, 'prop_touching', lambda r: r['nd_any'] == 1, lambda r: r['nd_any'] == 0)
+        real = INS.compare(people, 'decision_median', lambda r: r['nd_any'] == 1, lambda r: r['nd_any'] == 0)
+        mc = {m['key']: m['verdict'] for m in INS.measure_check(people, [('prop_touching', 'Touching', '', 'share'), ('prop_unusual_distinct', 'Unusual', '', 'share'),
+                                                                          ('decision_median', 'Decision', '', 'ms')])}
+        check(artefact['d'] > .8 and INS.pieces_explain(artefact) and real['d'] < -.8 and abs(real['d_adj']) > .47 and not INS.pieces_explain(real)
+              and mc['prop_touching'] == 'pieces' and mc['prop_unusual_distinct'] == 'flat' and mc['decision_median'] in ('ok', 'partly') and INS.times_out_of_ten(.8) == 9,
+              'Reading: a difference that only follows the number of pieces is marked as such, a real one survives the adjustment, a measure stuck at one value is called out')
+        dash = open(os.path.join(out, 'dashboard.html'), encoding='utf-8').read()
+        check(all(x in dash for x in ('id="points"', 'class="points"', 'id="sample"', 'id="ran"', 'class="gallery"', 'id="measures"', 'id="first"'))
+              and dash.count('<details') == dash.count('</details>') and 'Pieces never' not in dash,
+              'Overview: key points, who took part, how the study ran, every pizza, the measure check and the first look, the detailed charts folded')
         pr = open(os.path.join(out, 'profiles.html'), encoding='utf-8').read()
         exrows = list(csv.DictReader(open(os.path.join(out, 'explore.csv'), encoding='utf-8')))
         screen = [r for r in exrows if r['grouping'] != 'planned']
@@ -820,6 +841,8 @@ def main():
                   'Pizza Pilot 11.2026: the analysis reads the metryczka (age, transgender, autism / ADHD, gender, diets) and vegan cheese keeps a pizza vegan')
             dchk = json.load(open(os.path.join(tmp, 'pilot', 'data_check.json'), encoding='utf-8')) if ok else {}
             dash = open(os.path.join(tmp, 'pilot', 'dashboard.html'), encoding='utf-8').read() if ok else ''
+            check('class="funnel"' in dash and 'agreed to take part' in dash.lower() and 'How long each part took' in dash,
+                  'Overview from study-server sessions: how many reached each part, and how long each part took')
             check(pst.get('survey_when') == 'before' and new.get('survey_when') == 'before' and old.get('survey_when') == 'after'
                   and dchk.get('answered_no_pizza') == [pids[3]] and sorted(dchk.get('survey_when') or {}) == ['after', 'before']
                   and 'questions asked at different points' in dash and 'answered the questions and then left before building' in dash and 'id="feelings"' not in dash

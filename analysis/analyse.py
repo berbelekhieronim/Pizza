@@ -25,6 +25,7 @@ Standard library only. Measure definitions are in ../CODEBOOK.md.
 import argparse
 import bisect
 import csv
+import datetime
 import hashlib
 import json
 import math
@@ -37,6 +38,9 @@ import statistics
 import sys
 import time
 from collections import Counter
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import insight as IN  # noqa: E402  (plain-language reading: piece count, effect sizes in words, the measure check)
 
 CATS = {'pep': 'meat', 'ham': 'meat', 'chk': 'meat', 'anc': 'seafood', 'mus': 'veg', 'grp': 'veg', 'oni': 'veg',
         'oli': 'veg', 'crn': 'veg', 'pin': 'fruit', 'jal': 'veg', 'bas': 'herb', 'shr': 'seafood', 'egg': 'egg',
@@ -1859,6 +1863,11 @@ def thumb(pieces, summary):
                base_svg(summary), ''.join(glyph(p) for p in pieces)))
 
 
+def rthumb(rec, pieces):
+    """A person's small pizza with their own sauce and cheese (as on the Sessions tab)."""
+    return thumb(pieces, {k: rec.get(k) for k in ('sauce', 'cheese') if rec.get(k)})
+
+
 # the reports' small pizzas drawn like the task draws them (thumb); the study servers serve the task script at /pizza-builder.js
 THUMB_JS = ('<style>.pzthumb{display:inline-block;line-height:0}.pzthumb .pzb-picture{display:inline-block}</style>'
             '<script src="/pizza-builder.js"></script><script>(function () {'
@@ -1903,7 +1912,8 @@ def nutrition_section(recs, groups):
     offered = [r for r in recs if num(r, 'nutrition_reveal') == 1]
     if not offered:
         shown = any(num(r, 'nutrition_panel') == 1 for r in recs)
-        return (('<p class="muted">The nutrition table was in view the whole time they built (study setting <code>nutrition_panel</code>).</p>' if shown else
+        return (('<p class="muted">The nutrition table was in view the whole time they built (Settings → Nutrition: shown), so the energy below is what '
+                 'they could see while choosing.</p>' if shown else
                  '<p class="muted">No nutrition information was shown; the energy of every pizza is computed anyway.</p>') + ''.join(out))
     gl = [g for g in groups if any(r['_group'] == g for r in offered)]
     rows = [('All', Counter())] + ([(g, Counter()) for g in gl] if len(gl) > 1 else [])
@@ -2003,6 +2013,73 @@ def synthetic_banner(entries):
     return add
 
 
+COURSE_ORDER = ['intro', 'survey', 'practice', 'build', 'typical', 'followup', 'done']
+
+
+def iso_seconds(a, b):
+    """Seconds from ISO time a to b, None when either is missing or not a time."""
+    try:
+        pa = datetime.datetime.fromisoformat(str(a).replace('Z', '+00:00'))
+        pb = datetime.datetime.fromisoformat(str(b).replace('Z', '+00:00'))
+        return (pb - pa).total_seconds()
+    except (TypeError, ValueError):
+        return None
+
+
+def spread(vals):
+    """(median, lower quartile, upper quartile, n) of the numbers, None when there are none."""
+    v = sorted(x for x in vals if isinstance(x, (int, float)) and x >= 0)
+    if not v:
+        return None
+    q = statistics.quantiles(v, n=4, method='inclusive') if len(v) > 1 else [v[0], v[0], v[0]]
+    return (statistics.median(v), q[0], q[2], len(v))
+
+
+def study_course(rows, builds, mine_ids, choices):
+    """How the study ran, for the overview: how many reached each part (the participants only: sessions the researcher
+    excluded, a program driving the browser and the tests study left out), where the others stopped, how long each part
+    took, and what got in the way (retried saves, a too-small window, lost saves). None without study-server sessions."""
+    own = builds[0]
+    real = [r for r in rows if choices.get(r['_pid']) != 'exclude' and 'automated' not in browser_flags(r) and (r.get('study') or '') != 'tests']
+    staged = [r for r in real if r.get('stage')]
+    if len(staged) < 3:
+        return None
+    idx = lambda r: COURSE_ORDER.index(r['stage']) if r['stage'] in COURSE_ORDER else -1
+    consent = lambda r: '' if field(r, 'consent') in (None, 'null') else str(field(r, 'consent'))     # JSON files carry a missing value as null
+    declined = [r for r in staged if r['stage'] == 'declined' or consent(r).startswith('declined')]
+    agreed = [r for r in staged if r not in declined and (consent(r) or idx(r) >= 1)]
+    fol = {r['_pid']: loads(field(r, 'pzf_data'), {}) or {} for r in agreed}
+    prac = {r['_pid']: loads(field(r, 'pzp_summary'), {}) or {} for r in agreed}
+    summ = {r['_pid']: loads(field(r, own + 'summary'), {}) or {} for r in agreed}
+    has_pizza = lambda r: bool(loads(field(r, own + 'final')))
+    whens = Counter(f.get('when') or 'after' for f in fol.values() if f)
+    before = whens.get('before', 0) > whens.get('after', 0)
+    answered = [r for r in agreed if fol[r['_pid']] and fol[r['_pid']].get('finished') is not False]
+    practised = [r for r in agreed if prac[r['_pid']].get('finished') or idx(r) >= COURSE_ORDER.index('build')]
+    placed = [r for r in agreed if has_pizza(r)]
+    finished = [r for r in agreed if has_pizza(r) and (summ[r['_pid']].get('finished') is True or idx(r) > COURSE_ORDER.index('build'))]
+    steps = [('opened the link', len(staged)), ('agreed to take part', len(agreed))]
+    steps += ([('answered the questions', len(answered)), ('finished the practice', len(practised))] if before else [('finished the practice', len(practised))])
+    steps += [('placed a topping', len(placed)), ('finished the pizza', len(finished))]
+    if not before and any(fol.values()):
+        steps.append(('answered the questions after it', len(answered)))
+    steps.append(('in the reports', sum(1 for r in agreed if r['_pid'] in mine_ids)))
+    stopped = Counter(r['stage'] for r in agreed if r['stage'] not in ('done', 'declined') and r['_pid'] not in mine_ids)
+    by_hand = sum(1 for r in agreed if r['_pid'] in mine_ids and r not in finished)       # unfinished pizzas included on the Sessions tab
+    times = {
+        'reading and consent': spread([iso_seconds(r.get('started'), consent(r)) for r in agreed if consent(r)[:2] == '20']),
+        'the questions': spread([((f.get('met') or {}).get('ms') or 0) / 1000 or None for f in fol.values() if f.get('met')]),
+        'the practice': spread([(p.get('tLast') or 0) / 1000 or None for p in prac.values() if p.get('finished')]),
+        'the pizza': spread([(summ[r['_pid']].get('tLast') or 0) / 1000 or None for r in finished]),
+        'the whole study': spread([iso_seconds(r.get('started'), r.get('finished')) for r in agreed if r['stage'] == 'done' and r.get('finished')]),
+    }
+    fails = [r['_pid'] for r in agreed if (field(r, 'save_fails') or '0') not in ('0', '')]
+    small = [r['_pid'] for r in agreed if field(r, 'small_window') or 'small-window' in browser_flags(r)]
+    return {'steps': steps, 'declined': len(declined), 'stopped': dict(stopped), 'before': before, 'times': times, 'by_hand': by_hand,
+            'never_agreed': len(staged) - len(agreed) - len(declined),
+            'retried_saves': sorted(fails), 'small_window': sorted(small), 'left_out_sessions': len(rows) - len(real)}
+
+
 def data_check(rows, builds, people, left_out):
     """Do the sessions and the analysed pizzas add up? Counts for the Data check section and the researcher page."""
     own, typ = builds[0].rstrip('_'), (builds[1].rstrip('_') if len(builds) > 1 else None)
@@ -2040,6 +2117,7 @@ def data_check(rows, builds, people, left_out):
                     and (choices[r['_pid']] == 'include' or not auto_reason(r, loads(field(r, builds[0] + 'summary'), {}) or {}))}
         mine_ids = {p['pid'] for p in mine}
         out['built_sessions'] = len(expected)
+        out['course'] = study_course(rows, builds, mine_ids, choices)
         out['ok'] = expected == mine_ids and len(staged) == len(rows)
         out['built_without_pizza'] = sorted(expected - mine_ids)
         out['pizza_without_built'] = sorted(mine_ids - expected)
@@ -2085,14 +2163,15 @@ def data_check_html(c):
     if c['no_pizza']:
         items.append(li('%d sessions never placed a topping on their own pizza (stopped in the intro, the questions or the practice, or just opened the link).'
                         % c['no_pizza']))
-    if c.get('saves_lost'):
-        items.append(li('<b>%d pizzas were finished, but their last saves never reached the server</b> (the session got past the pizza, its last '
-                        'saved state is unfinished): analysed as last saved, so the last seconds of building may be missing: %s.'
-                        % (len(c['saves_lost']), pid_links(c['saves_lost']) + show_all(c['saves_lost']))))
     if c.get('answered_no_pizza'):
         items.append(li('%d of them answered the questions and then left before building (asked before the pizza): %s. Their answers are kept in '
                         'the sessions, not in the analysis, which starts from a pizza; compare them with those who stayed to see who drops out.'
                         % (len(c['answered_no_pizza']), pid_links(c['answered_no_pizza']) + show_all(c['answered_no_pizza']))))
+    if c.get('saves_lost'):
+        n_l = len(c['saves_lost'])
+        items.append(li('<b>%d pizza%s finished, but %s last saves never reached the server</b> (the session got past the pizza, its last '
+                        'saved state is unfinished): analysed as last saved, so the last seconds of building may be missing: %s.'
+                        % (n_l, ' was' if n_l == 1 else 's were', 'its' if n_l == 1 else 'their', pid_links(c['saves_lost']) + show_all(c['saves_lost']))))
     if c['typical'] or c['left_out_typical']:
         items.append(li('%d "typical participant" pizzas, analysed as a separate build (column <code>build</code> = pzt), not counted above%s.'
                         % (c['typical'], ('; %d unfinished left out' % c['left_out_typical']) if c['left_out_typical'] else '')))
@@ -2213,12 +2292,337 @@ def short_normal(small, n_ref, html):
     say anything yet: one line instead of the chart, the explanation and an empty "most unusual" list."""
     if not small:
         return html
-    i, j = html.find('<h2 id="normal">'), html.find('<h2 id="', html.find('<h2 id="normal">') + 5)
+    i = html.find('<h2 id="normal">')
+    j = html.find('<!--/normal-->', i) if '<!--/normal-->' in html else html.find('<h2 id="', i + 5)      # the section ends at its marker
     if i < 0 or j < 0:
         return html
     note = ('<h2 id="normal">How normal is each pizza?</h2><p class="muted">Needs at least %d pizzas to compare with (now %d); it appears here '
             'by itself once there are enough.</p>' % (NORM_MIN_REF, n_ref))
     return html[:i] + note + html[j:]
+
+
+OVERVIEW_CSS = """
+.points { list-style: none; padding: 0; margin: 10px 0 18px; display: grid; gap: 8px; }
+.points li { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--muted); border-radius: 10px; padding: 9px 13px; max-width: 98ch; }
+.points li.find { border-left-color: var(--g1); } .points li.warn { border-left-color: var(--near); } .points li.ok { border-left-color: var(--ok); }
+.points li.info { border-left-color: var(--g0); }
+.points li b.t { display: block; margin-bottom: 2px; } .points li .why { display: block; margin-top: 4px; color: var(--muted); font-size: .87rem; }
+.facts { border-collapse: collapse; font-size: .93rem; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.facts th { text-align: left; font-weight: 600; padding: 6px 16px 6px 12px; vertical-align: top; color: var(--muted); white-space: nowrap; border-bottom: 1px solid var(--line); }
+.facts td { padding: 6px 12px 6px 0; border-bottom: 1px solid var(--line); }
+.facts tr:last-child th, .facts tr:last-child td { border-bottom: 0; }
+.funnel { display: grid; gap: 6px; max-width: 760px; margin: 6px 0 12px; }
+.funnel .row { display: grid; grid-template-columns: minmax(150px, 230px) 1fr 74px; align-items: center; gap: 10px; font-size: .9rem; }
+.funnel .track { background: color-mix(in srgb, var(--line) 55%, transparent); border-radius: 4px; height: 18px; overflow: hidden; }
+.funnel .bar { display: block; height: 100%; background: var(--g0); opacity: .8; }
+.funnel .row.last .bar { background: var(--ok); }
+.funnel .n { font-variant-numeric: tabular-nums; text-align: right; } .funnel .n span { color: var(--muted); font-size: .8rem; }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.gallery figure { margin: 0; padding: 8px 6px; text-align: center; }
+.gallery figure > svg, .gallery .pzthumb svg { width: 92px; height: 92px; }
+.gallery figcaption { font-weight: 400; font-size: .76rem; color: var(--muted); margin: 4px 0 0; line-height: 1.3; }
+.gallery figcaption a { font-weight: 600; color: var(--fg); }
+.ghead { margin: 14px 0 6px; font-weight: 600; } .ghead span { color: var(--muted); font-weight: 400; }
+.mcheck td { vertical-align: middle; } .mcheck td.what { color: var(--muted); font-size: .82rem; white-space: normal; max-width: 34ch; }
+.verd { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: .78rem; white-space: nowrap; border: 1px solid currentColor; margin-right: 6px; }
+.verd.ok { color: var(--ok); } .verd.partly { color: var(--near); } .verd.pieces, .verd.flat { color: var(--miss); } .verd.few { color: var(--muted); }
+.dots1 { width: 200px; height: 22px; display: block; } .dots1 circle { fill: var(--g0); fill-opacity: .55; } .dots1 line { stroke: var(--fg); stroke-width: 2; }
+.strip { width: 220px; height: 44px; display: block; }
+.strip .da { fill: var(--g1); fill-opacity: .75; } .strip .db { fill: var(--g0); fill-opacity: .6; } .strip .md { stroke: var(--fg); stroke-width: 2; }
+.strip .ba { fill: var(--g1); } .strip .bb { fill: var(--g0); } .strip .sv { fill: var(--fg); font-size: 11px; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: 0; margin: 0 4px 0 8px; }
+.swatch.a { background: var(--g1); } .swatch.b { background: var(--g0); }
+.tbl { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px 8px; margin-bottom: 14px; }
+.tbl table { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; width: 100%; }
+.tbl th, .tbl td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.tbl th { color: var(--muted); font-weight: 600; } .tbl .l { text-align: left; } .tbl tr:last-child td { border-bottom: 0; }
+details.charts { margin: 18px 0; } details.charts > summary { cursor: pointer; font-weight: 600; font-size: 1.05rem; }
+"""
+
+NEURO_WORDS = {'Not ND': 'not neurodivergent', 'Autistic': 'autistic', 'ADHD': 'ADHD', 'AuDHD': 'autistic and ADHD', 'Other ND': 'other neurodivergence'}
+GENDER_WORDS = {'man': 'men', 'woman': 'women', 'nonbinary': 'non-binary'}
+DIET_WORDS = {'vegetarian': 'vegetarian', 'vegan': 'vegan', 'allergy': 'food allergies', 'other': 'another diet', 'none': 'no special diet'}
+MODE_WORDS = {'visible': 'in view the whole time', 'hidden': 'hidden until asked', 'button': 'on a button', 'none': 'not shown'}
+# the measures of the first look, most telling first; amount first, as it can explain the others
+FIRST_LOOK = ['n_pieces', 'n_distinct', 'diet_rank', 'nut_kcal', 'atypicality_bits', 'prop_touching', 'prop_stacked', 'coverage', 'clark_evans',
+              'mirror_score', 'blockiness', 'resized_share', 'decision_median', 't_active', 'revision_rate']
+
+
+def cap(t):
+    """First letter upper case, the rest as written (str.capitalize would turn ADHD into Adhd)."""
+    return t[:1].upper() + t[1:]
+
+
+def plural(n, one, many=None):
+    return '%d %s' % (n, one if n == 1 else (many or one + 's'))
+
+
+def fmt_secs(s):
+    return '–' if s is None else ('%.0f s' % s) if s < 90 else ('%.1f min' % (s / 60))
+
+
+def sample_facts(recs):
+    """Who took part: one line per characteristic, in words (the analysed own pizzas: one per person)."""
+    n, rows = len(recs), []
+    nt = Counter(r.get('neurotype') or 'not stated' for r in recs)
+    if any(k != 'not stated' for k in nt):
+        order = ['Not ND', 'Autistic', 'ADHD', 'AuDHD', 'Other ND', 'not stated']
+        rows.append(('Neurotype (own account)', ', '.join('%s %d' % (NEURO_WORDS.get(k, k), nt[k]) for k in order if nt.get(k))))
+        ident = Counter(r.get('nd_identified') for r in recs if r.get('nd_identified'))
+        if ident:
+            rows.append(('Autism / ADHD identified', 'by a specialist %d, self-identified or waiting %d' % (ident.get('formal', 0), ident.get('self or waiting', 0))))
+    g = Counter(r.get('gender') for r in recs if r.get('gender'))
+    if g:
+        rows.append(('Gender', ', '.join('%s %d' % (GENDER_WORDS.get(k, k), v) for k, v in g.most_common())
+                     + ('; %d did not say' % (n - sum(g.values())) if n > sum(g.values()) else '')))
+    ages = [r['age_years'] for r in recs if isinstance(r.get('age_years'), int)]
+    if ages:
+        rows.append(('Age', 'median %d years, from %d to %d%s' % (statistics.median(ages), min(ages), max(ages), '' if len(ages) == n else ' (%d answered)' % len(ages))))
+    tg = [r.get('transgender') for r in recs if r.get('transgender') in (0, 1)]
+    if tg:
+        rows.append(('Transgender', '%d of %d who answered' % (sum(tg), len(tg))))
+    diets = Counter(d for r in recs for d in (r.get('diet') or '').split() if d in DIET_WORDS)
+    if diets:
+        rows.append(('Diet (own account)', ', '.join('%s %d' % (DIET_WORDS[k], v) for k, v in diets.most_common())))
+    modes = Counter(r.get('nutrition_mode') for r in recs if r.get('nutrition_mode'))
+    if modes:
+        rows.append(('Nutrition table', ', '.join('%s %d' % (MODE_WORDS.get(k, k), v) for k, v in modes.most_common())))
+    conds = Counter(r.get('condition') for r in recs if r.get('condition'))
+    if len(conds) > 1:
+        rows.append(('Condition', ', '.join('%s %d' % kv for kv in sorted(conds.items()))))
+    vers = Counter(str(r.get('task_version') or '?') for r in recs)
+    if len(vers) > 1:
+        rows.append(('Task version', ', '.join('%s: %d' % kv for kv in sorted(vers.items()))))
+    return rows
+
+
+def first_look(recs):
+    """The leading comparison (insight.contrast) on the first-look measures: {'a', 'b', 'key', 'rows'}, or None."""
+    con = IN.contrast(recs)
+    if not con:
+        return None
+    key, la, lb = con
+    rows = []
+    for k in FIRST_LOOK:
+        c = IN.compare(recs, k, lambda r: r.get(key) == 1, lambda r: r.get(key) == 0)
+        if c and c['d'] is not None:
+            c['label'] = IN.LABELS.get(k, k)
+            c['unit'] = next((u for kk, _, _, u in IN.KEY_MEASURES if kk == k), '')
+            rows.append(c)
+    return {'key': key, 'a': la, 'b': lb, 'rows': rows, 'n_a': sum(1 for r in recs if r.get(key) == 1), 'n_b': sum(1 for r in recs if r.get(key) == 0)}
+
+
+def diet_fit(recs):
+    """Stated diet against the pizza made: (said vegan or vegetarian, of them fitting their diet)."""
+    allowed = {'vegan': {'vegan'}, 'vegetarian': {'vegan', 'vegetarian'}}
+    said = [r for r in recs if any(d in allowed for d in (r.get('diet') or '').split())]
+    fits = [r for r in said if r.get('diet_class') in allowed['vegan' if 'vegan' in (r.get('diet') or '').split() else 'vegetarian']]
+    return said, fits
+
+
+def key_points(recs, check, mc, fl):
+    """The overview's opening: what these data show so far, in plain sentences: [(kind, title, text, why)]. Fixed rules
+    (thresholds in insight.py), so the same data always give the same points."""
+    out, n = [], len(recs)
+    # who
+    nt = Counter(r.get('neurotype') for r in recs if r.get('neurotype'))
+    nd = sum(v for k, v in nt.items() if k != 'Not ND')
+    ages = [r['age_years'] for r in recs if isinstance(r.get('age_years'), int)]
+    who = []
+    if nt:
+        detail = ', '.join('%d %s' % (v, NEURO_WORDS.get(k, k)) for k, v in nt.most_common() if k != 'Not ND')
+        who.append('%d neurodivergent by their own account%s and %d not' % (nd, (' (%s)' % detail) if detail else '', nt.get('Not ND', 0)))
+    if ages:
+        who.append('aged %d to %d (median %d)' % (min(ages), max(ages), statistics.median(ages)))
+    out.append(('info', '%s, one per person' % plural(n, 'pizza'), ('; '.join(who) + '.') if who else '',
+                'Each person is one data point everywhere in these reports; pieces are never pooled across people.'))
+    # how it ran
+    co = (check or {}).get('course')
+    if co:
+        steps = dict(co['steps'])
+        agreed, fin = steps.get('agreed to take part', 0), steps.get('finished the pizza', 0)
+        if agreed:
+            stop = sorted(co['stopped'].items(), key=lambda kv: -kv[1])
+            where = ('; most of the others stopped while %s (%d)' % (STAGE_WORDS.get(stop[0][0], stop[0][0]), stop[0][1])) if stop else ''
+            t = co['times']
+            took = ' The pizza took a median of %s%s.' % (fmt_secs(t['the pizza'][0]) if t.get('the pizza') else '–',
+                                                       (', the whole study %s' % fmt_secs(t['the whole study'][0])) if t.get('the whole study') else '')
+            share = fin / agreed
+            hand = (' %s included by hand on the Sessions tab, so %d are in the reports.' % (plural(co['by_hand'], 'unfinished pizza was', 'unfinished pizzas were'), fin + co['by_hand'])) if co.get('by_hand') else ''
+            never = ('%d more opened the link but did not agree (or left at the information page). ' % co['never_agreed']) if co.get('never_agreed') else ''
+            out.append(('ok' if share >= .7 else 'warn', '%d of %d who agreed finished a pizza (%.0f%%)' % (fin, agreed, 100 * share),
+                        '%sCounted from the sessions, without the ones excluded on the Sessions tab%s.%s%s' % (never, where, took, hand),
+                        'Where people stop shows which part of the study to shorten or explain better before the main study.'))
+    # amount, and what it explains
+    pieces = next((c for c in (fl or {}).get('rows', []) if c['key'] == 'n_pieces'), None)
+    tied = [m for m in mc if m['verdict'] in ('pieces', 'partly')]
+    if pieces and abs(pieces['d']) >= .33:
+        hi_a = pieces['d'] > 0
+        out.append(('find', '%s participants put %s on their pizza' % (fl['a'] if hi_a else fl['b'], 'more'),
+                    'A median of %.0f pieces against %.0f. Take one person from each group: the one from this group placed more %d times out of 10.'
+                    % (pieces['med_a'] if hi_a else pieces['med_b'], pieces['med_b'] if hi_a else pieces['med_a'], IN.times_out_of_ten(abs(pieces['d'])) or 0),
+                    'Groups of %d and %d: a first look, not a tested result.' % (fl['n_a'], fl['n_b'])))
+        if tied:
+            out.append(('warn', 'Several measures move with the number of pieces',
+                        '%s rise or fall with how many pieces are on the pizza, so a group difference in them partly repeats the difference in pieces.'
+                        % cap(', '.join(m['label'] for i, m in enumerate(tied[:5]) if True).lower()),
+                        'The first look below shows each difference twice: as it is, and with the number of pieces taken into account.'))
+    # what remains once pieces are taken into account
+    if fl and fl['rows']:
+        rest = [c for c in fl['rows'] if c['key'] not in IN.AMOUNT and c.get('d_adj') is not None]
+        best = max(rest, key=lambda c: abs(c['d_adj']), default=None)
+        if best and abs(best['d_adj']) >= .33:
+            a_hi = best['d_adj'] > 0
+            out.append(('find', '%s: %s higher, beyond the number of pieces' % (best['label'], fl['a'] if a_hi else fl['b']),
+                        'Medians %s against %s; with the pieces taken into account it is still %s (%d in 10 pairs).'
+                        % (IN.fmt_value(best['med_a'] if a_hi else best['med_b'], best['unit']), IN.fmt_value(best['med_b'] if a_hi else best['med_a'], best['unit']),
+                           IN.size_word(best['d_adj']), IN.times_out_of_ten(abs(best['d_adj'])) or 0),
+                        'The clearest difference that is not about amount. With groups this small it could be chance: worth stating in advance and testing.'))
+        elif rest:
+            out.append(('info', 'No clear difference beyond the number of pieces yet',
+                        'Once the number of pieces is taken into account, none of the %d measures differs clearly between %s and %s participants.'
+                        % (len(rest), fl['a'].lower(), fl['b'].lower()), 'Expected with groups this small; it is not evidence of no difference.'))
+    # validity: the stated diet
+    said, fits = diet_fit(recs)
+    if len(said) >= 2:
+        ok = len(fits) == len(said)
+        out.append(('ok' if ok else 'warn', ('All %d who said they are vegetarian or vegan made a pizza that fits it' % len(said)) if ok else
+                    '%d of %d who said they are vegetarian or vegan made a pizza that breaks it' % (len(said) - len(fits), len(said)),
+                    'A check that the pizzas reflect real food choices.' if ok else 'Worth a look (Diet below): a misclick, an unclear topping, or a diet held loosely.',
+                    'If people build what they would eat, their stated diet should show on the pizza.'))
+    # measures that cannot tell people apart
+    flat = [m for m in mc if m['verdict'] == 'flat']
+    if flat:
+        out.append(('warn', '%s hardly varies' % ' and '.join(m['label'] for m in flat[:3]),
+                    '; '.join('%s: %s' % (m['label'], m['words']) for m in flat[:3]) + '.',
+                    'A measure that is the same for almost everyone cannot show a difference between groups.'))
+    # the design: what this study can and cannot show
+    modes = Counter(r.get('nutrition_mode') for r in recs if r.get('nutrition_mode'))
+    if modes and set(modes) == {'visible'}:
+        out.append(('info', 'Everyone saw the nutrition table the whole time',
+                    'So these data cannot show whether people choose to look at nutrition, or what seeing it changes.',
+                    'To study that, set Nutrition to "hidden until asked" on the Settings tab (for everyone, or for one condition).'))
+    vers = Counter(str(r.get('task_version') or '?') for r in recs)
+    layouts = Counter(r.get('layout') for r in recs if r.get('layout'))
+    if len(vers) > 1:
+        out.append(('warn', 'The task changed during data collection',
+                    '%s pizzas from %d versions (%s)%s.' % (n, len(vers), ', '.join('%s: %d' % kv for kv in sorted(vers.items())),
+                                                          ('; screen layouts: ' + ', '.join('%s %d' % kv for kv in layouts.most_common())) if len(layouts) > 1 else ''),
+                    'Check that the versions give similar pizzas before pooling them (Data check → To review lists who had which).'))
+    lost = (check or {}).get('saves_lost') or []
+    if lost:
+        out.append(('warn', '%s lost the last seconds of building' % plural(len(lost), 'pizza'),
+                    'Their last saves did not reach the server; they are analysed as last saved (%s).' % ', '.join(lost), 'Listed in the Data check.'))
+    return out
+
+
+def key_points_html(points):
+    return '<ul class="points">%s</ul>' % ''.join(
+        '<li class="%s"><b class="t">%s</b>%s%s</li>' % (k, esc(t), esc(x), ('<span class="why">%s</span>' % esc(w)) if w else '') for k, t, x, w in points)
+
+
+def course_html(check):
+    co = (check or {}).get('course')
+    if not co:
+        return '<p class="muted">How the study ran is shown for study-server data (where each session got to).</p>'
+    top = co['steps'][0][1] or 1
+    rows = ''.join('<div class="row%s"><span>%s</span><span class="track"><span class="bar" style="width:%.1f%%"></span></span><span class="n">%d <span>%.0f%%</span></span></div>'
+                   % (' last' if i == len(co['steps']) - 1 else '', cap(esc(lab)), 100 * v / top, v, 100 * v / top) for i, (lab, v) in enumerate(co['steps']))
+    stop = sorted(co['stopped'].items(), key=lambda kv: -kv[1])
+    stopped = ('<p class="note">Of those who agreed but are not in the reports, stopped while: %s%s.%s</p>'
+               % (', '.join('%s %d' % (STAGE_WORDS.get(k, k), v) for k, v in stop) or 'none', ('; %d declined the consent' % co['declined']) if co['declined'] else '',
+                  (' In the reports: %s included by hand on the Sessions tab.' % plural(co['by_hand'], 'unfinished pizza')) if co.get('by_hand') else '')) if stop or co['declined'] or co.get('by_hand') else ''
+    times = ''.join('<tr><th>%s</th><td>%s</td><td class="note">%s</td></tr>' % (cap(esc(lab)), fmt_secs(t[0]), ('middle half %s–%s, n = %d' % (fmt_secs(t[1]), fmt_secs(t[2]), t[3])))
+                    for lab, t in co['times'].items() if t)
+    tech = []
+    if co['retried_saves']:
+        tech.append('%s had saves that failed and were sent again' % plural(len(co['retried_saves']), 'session'))
+    if co['small_window']:
+        tech.append('%s had a window too small for the task at some point (the task waited until it fitted)' % plural(len(co['small_window']), 'session'))
+    if co['left_out_sessions']:
+        tech.append('%s left out of these counts (excluded on the Sessions tab, a program driving the browser, or the tests study)' % plural(co['left_out_sessions'], 'session'))
+    return ('<div class="funnel">%s</div>%s<h3>How long each part took</h3><table class="facts">%s</table>%s'
+            % (rows, stopped, times, ('<p class="note">%s.</p>' % '. '.join(t[0].upper() + t[1:] for t in tech)) if tech else ''))
+
+
+def dots1_svg(vals):
+    """One row of dots, the median marked (the spread of a measure across the pizzas)."""
+    W, H, L, R = 200, 22, 5, 5
+    lo, hi = min(vals), max(vals)
+    if hi - lo < 1e-12:
+        hi = lo + 1
+    X = lambda v: L + (W - L - R) * (v - lo) / (hi - lo)
+    m = statistics.median(vals)
+    return ('<svg class="dots1" viewBox="0 0 %d %d" role="img" aria-label="from %.3g to %.3g, median %.3g">%s<line x1="%.1f" x2="%.1f" y1="3" y2="19"/></svg>'
+            % (W, H, lo, hi, m, ''.join('<circle cx="%.1f" cy="%.1f" r="3"/>' % (X(v), 11 + ((i * 7) % 9 - 4) * .9) for i, v in enumerate(vals)), X(m), X(m)))
+
+
+def measure_check_html(mc):
+    rows = []
+    for m in mc:
+        if m['verdict'] == 'few':
+            rows.append('<tr><td class="l"><b>%s</b></td><td class="l what">%s</td><td></td><td></td><td class="l"><span class="verd few">too few</span></td></tr>' % (esc(m['label']), esc(m['what'])))
+            continue
+        word = {'ok': 'works', 'partly': 'partly pieces', 'pieces': 'mostly pieces', 'flat': 'hardly varies'}[m['verdict']]
+        rows.append('<tr><td class="l"><b>%s</b></td><td class="l what">%s</td><td>%s</td><td class="l">%s<br><span class="note">%s to %s</span></td><td class="l"><span class="verd %s">%s</span><span class="note">%s</span></td></tr>'
+                    % (esc(m['label']), esc(m['what']), dots1_svg(m['values']), IN.fmt_value(m['median'], m['unit']), IN.fmt_value(m['lo'], m['unit']), IN.fmt_value(m['hi'], m['unit']),
+                       m['verdict'], word, esc(m['words'])))
+    return ('<div class="tbl mcheck"><table><tr><th class="l">Measure</th><th class="l">What it captures</th><th class="l">Each pizza (line = median)</th><th class="l">Median</th>'
+            '<th class="l">Can it tell people apart?</th></tr>%s</table></div>' % ''.join(rows))
+
+
+def first_look_html(fl):
+    if not fl or not fl['rows']:
+        return ('<p class="muted">Needs at least %d people on each side of a comparison (neurodivergent or not, autistic or not, ADHD or not).</p>' % IN.MIN_GROUP)
+    rows = []
+    for c in fl['rows']:
+        adj = ('<span class="muted">amount itself</span>' if c['key'] in IN.AMOUNT else
+               '<span class="muted">cannot be told apart: the groups barely overlap in pieces</span>' if c.get('tangled') else
+               '<span class="muted">–</span>' if c['d_adj'] is None else
+               '%s%s' % (esc(IN.size_word(c['d_adj'])), ' <b class="flag">mostly the pieces</b>' if IN.pieces_explain(c) else ''))
+        hi = c['d'] > 0
+        rows.append('<tr><td class="l"><b>%s</b></td><td>%s</td><td>%s</td><td>%s</td><td class="l">%s%s</td><td class="l">%s</td></tr>'
+                    % (esc(c['label']), IN.fmt_value(c['med_a'], c['unit']), IN.fmt_value(c['med_b'], c['unit']), strip_svg(c['a'], c['b'], False, fl['a'], fl['b']),
+                       esc(IN.size_word(c['d'])), ('<br><span class="note">%s higher in %d of 10 pairs</span>' % (esc(fl['a'] if hi else fl['b']), IN.times_out_of_ten(abs(c['d'])))) if abs(c['d']) >= .147 else '',
+                       adj))
+    return ('<p class="muted">%s (%d) <span class="swatch a"></span>against %s (%d) <span class="swatch b"></span>, by their own account. '
+            '"In 7 of 10 pairs": take one person from each group at random, and that is how often the first is higher. The last column takes the number '
+            'of pieces into account: a difference that shrinks there was mostly about how much was on the pizza. These are descriptions of these people, '
+            'not tests; Explore has the tests.</p><div class="tbl"><table><tr><th class="l">Measure</th><th>%s</th><th>%s</th><th class="l">Each person</th>'
+            '<th class="l">Difference</th><th class="l">With the pieces taken into account</th></tr>%s</table></div>'
+            % (esc(fl['a']), fl['n_a'], esc(fl['b'].lower()), fl['n_b'], esc(fl['a']), esc(fl['b']), ''.join(rows)))
+
+
+def gallery_html(entries):
+    """Every analysed pizza, by group: the data as people made it."""
+    groups = Counter(r['_group'] for r, _ in entries)
+    out = []
+    for g, n in groups.most_common():
+        cards = ''.join('<figure class="card">%s<figcaption><a class="pid" href="#p-%s" data-pid="%s">%s</a><br>%s · %s · %s</figcaption></figure>'
+                        % (rthumb(r, p), esc(r['pid']), esc(r['pid']), esc(r['pid']), plural(r.get('n_pieces') or 0, 'piece'), plural(r.get('n_distinct') or 0, 'topping'),
+                           esc(r.get('diet_class') or ''))
+                        for r, p in sorted(entries, key=lambda e: -(e[0].get('n_pieces') or 0)) if r['_group'] == g)
+        out.append('<p class="ghead">%s <span>(%d)</span></p><div class="gallery">%s</div>' % (cap(esc(NEURO_WORDS.get(g, g))), n, cards))
+    return ''.join(out)
+
+
+def share_bars(title, rows, classes):
+    """rows: [(label, people, {class: mean share of each person's pieces})]: 100% bars averaged over people, so that
+    each person counts once (a pizza with 90 pieces does not outweigh one with 9)."""
+    W, left, right, rowh = 680, 170, 16, 30
+    s = ['<svg viewBox="0 0 %d %d" class="dots" role="img" aria-label="%s">' % (W, 10 + rowh * len(rows), esc(title))]
+    for i, (label, n, sh) in enumerate(rows):
+        y, x = 6 + i * rowh, left
+        s.append('<text class="lab" x="%d" y="%d" text-anchor="end">%s <tspan class="val">n=%d</tspan></text>' % (left - 8, y + 15, esc(label), n))
+        for k, lab in classes:
+            w = (W - left - right) * sh.get(k, 0)
+            if w <= 0:
+                continue
+            s.append('<rect class="%s" x="%.1f" y="%d" width="%.1f" height="20" rx="2"><title>%s: %.0f%% of a person\'s pieces on average</title></rect>' % (k, x, y, w, lab, 100 * sh[k]))
+            if w > 34:
+                s.append('<text class="inbar" x="%.1f" y="%d" text-anchor="middle">%.0f%%</text>' % (x + w / 2, y + 14, 100 * sh[k]))
+            x += w
+    return '<figure><figcaption>%s</figcaption>%s</svg></figure>' % (esc(title), ''.join(s))
 
 
 def dashboard_report(entries, ref_info, group_label, check=None, pending=None):
@@ -2238,14 +2642,17 @@ def dashboard_report(entries, ref_info, group_label, check=None, pending=None):
     med = lambda k: statistics.median([r[k] for r in recs if isinstance(r.get(k), (int, float))] or [0])
     kpis = ''.join('<div class="kpi"><b>%s</b><span>%s</span></div>' % (v, esc(l)) for v, l in [
         (len(recs), 'pizzas')] + ([(len(groups), 'groups')] if len(groups) > 1 else []) + [('%.0f' % med('n_pieces'), 'median pieces'),
-        ('%.0f' % med('n_distinct'), 'median toppings'), ('%.0f s' % (med('t_active') / 1000), 'median build time'),
-        ('%d' % ref_info['n'], 'pizzas in the reference')])
+        ('%.0f' % med('n_distinct'), 'median toppings'), (fmt_secs(med('t_active') / 1000), 'median time on the pizza')])
     legend = '<div class="legend">%s</div>' % ''.join('<span><i class="%s"></i>%s</span>' % (k, esc(l)) for k, l in PIZZA_CLASSES)
     diet_rows = [('All', Counter(r['diet_class'] for r in recs))] + ([(g, Counter(r['diet_class'] for r in recs if r['_group'] == g)) for g in groups] if len(groups) > 1 else [])
     diet = stacked_bars('What diet does the finished pizza fit?', diet_rows, PIZZA_CLASSES)
-    pieces_rows = [(g, Counter({'vegan': sum(r['n_vegan_pieces'] for r in recs if r['_group'] == g), 'vegetarian': sum(r['n_vegetarian_pieces'] for r in recs if r['_group'] == g),
-                                'pescatarian': sum(r['n_seafood_pieces'] for r in recs if r['_group'] == g), 'meat': sum(r['n_meat_pieces'] for r in recs if r['_group'] == g)})) for g in groups]
-    pieces = stacked_bars('Share of all topping pieces by diet class', pieces_rows, [('vegan', ''), ('vegetarian', ''), ('pescatarian', ''), ('meat', '')])
+    def person_shares(rs):
+        rs = [r for r in rs if r.get('n_pieces')]
+        keys = {'vegan': 'n_vegan_pieces', 'vegetarian': 'n_vegetarian_pieces', 'pescatarian': 'n_seafood_pieces', 'meat': 'n_meat_pieces'}
+        return {k: statistics.mean([(r.get(c) or 0) / r['n_pieces'] for r in rs]) for k, c in keys.items()} if rs else {}
+    pieces = share_bars("What each person's toppings were, on average (each person counts once)",
+                        [(g, sum(1 for r in recs if r['_group'] == g and r.get('n_pieces')), person_shares([r for r in recs if r['_group'] == g])) for g in groups],
+                        PIZZA_CLASSES)
     stated = [r for r in recs if r.get('diet')]
     cross = ''
     if stated:
@@ -2276,7 +2683,7 @@ def dashboard_report(entries, ref_info, group_label, check=None, pending=None):
         bands = ('<p class="note">Percentiles and bands need a reference of at least %d pizzas (here %d): with fewer, "above the 95th percentile" cannot '
                  'be told apart from chance. The surprise in bits above is still shown.</p>' % (NORM_MIN_REF, ref_info['n'] - (0 if ref_info['external'] else 1)))
     examples = ''.join('<div class="card" style="display:flex;gap:12px;align-items:center"><div style="width:90px;flex:none">%s</div><div><b>%s</b> <span class="chip %s">%s · %.0fth percentile</span><div class="note">%s</div></div></div>'
-                       % (thumb(p, {}), esc(r['pid']), r['normality_band'], r['normality_band'], r['atypicality_pct'], esc(r.get('unusual_elements') or 'common toppings only'))
+                       % (rthumb(r, p), esc(r['pid']), r['normality_band'], r['normality_band'], r['atypicality_pct'], esc(r.get('unusual_elements') or 'common toppings only'))
                        for r, p in unusual)
     vals = lambda k, scale=1: {g: [r[k] / scale for r in recs if r['_group'] == g and isinstance(r.get(k), (int, float))] for g in groups}
     space = (dot_plot('Mirror symmetry score (0 = chance, 1 = every piece has a mirror partner)', vals('mirror_score'), 0.0, 'chance', lo=-0.5, hi=1.0, unit='score (0 = chance level)') +
@@ -2294,12 +2701,13 @@ def dashboard_report(entries, ref_info, group_label, check=None, pending=None):
     feel_plots = (dot_plot('Ingredients with strong feelings, per participant', vals('n_strong'), lo=0.0, fmt='%.0f', unit='ingredients') +
                   dot_plot('Sensory reasons given (texture, smell, taste, look, touching other food)', vals('n_sensory_reasons'), lo=0.0, fmt='%.0f', unit='reasons') +
                   dot_plot('"Safe foods" among them', vals('n_safe_foods'), lo=0.0, fmt='%.0f', unit='ingredients'))
+    cols = [c for c in DASH_COLS if any(r.get(c[0]) is not None for r in recs)]      # a column nobody has (a question not asked) is left out
     head = '<tr><th class="l">Pizza</th><th class="l">Participant</th><th class="l">Group</th>%s</tr>' % ''.join(
-        '<th%s>%s<span class="grp">%s</span></th>' % (' class="l"' if f is None else '', esc(h), g) for _, h, g, f in DASH_COLS)
+        '<th%s>%s<span class="grp">%s</span></th>' % (' class="l"' if f is None else '', esc(h), g) for _, h, g, f in cols)
     body = []
     for r, p in sorted(entries, key=lambda e: str(e[0]['pid'])):
         cells = []
-        for k, _, _, f in DASH_COLS:
+        for k, _, _, f in cols:
             v = r.get(k)
             if v is None:
                 cells.append('<td data-v="">-</td>')
@@ -2311,7 +2719,7 @@ def dashboard_report(entries, ref_info, group_label, check=None, pending=None):
             else:
                 cells.append('<td data-v="%s">%s</td>' % (v, f % v))
         body.append('<tr id="p-%s"><td>%s</td><td class="l" data-v="%s"><a class="pid" href="#p-%s" data-pid="%s">%s</a></td><td class="l" data-v="%s">%s</td>%s</tr>'
-                    % (esc(r['pid']), thumb(p, {}), esc(r['pid']), esc(r['pid']), esc(r['pid']), esc(r['pid']), esc(r['_group']), esc(r['_group']), ''.join(cells)))
+                    % (esc(r['pid']), rthumb(r, p), esc(r['pid']), esc(r['pid']), esc(r['pid']), esc(r['pid']), esc(r['_group']), esc(r['_group']), ''.join(cells)))
     sort_js = REVIEW_JS + """<script>
 document.querySelectorAll('table.people th').forEach(function (th, i) {
   if (i === 0) return;
@@ -2337,12 +2745,26 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
                 '(texture, smell, taste, look, touching other food), whether they are safe foods, must be a certain way, or are craved.</p>'
                 + strong_feelings_chart(entries, groups) + feel_plots) if any(r.get('n_strong') is not None for r in recs) else ''
     small_ref = not ref_info['external'] and ref_info['n'] < NORM_MIN_REF
+    mc = IN.measure_check(recs)
+    fl = first_look(recs)
+    facts = sample_facts(recs)
+    toc = [('points', 'Key points'), ('sample', 'Who took part'), ('ran', 'How it ran'), ('pizzas', 'The pizzas'), ('measures', 'Do the measures work?'),
+           ('first', 'First look'), ('diet', 'Diet'), ('nutrition', 'Nutrition'), ('normal', 'How normal')] + ([('feelings', 'Strong feelings')] if feelings else []) + [
+           ('charts', 'All charts'), ('people', 'Every participant'), ('check', 'Data check')]
+    first_h = ('A first look: %s against %s' % (esc(fl['a'].lower()), esc(fl['b'].lower()))) if fl else 'A first look at the groups'
     return short_normal(small_ref, ref_info['n'], ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
-            '<title>Pizza Data Preview</title><style>%s%s%s%s</style></head><body><div class="wrap">'
-            '<h1>Overview</h1><p class="muted">%d pizzas%s. One dot per person; groups of 5 or more also get a median and range. '
-            'Tests between groups are on the Explore page, every formula on the Methods page.</p><div class="kpis">%s</div>'
-            '<nav class="toc"><a href="#check">Data check</a><a href="#diet">Diet</a><a href="#nutrition">Nutrition</a><a href="#normal">How normal</a><a href="#feelings">Strong feelings</a>'
-            '<a href="#space">Space</a><a href="#size">Size and amount</a><a href="#time">Time</a><a href="#people">Every participant</a></nav>%s'
+            '<title>Pizza Data Preview</title><style>%s%s%s%s%s</style></head><body><div class="wrap">'
+            '<h1>Overview</h1><p class="muted">%d pizzas%s. What these data show so far, in words first; then who took part, how the study ran, every pizza, whether '
+            'each measure can tell people apart, and a first look at the groups. Tests between groups are on the Explore page, every formula on the Methods page.</p>'
+            '<div class="kpis">%s</div><nav class="toc">%s</nav>'
+            '<h2 id="points">Key points</h2>%s'
+            '<h2 id="sample">Who took part</h2><p class="muted">The people whose pizza is analysed, by their own answers.</p>%s'
+            '<h2 id="ran">How the study ran</h2><p class="muted">Everyone who opened the link, part by part: how many got how far, where the others stopped, and how long each part took.</p>%s'
+            '<h2 id="pizzas">The pizzas</h2><p class="muted">Every analysed pizza as the participant made it, most pieces first. Click an id to open the person.</p>%s'
+            '<h2 id="measures">Do the measures work?</h2><p class="muted">Before comparing groups: does each measure vary between people, is it stuck at '
+            'one value (a floor or ceiling hides differences), and does it simply follow the number of pieces (ρ = Spearman correlation with pieces '
+            'across pizzas; ±0.7 or more: mostly a measure of amount)?</p>%s'
+            '<h2 id="first">%s</h2>%s'
             '<h2 id="diet">Diet: vegan, vegetarian, pescatarian or meat</h2><p class="muted">Each topping has a diet class, and so does the base: dairy cheese and white sauce make a '
             'pizza vegetarian, while tomato or BBQ sauce, vegan cheese or no cheese keep it vegan. A pizza is classed by the strictest diet it fits.</p>%s%s%s%s'
             '<h2 id="nutrition">Nutrition</h2>%s'
@@ -2351,15 +2773,24 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
             '<b>How many</b>: how extreme the number of different toppings is, in either direction, so a plain pizza or one with everything stands out. '
             'Each becomes a percentile of the reference, and the band uses the more extreme of the two: under 75 is <b>typical</b>, 75-95 <b>uncommon</b>, above 95 <b>unusual</b>.</p>'
             '<figure><figcaption>Which toppings: surprise of the topping set in bits (bars = reference, dots = this sample, line = median)</figcaption>%s</figure>%s'
-            '<h3>Most unusual pizzas</h3><div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">%s</div>'
+            '<h3>Most unusual pizzas</h3><div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">%s</div><!--/normal-->'
             '%s'
-            '<h2 id="space">Space</h2>%s<h2 id="size">Size and amount</h2>%s<h2 id="time">Time</h2>%s'
+            '<details class="charts" id="charts"><summary>All charts by %s: space, size and amount, time</summary><p class="muted">One dot per person; groups of 5 or more '
+            'also get a median and the middle half. Remember the measure check above: several of these follow the number of pieces.</p>'
+            '<h2 id="space">Space</h2>%s<h2 id="size">Size and amount</h2>%s<h2 id="time">Time</h2>%s</details>'
             '<h2 id="people">Every participant</h2><p class="muted">Click a column to sort. Pizzas started but not analysed (still being built, '
             'stopped, or left out) are at the end.</p><div class="tablewrap"><table class="people"><thead>%s</thead><tbody>%s</tbody>%s</table></div>'
+            '%s'
             '</div>%s</body></html>'
-            % (REPORT_CSS, DASH_TOKENS, DASH_CSS, PENDING_CSS, len(recs), (', compared by <code>%s</code>' % esc(group_label)) if len(groups) > 1 else '', kpis, data_check_html(check), legend, diet, pieces, cross, nutrition_section(recs, groups),
-               esc(ref_txt), hist, bands, examples, feelings, space, size, time_, head, ''.join(body), pending_rows(pending, len(DASH_COLS)), sort_js + FOLD_JS)
-           ).replace('<a href="#feelings">Strong feelings</a>', '<a href="#feelings">Strong feelings</a>' if feelings else ''))
+            % (REPORT_CSS, DASH_TOKENS, DASH_CSS, PENDING_CSS, OVERVIEW_CSS, len(recs), (', compared by %s' % esc(group_label.lower())) if len(groups) > 1 else '', kpis,
+               ''.join('<a href="#%s">%s</a>' % t for t in toc),
+               key_points_html(key_points(recs, check, mc, fl)),
+               '<table class="facts">%s</table>' % ''.join('<tr><th>%s</th><td>%s</td></tr>' % (esc(k), esc(v)) for k, v in facts) if facts else '<p class="muted">No answers about the participants.</p>',
+               course_html(check), gallery_html(entries), measure_check_html(mc), first_h, first_look_html(fl),
+               legend, diet, pieces, cross, nutrition_section(recs, groups),
+               esc(ref_txt), hist, bands, examples, feelings, esc(group_label.lower()), space, size, time_, head, ''.join(body), pending_rows(pending, len(cols)),
+               data_check_html(check), sort_js + FOLD_JS)
+           ))
 
 
 # The Data check's session links and buttons: inside the researcher page they ask it to open the session (or list the
@@ -2416,6 +2847,11 @@ def arrangement_report(entries, group_label):
     return ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
             '<title>Pizza Arrangement Report</title><style>%s</style></head><body><div class="wrap">'
             '<h1>Pizza arrangement: symmetry and contact</h1>'
+            '<div class="howto" style="background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--g0);border-radius:12px;padding:10px 14px;max-width:98ch;margin:6px 0 12px">'
+            '<b>What this page is for: checking the measures by eye.</b> Symmetry and contact are computed, not seen, so before trusting them look at a few '
+            'pizzas: does a pizza scored as symmetric look symmetric to you, and are the pieces marked as touching or stacked really so? Each pizza is drawn three '
+            'times: its best mirror axis, its best rotation, and its contacts. If the scores and your eye disagree, the measure needs fixing before the main '
+            'study. Note that touching and stacking rise with the number of pieces (Overview → Do the measures work?).</div>'
             '<p class="muted">Each ring marks where a topping would have to be for the pizza to be perfectly symmetric: reflected across the best mirror axis, '
             'or turned by the best rotation. Green: a piece of the same topping lies there (within half the two pieces\' combined radius; each piece '
             'partners one other), so the piece counts as matched. The share of green rings is the match; chance is the share the same pieces get at random '
@@ -2912,9 +3348,26 @@ def discovery_html(recs, prof):
     for i, q in enumerate(bh([x[3] for x in pairs])):
         pairs[i] = pairs[i] + (q,)
     top = sorted(pairs, key=lambda x: (x[3], -abs(x[2])))[:10]
-    corr = ('<div class="tbl"><table class="leads"><tr><th class="l">Build behaviour</th><th class="l">Preference</th><th>n</th><th>ρ</th><th>p</th><th>q</th></tr>%s</table></div>'
-            % ''.join('<tr%s><td class="l">%s</td><td class="l">%s</td><td>%d</td><td><b>%+.2f</b></td><td>%s</td><td>%.3f%s</td></tr>'
-                      % (' class="pass"' if q < 0.1 else '', esc(names[b]), esc(names[pk]), m, rho, fmt_p(pv), q, ' ✓' if q < 0.1 else '')
+    # the same link once the number of pieces is taken into account (both measures as rank residuals on log pieces): a
+    # link that vanishes there is two measures of how much is on the pizza
+    pcs = [IN.num(r.get('n_pieces')) for r in recs]
+    def partial(b, pk):
+        if 'n_pieces' in (b, pk):
+            return None
+        rb = IN.residuals_on_pieces([IN.num(r.get(b)) for r in recs], pcs)
+        rp = IN.residuals_on_pieces([IN.num(r.get(pk)) for r in recs], pcs)
+        return IN.spearman(rb, rp) if rb and rp else None
+    def pcell(b, pk, rho):
+        if 'n_pieces' in (b, pk):
+            return '<span class="muted">amount itself</span>'
+        pr = partial(b, pk)
+        if pr is None:
+            return ''
+        gone = abs(rho) >= .4 and abs(pr) < abs(rho) / 2
+        return '%+.2f%s' % (pr, ' <b class="flag">mostly the pieces</b>' if gone else '')
+    corr = ('<div class="tbl"><table class="leads"><tr><th class="l">Build behaviour</th><th class="l">Preference</th><th>n</th><th>ρ</th><th class="l">ρ with the pieces taken into account</th><th>p</th><th>q</th></tr>%s</table></div>'
+            % ''.join('<tr%s><td class="l">%s</td><td class="l">%s</td><td>%d</td><td><b>%+.2f</b></td><td class="l">%s</td><td>%s</td><td>%.3f%s</td></tr>'
+                      % (' class="pass"' if q < 0.1 else '', esc(names[b]), esc(names[pk]), m, rho, pcell(b, pk, rho), fmt_p(pv), q, ' ✓' if q < 0.1 else '')
                       for b, pk, rho, pv, m, q in top)) if top else '<p class="note">Too few pizzas.</p>'
     return ('<h2 id="types">Searching for types</h2><p class="muted">Are there distinct <i>types</i> of pizza-makers, rather than people spread along '
             'continuous dimensions? Each family of measures is clustered (Ward\'s method, the number of clusters with the best average silhouette) and '
@@ -2923,9 +3376,10 @@ def discovery_html(recs, prof):
             'always returns groups; this is what keeps it from inventing them.</p>%s%s'
             '<h2 id="behaviour-preferences">Build behaviour and preferences</h2><p class="muted">How the way people build goes with what they choose: '
             'Spearman ρ between each build-behaviour measure (%s) and each preference measure (%s), %d pairs, q = Benjamini-Hochberg over them. '
-            'The ten best supported:</p>%s'
-            % (CLUSTER_NULLS, alpha, table, ''.join(found), esc(', '.join(names[k].lower() for k in BEHAVIOUR_KEYS)),
-               esc(', '.join(names[k].lower() for k in PREFERENCE_KEYS)), len(pairs), corr))
+            'The ten best supported. A link marked <b>mostly the pieces</b> shrinks to under half once the number of pieces is taken into account: '
+            'both measures follow how much is on the pizza, rather than one way of building going with one kind of choice.</p>%s'
+            % (CLUSTER_NULLS, alpha, table, ''.join(found), esc(', '.join(names[k].lower() for k in BEHAVIOUR_KEYS if any(IN.num(r.get(k)) is not None for r in recs))),
+               esc(', '.join(names[k].lower() for k in PREFERENCE_KEYS if any(IN.num(r.get(k)) is not None for r in recs))), len(pairs), corr))
 
 
 CLUSTER_COMPARE_JS = """<script>
@@ -2969,19 +3423,27 @@ def profiles_report(entries, prof, group_label):
             groups.append(r['_group'])
     # heatmap with dendrogram
     dsvg, rowh = dendrogram_svg(prof['merges'], n, order, labels)
+    # columns nobody has a value in (a question the study did not ask) or that are the same for everyone say nothing: left out of the picture
+    shown = [c for c, f in enumerate(PROFILE_FEATURES)
+             if len({round(v, 6) for v in (IN.num(r.get(f[1])) for r in recs) if v is not None}) > 1]
+    hidden = [PROFILE_FEATURES[c][2] for c in range(len(PROFILE_FEATURES)) if c not in shown]
     doms = []
-    for f in PROFILE_FEATURES:
+    for c in shown:
+        f = PROFILE_FEATURES[c]
         if not doms or doms[-1][0] != f[0]:
             doms.append([f[0], 0])
         doms[-1][1] += 1
     head = ('<tr class="dom"><th></th><th></th><th></th>%s</tr><tr><th></th><th></th><th></th>%s</tr>'
-            % (''.join('<th colspan="%d">%s</th>' % (c, esc(d)) for d, c in doms), ''.join('<th><div>%s</div></th>' % esc(f[2]) for f in PROFILE_FEATURES)))
+            % (''.join('<th colspan="%d">%s</th>' % (c, esc(d)) for d, c in doms), ''.join('<th><div>%s</div></th>' % esc(PROFILE_FEATURES[c][2]) for c in shown)))
     rows = ''.join('<tr style="height:%dpx">%s<td class="id">%s</td><td class="band" style="background:%s" title="cluster %d"></td>%s</tr>' % (
         rowh, ('<td class="dcell" rowspan="%d">%s</td>' % (n, dsvg)) if r == 0 else '', esc(recs[i]['pid']) if rowh >= 10 else '',
         CLUSTER_COLORS[labels[i] % 8], labels[i] + 1,
-        ''.join('<td class="c" style="background:%s" title="%s: %s %+.1f"></td>' % (heat_color(z), esc(recs[i]['pid']), esc(PROFILE_FEATURES[c][2]), z) for c, z in enumerate(Z[i])))
+        ''.join('<td class="c" style="background:%s" title="%s: %s %+.1f"></td>' % (heat_color(Z[i][c]), esc(recs[i]['pid']), esc(PROFILE_FEATURES[c][2]), Z[i][c]) for c in shown))
         for r, i in enumerate(order))
-    heat = '<div class="heat"><table><thead>%s</thead><tbody>%s</tbody></table></div>' % (head, rows)
+    if hidden:
+        rows += ''      # (the note below the picture names them)
+    heat = '<div class="heat"><table><thead>%s</thead><tbody>%s</tbody></table></div>%s' % (head, rows, (
+        '<p class="note">Not shown, the same for everyone or not asked in this study: %s.</p>' % esc(', '.join(hidden).lower())) if hidden else '')
     # clusters
     sil = ' · '.join('k=%d: %.2f' % (kk, v) for kk, v in sorted(prof['sil'].items()) if v is not None)
     cards = []
@@ -2997,7 +3459,7 @@ def profiles_report(entries, prof, group_label):
         cards.append('<div class="cl-card"><h3><span class="sw" style="background:%s"></span>Cluster %d <span class="muted" style="font-weight:400">%d pizzas</span></h3>'
                      '<p style="margin:0 0 6px">%s.</p><p class="note" style="margin:0 0 6px">%s</p><table class="pbars">%s</table><div class="thumbs">%s</div></div>'
                      % (CLUSTER_COLORS[c % 8], c + 1, len(idx), esc(words[0].upper() + words[1:]),
-                        esc(' · '.join('%s: %d' % (g, gc.get(g, 0)) for g in groups)), bars, ''.join(thumb(entries[i][1], {}) for i in near)))
+                        esc(' · '.join('%s: %d' % (g, gc.get(g, 0)) for g in groups)), bars, ''.join(rthumb(entries[i][0], entries[i][1]) for i in near)))
     # cluster x group: a permutation test (the groups shuffled across people), only for real clusters
     cross = ''
     res = cluster_group_test([labels[i] + 1 for i in range(n)], [recs[i]['_group'] for i in range(n)], groups, random.Random(1)) if prof['valid'] and len(groups) > 1 else None
@@ -3047,7 +3509,7 @@ def profiles_report(entries, prof, group_label):
         near = sorted(idx, key=lambda i: euclid(Z[i], means))[:3]
         gc = Counter(recs[i]['_group'] for i in idx)
         clist.append({'id': c + 1, 'n': len(idx), 'mean': [round(v, 3) for v in means], 'groups': ' · '.join('%s: %d' % (g, gc.get(g, 0)) for g in groups),
-                      'svg': ''.join(thumb(entries[i][1], {}) for i in near)})
+                      'svg': ''.join(rthumb(entries[i][0], entries[i][1]) for i in near)})
     data = {'features': [[f[0], f[2]] for f in PROFILE_FEATURES], 'clusters': clist, 'colors': CLUSTER_COLORS}
     script = '' if k < 2 else (CLUSTER_COMPARE_JS % json.dumps(data))
     compare = '' if k < 2 else ('<h2>Compare two clusters</h2><div class="compare"><div class="pick"><label for="ca"><b style="color:var(--g0)">Cluster A</b></label><select id="ca"></select>'
@@ -3490,7 +3952,7 @@ EXPLORE_CSS = """
 .hyp { border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 12px 0; background: var(--panel, transparent); }
 .hyp.yes { border-left-color: #2f7d4f; } .hyp.no { border-left-color: #b3261e; } .hyp.wait { border-left-color: #9a6a00; }
 .hyp h3 { margin: 2px 0 4px; } .hyp .verdict { font-weight: 600; margin: 4px 0 8px; }
-.hyp .ok { color: #2f7d4f; font-weight: 600; } .hyp .bad { color: #b3261e; font-weight: 600; } .hyp tr.na td { color: var(--muted, #6e635b); }
+.hyp .ok { color: #2f7d4f; font-weight: 600; } .hyp .bad { color: #b3261e; font-weight: 600; } .flag { color: var(--miss); } .hyp tr.na td { color: var(--muted, #6e635b); }
 .ready { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; font-size: .85rem; color: var(--muted, #6e635b); }
 .ready .track { width: 160px; height: 8px; border-radius: 4px; background: rgba(128,128,128,.25); overflow: hidden; }
 .ready .track i { display: block; height: 100%; background: #9a6a00; }
@@ -3514,6 +3976,12 @@ details.more { margin: 8px 0 14px; } details.more summary { cursor: pointer; fon
 .corr th { font-weight: 400; color: var(--muted); font-size: 11px; white-space: nowrap; text-align: right; padding: 0 6px 0 0; border: 0; }
 .corr th.v { height: 150px; vertical-align: bottom; padding: 0 0 4px; } .corr th.v div { writing-mode: vertical-rl; transform: rotate(180deg); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; } .chips span { background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 13px; }
+.seenlist { list-style: none; padding: 0; margin: 4px 0 8px; display: grid; gap: 6px; }
+.seenlist li { background: var(--bg); border-radius: 8px; padding: 6px 10px; }
+.seen { display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap; } .seen > div { max-width: 70ch; }
+.hyp .bad { color: #b3261e; font-weight: 600; } .flag { color: var(--miss); }
+.howto { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--g0); border-radius: 12px; padding: 10px 14px; max-width: 98ch; }
+.howto dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 8px 0 0; } .howto dt { font-weight: 600; } .howto dd { margin: 0; }
 """
 
 
@@ -3643,13 +4111,39 @@ def note_ideas(recs):
     return out
 
 
+def adjusted_delta(recs, key, gkey, level, vs):
+    """Cliff's delta of a measure between a group and its comparison once the number of pieces is taken into account
+    (insight.compare: rank residuals on log pieces); None for amount measures, measures not in the records, or too few."""
+    labels = group_labels(recs, gkey)
+    lab = {id(r): g for r, g in zip(recs, labels)}
+    others = set(labels)
+    in_a = lambda r: lab[id(r)] == level
+    in_b = (lambda r: lab[id(r)] == vs) if vs in others else (lambda r: lab[id(r)] not in (None, level))
+    c = IN.compare(recs, key, in_a, in_b)
+    return None if not c else 'tangled' if c.get('tangled') else c.get('d_adj')
+
+
+def adj_words(d_raw, d_adj, key):
+    """The piece-count check in words: the size once pieces are taken into account, and whether pieces explain it."""
+    if key in IN.AMOUNT:
+        return 'amount itself'
+    if d_adj == 'tangled':
+        return 'cannot be told apart (the groups barely overlap in pieces)'
+    if d_adj is None:
+        return ''
+    c = {'d': d_raw, 'd_adj': d_adj}
+    return IN.size_word(d_adj) + (' (mostly the pieces)' if IN.pieces_explain(c) else '')
+
+
 def planned_tests(recs, defs, groupings, covariates, rnd):
     """The ideas tested on these pizzas: the built-in IDEAS whose questions this study asked, and the ideas from its own
     questions (note_ideas). Returns ([(idea, [test dicts])], [(idea, what it needs)]): an idea whose comparison or
     measures were never recorded in this study (a question not asked, no typical pizza, nutrition not hidden) is set
     apart, so it neither shows as "too few yet" nor adds to the correction; q is over the remaining tests together."""
-    names = dict({'nut_kcal': 'Energy (kcal)', 'n_meat_pieces': 'Meat pieces', 'n_seafood_pieces': 'Fish and seafood pieces', 'diet_rank': 'Animal products'},
-                 **{k: lab for _, k, lab in defs})
+    names = dict({'nut_kcal': 'Energy (kcal)', 'n_meat_pieces': 'Meat pieces', 'n_seafood_pieces': 'Fish and seafood pieces', 'diet_rank': 'Animal products',
+                  'size_match_index': 'Size matching', 'typical_jaccard': 'Same toppings as their "typical person" pizza',
+                  'typical_count_dev': 'Difference from their "typical person" pizza', 'n_safe_foods': 'Safe foods', 'post_nutri_d_kcal': 'Energy change after seeing the nutrition'},
+                 **dict(IN.LABELS, **{k: lab for _, k, lab in defs}))
     gnames = dict(list(groupings) + list(covariates))
     num = lambda k: [r.get(k) if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool) else None for r in recs]
     has = lambda k: any(r.get(k) not in (None, '') for r in recs)
@@ -3701,13 +4195,56 @@ def planned_tests(recs, defs, groupings, covariates, rnd):
                     continue
                 t = got[0]
                 tests.append(dict(base, level=level, vs=t['vs'], n1=t['n1'], n0=t['n0'], m1=t['m1'], m0=t['m0'], delta=t['delta'], p=t['p'], binary=t['binary'],
-                                  kind='groups', x=t['x'], y=t['y']))
+                                  kind='groups', x=t['x'], y=t['y'], d_adj=None if t['binary'] else adjusted_delta(recs, k, gkey, level, t['vs'])))
         out.append(((hid, title, why), tests))
         family += [t for t in tests if 'p' in t]
     for t, q in zip(family, bh([t['p'] for t in family])):
         t['q'] = q
         t['right_way'] = None if not t['sign'] or not t['delta'] else (t['delta'] > 0) == (t['sign'] > 0)
     return out, skipped
+
+
+# the groups of a comparison in words, for sentences ("autistic participants higher than the others")
+YESNO_WORDS = {'nd_any': 'neurodivergent participants', 'nd_autistic': 'autistic participants (incl. AuDHD)', 'nd_adhd': 'participants with ADHD (incl. AuDHD)',
+               'eat_picky': 'picky eaters', 'eat_any': 'people with an eating difficulty', 'diet_plant': 'vegetarians and vegans',
+               'diet_special': 'people on a special diet', 'transgender': 'transgender participants', 'nutrition_panel': 'those who saw the nutrition table',
+               'nutri_revealed': 'those who looked at the nutrition'}
+LEVEL_WORDS = {'AuDHD': 'autistic and ADHD participants', 'Autistic': 'autistic participants', 'ADHD': 'participants with ADHD', 'Not ND': 'not neurodivergent participants',
+               'Other ND': 'participants with another neurodivergence', 'formal': 'those diagnosed by a specialist', 'self or waiting': 'those self-identified or waiting',
+               'woman': 'women', 'man': 'men', 'nonbinary': 'non-binary participants'}
+
+
+def group_words(gkey, level, vs):
+    """(this group, the comparison) in words."""
+    if level == 'yes' and gkey in YESNO_WORDS:
+        return YESNO_WORDS[gkey], 'the others'
+    a = LEVEL_WORDS.get(level, level)
+    b = 'the others' if vs in ('the rest', 'rest', '') else LEVEL_WORDS.get(vs, vs)
+    return a, b
+
+
+def seen_html(done):
+    """What an idea's tests show, in words: the (up to) three clearest, each with the people as dots."""
+    top = sorted(done, key=lambda t: -abs(t['delta']))[:3]
+    items = []
+    for t in top:
+        if t.get('kind') == 'rho':
+            r = t['delta']
+            how = 'rises with' if r >= .3 else 'falls with' if r <= -.3 else 'shows no clear link with'
+            items.append('<li><b>%s</b> %s %s (ρ = %+.2f, %d people).</li>' % (esc(t['label']), how, esc(t['level'].lower()), r, t['n1']))
+        elif t.get('kind') == 'change':
+            items.append('<li><b>%s</b>: changed in %d people after seeing the nutrition (median %s).</li>' % (esc(t['label']), t['n1'], fmt_m(t['m1'], False, t['key'])))
+        else:
+            hi = t['delta'] > 0
+            exp = '' if t['right_way'] is None else (' <span class="ok">✓ as the idea expects</span>' if t['right_way'] else ' <span class="bad">✗ the other way</span>')
+            adj = adj_words(t['delta'], t.get('d_adj'), t['key'])
+            ga, gb = group_words(t['grouping'], t['level'], t['vs'])
+            items.append('<li><div class="seen"><div><b>%s</b>: %s %s than %s (%s against %s): %s%s.%s%s</div>%s</div></li>'
+                         % (esc(t['label']), esc(cap(ga)), 'higher' if hi else 'lower', esc(gb), fmt_m(t['m1'], t['binary'], t['key']), fmt_m(t['m0'], t['binary'], t['key']),
+                            esc(IN.size_word(t['delta'])), (', %d in 10 pairs' % IN.times_out_of_ten(abs(t['delta']))) if abs(t['delta']) >= .147 else '',
+                            (' <span class="muted">With the pieces taken into account: %s.</span>' % esc(adj)) if adj else '', exp,
+                            strip_svg(t['x'], t['y'], t['binary'], t['level'], t['vs'])))
+    return ('<ul class="seenlist">%s</ul>' % ''.join(items)) if items else ''
 
 
 def planned_html(planned, groupings, covariates, skipped=()):
@@ -3762,10 +4299,16 @@ def planned_html(planned, groupings, covariates, skipped=()):
             pct = min(100, round(100 * smallest / need_alone))
             bar = ('<div class="ready"><div class="track"><i style="width:%d%%"></i></div><span>%d of %d people in the smaller group (the number above for this idea '
                    'alone)</span></div>' % (pct, smallest, need_alone))
-        cards.append('<div class="hyp %s"><h3>%s. %s</h3><p class="muted">%s</p><p class="verdict">%s</p>%s%s<div class="tbl"><table class="leads"><tr><th class="l">Measure</th>'
+        against = sum(1 for t in directional if t['right_way'] is False)
+        if done and not lead and directional and against > as_expected and against >= 2:
+            verdict, cls = ('So far against the idea: %d of %d tests with an expected direction go the other way. Worth a look: the idea may be wrong '
+                            'for these people, or the measure may not capture it.' % (against, len(directional))), 'no'
+        cards.append('<div class="hyp %s"><h3>%s. %s</h3><p class="muted">%s</p><p class="verdict">%s</p>%s'
+                     '<details class="more"><summary>The tests behind it: groups, effects, p and q, and the people a confirmation needs</summary>%s%s'
+                     '<div class="tbl"><table class="leads"><tr><th class="l">Measure</th>'
                      '<th class="l">Compared</th><th>Expected</th><th>n</th><th>median or %%</th><th>effect</th><th>p</th><th>q</th><th>Direction</th>'
-                     '</tr>%s</table></div></div>'
-                     % (cls, esc(hid), esc(title), esc(why), esc(verdict), cost, bar, ''.join(rows)))
+                     '</tr>%s</table></div></details></div>'
+                     % (cls, esc(hid), esc(title), esc(why), esc(verdict), seen_html(done), cost, bar, ''.join(rows)))
     own = sum(1 for (hid, _, _), _ in planned if hid.startswith('Your question'))
     apart = ('<details class="more"><summary>Not asked in this study (%d idea%s, left out of the tests)</summary><ul>%s</ul></details>'
              % (len(skipped), '' if len(skipped) == 1 else 's', ''.join('<li><b>%s. %s</b>: needs %s.</li>' % (esc(h), esc(t), esc('; '.join(need))) for (h, t, _), need in skipped))
@@ -3929,15 +4472,20 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
     lead_rows = []
     for t in leads:
         word = ('more often' if t['binary'] else 'higher') if t['delta'] > 0 else ('less often' if t['binary'] else 'lower')
-        lead_rows.append('<tr%s><td class="l"><b>%s</b> %s: %s %s than %s</td><td>%d / %d</td><td><b>%+.2f</b><br><span class="muted">%s</span></td><td>%s</td><td>%.3f%s</td><td>%s</td></tr>'
-                         % (' class="pass"' if t['q'] < 0.1 else '', esc(t['level']), esc(dict(groupings).get(t['grouping'], t['grouping'])), esc(t['label']), word, esc(t['vs']),
-                            t['n1'], t['n0'], t['delta'], delta_size(t['delta']), fmt_p(t['p']), t['q'], ' ✓' if t['q'] < 0.1 else '', t['n_per_group_80_half'] or ''))
+        adj = '' if t['binary'] else adj_words(t['delta'], adjusted_delta(recs, t['key'], t['grouping'], t['level'], t['vs']), t['key'])
+        ga, gb = group_words(t['grouping'], t['level'], t['vs'])
+        lead_rows.append('<tr%s><td class="l"><b>%s</b>: %s %s than %s<br><span class="muted">grouping: %s</span></td><td>%d / %d</td><td><b>%+.2f</b><br><span class="muted">%s</span></td><td class="l">%s</td><td>%s</td><td>%.3f%s</td><td>%s</td></tr>'
+                         % (' class="pass"' if t['q'] < 0.1 else '', esc(t['label']), esc(cap(ga)), word, esc(gb), esc(dict(groupings).get(t['grouping'], t['grouping'])),
+                            t['n1'], t['n0'], t['delta'], delta_size(t['delta']), ('<b class="flag">%s</b>' % esc(adj)) if 'mostly the pieces' in adj else esc(adj),
+                            fmt_p(t['p']), t['q'], ' ✓' if t['q'] < 0.1 else '', t['n_per_group_80_half'] or ''))
     leads_html = ('<h2 id="leads">Leads for a larger study</h2><p class="muted">The best-supported group differences in these data (lowest p), one per measure, '
                   'from the study\'s own groupings (neurotype, eating, nutrition, study, condition), groups of %d or more, and measures of the pizza and its '
                   'choices (not single toppings or low-level timings). Each could become an idea to test. They are the best of %d comparisons, so their effects '
                   'are overestimated (the winner\'s curse): the last column plans a new study for <b>half</b> the δ seen, at 80%% power and α = .05. δ size words '
-                  'follow Romano et al. (2006): negligible &lt; .15, small &lt; .33, medium &lt; .47, large.</p><div class="tbl"><table class="leads"><tr><th class="l">Pattern</th><th>n</th>'
-                  '<th>δ</th><th>p</th><th>q</th><th title="%s">n/group to confirm (δ halved) ⓘ</th></tr>%s</table></div>'
+                  'follow Romano et al. (2006): negligible &lt; .15, small &lt; .33, medium &lt; .47, large. <b>With the pieces taken into account</b>: the same '
+                  'comparison once the number of pieces is allowed for; a lead marked <b>mostly the pieces</b> repeats the difference in how much people put on the '
+                  'pizza rather than adding a new one.</p><div class="tbl"><table class="leads"><tr><th class="l">Pattern</th><th>n</th>'
+                  '<th>δ</th><th class="l">With the pieces taken into account</th><th>p</th><th>q</th><th title="%s">n/group to confirm (δ halved) ⓘ</th></tr>%s</table></div>'
                   % (LEAD_MIN, n_screen, SAMPLE_TIP, ''.join(lead_rows))) if lead_rows else (
         '<h2 id="leads">Leads for a larger study</h2><p class="muted">None yet: a lead needs two groups of %d or more in one of the study\'s groupings '
         '(neurotype, eating, nutrition, study, condition). Until then, the tables below describe these people; they are not evidence.</p>' % LEAD_MIN)
@@ -3956,18 +4504,30 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
     best = max(sizes) if sizes else (0, '')
     can = ('<b>Nothing can be tested yet</b>: none of the study\'s groupings (neurotype, eating, nutrition, study, condition) has two groups of 3 or more. '
            'The page describes these %d pizzas.' % n if not sizes else
-           '<b>Description only</b>: the best grouping (%s) has %d in its smaller group. A difference can reach p &lt; .05 from 4 per group, pass the '
-           'correction over this page\'s %d tests from %d per group, and a large effect needs about 24 per group (Methods → Sample sizes).'
-           % (esc(best[1]), best[0], n_screen, need_n) if best[0] < need_n else
+           '<b>Description only, for now</b>: the best split of the participants (%s) has %d people in its smaller group. That is enough to see patterns, '
+           'not to trust them: even a perfect separation would need %d per group to pass the correction over this page\'s %d tests, and finding a large '
+           'difference reliably takes about 24 per group (Methods → Sample sizes). Use this page to choose what to test in the main study.'
+           % (esc(best[1]), best[0], need_n, n_screen) if best[0] < need_n else
            '<b>Screening</b>: the best grouping (%s) has %d in its smaller group, enough for a strong difference to pass the correction over this page\'s tests. A large effect needs '
            'about 24 per group for 80%% power.' % (esc(best[1]), best[0]) if best[0] < 24 else
            '<b>Testing</b>: the best grouping (%s) has %d in its smaller group, enough to detect large effects (80%% power).' % (esc(best[1]), best[0]))
     readiness = '<p class="verdict%s">%d pizzas. %s</p>' % (' pass' if best[0] >= 24 else '', n, can)
-    html = (head + readiness + '<p class="lead"><b>For exploring, not confirming.</b> First the ideas worth testing, then the best-supported leads, then each '
-            'grouping in full (%d measures, %d of them per topping). Effects are Cliff\'s δ (−1 to 1: how often a value from the group is higher than one from '
-            'the comparison, minus how often lower; for yes/no measures, the difference in percentages); p from a Mann-Whitney test (by permutation under 8 '
-            'per group); q the Benjamini-Hochberg false discovery rate over a family of questions (the study\'s groupings with the self-reports; demographics '
-            'apart; the ideas apart); bootstrap 95%% intervals for groups of 5 or more.</p><div class="chips">%s</div>'
+    html = (head + readiness + '<div class="howto"><b>How to read this page.</b> It compares groups of participants on every measure, to find patterns '
+            'worth testing in a new sample: it cannot confirm anything. Start with the <b>ideas</b> (what the literature suggests, checked against these data, '
+            'in words first), then the <b>leads</b> (the clearest differences found here), then each grouping in full. The groupings are the same people '
+            'split in different ways (neurotype, any neurodivergence, autism, ADHD, how it was identified), so their results overlap: read them together, not as '
+            'separate findings.'
+            '<dl><dt>Difference (δ)</dt><dd>Cliff\'s δ, from −1 to 1: 0 means no difference, ±0.47 or more is large. "8 in 10 pairs": take one person from each '
+            'group at random, and that is how often the first is higher.</dd>'
+            '<dt>With the pieces taken into account</dt><dd>the same comparison once the number of pieces is allowed for. Many measures rise with how much is '
+            'on the pizza, so a difference marked <b>mostly the pieces</b> repeats the difference in amount.</dd>'
+            '<dt>p and q</dt><dd>p: how often chance alone would give a difference this large. q: p corrected for the many comparisons on this page; only q '
+            'below 0.10 counts as a lead. With groups under 10, large differences often come from chance.</dd></dl>'
+            '<details class="more"><summary>The statistics in full</summary><p class="muted">%d measures, %d of them per topping. Effects are Cliff\'s δ (how often a value '
+            'from the group is higher than one from the comparison, minus how often lower; for yes/no measures, the difference in percentages); p from a '
+            'Mann-Whitney test (by permutation under 8 per group); q the Benjamini-Hochberg false discovery rate over a family of questions (the study\'s '
+            'groupings with the self-reports; demographics apart; the ideas apart); bootstrap 95%% intervals for groups of 5 or more. The piece-count check '
+            'compares rank residuals of the measure on log(pieces) (Methods → Comparing groups).</p></details></div><div class="chips">%s</div>'
             % (len(defs), len([d for d in defs if d[0].startswith(TOPPING_AREAS)]), nav)
             + planned_html(planned, groupings, covariates, skipped) + leads_html
             + ''.join(body)

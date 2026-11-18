@@ -5,6 +5,31 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**The reports, reworked for reading (analysis).** A review of every report on the pilot's 16 pizzas found them organised by
+measure family (a wall of near-identical charts), statistics-first, and blind to one fact that explains much of the
+pilot: neurodivergent participants put about twice as many pieces on their pizza (median 36 vs 16), and touching,
+stacking, coverage, the number of toppings, "grouped by topping" and build time all rise with pieces (ρ ≈ .5–.9), so
+several "leads" were one difference repeated. Now:
+- **Overview** leads with *key points* in plain sentences (fixed rules in `analysis/analyse.py` key_points, not an AI
+  model), then *who took part*, *how the study ran* (how many reached each part, where the others stopped, how long each
+  part took, retried saves, small windows), *every pizza* drawn by group, *do the measures work?* (spread, floor /
+  ceiling, link with the number of pieces, a verdict per measure), and a *first look* at the leading comparison (each
+  difference in words, "in 8 of 10 pairs", as it is and with the number of pieces taken into account). The detailed
+  charts by group are folded; table columns nobody has are hidden.
+- **Unit of analysis:** the diet chart pooled pieces across people (one 89-piece pizza outweighed others); it now
+  averages each person's shares, so each person counts once.
+- **Explore** opens with a plain "how to read this page" (δ, "in 8 of 10 pairs", the piece check, p and q, overlapping
+  groupings); each idea says what was seen, in words, with the people as dots, marks results that go against the
+  idea, and folds the statistics; leads name the groups in words and show the piece check.
+- **Profiles:** links between build behaviour and preferences show ρ with the pieces taken into account (the strongest
+  link, grouped by topping × pieces, is amount itself); the profile picture leaves out measures not asked.
+- **Symmetry** says what it is for: checking the measures by eye.
+- **Methods** opens with *How to read these reports* (the person is the unit, description before tests, small groups,
+  the piece-count issue, effect sizes in words, p and q) and documents the piece check (rank residuals on log pieces;
+  not done for near-constant measures or when the groups barely overlap in pieces).
+- **Fixes:** the report miniatures now use each person's own sauce and cheese; the Data check's "1 of them answered…"
+  sat under the wrong line and said "1 pizzas"; empty values in session JSON files ("null") no longer count as consent.
+
 **The reports' small pizzas look like the Sessions tab's.** The overview (and the other reports) drew its miniatures as simple dots and lines; they are now drawn by the task's own picture code (`PizzaBuilder.picture`, loaded from the study server), the same as on the Sessions tab; the simple drawing stays where the script cannot load (a report opened as a file).
 
 **Explore follows the study's questions (task 0.18.2).** The *Ideas to test* now run only where the study asked what

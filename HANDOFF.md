@@ -81,6 +81,10 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 ## Decisions and why
 
+- **Reports describe first, test second, and check the number of pieces** (2026-11-18). Many pizza measures follow how
+  many pieces are on it; groups that differ in pieces then "differ" in all of them. Every comparison in the Overview,
+  the Explore ideas and leads, and the Profiles links is also shown with the pieces taken into account (analysis/insight.py:
+  rank residuals on log pieces). Key points come from fixed rules, never a model, so the same data give the same text.
 - **Settings tab = overrides in the database, study.json stays the base** (0.18.0). Layers: study.json main → global
   changes → the study's own study.json lines → the study's changes. Kept in `meta` (`settings:*`, `settings:<study>`),
   no migration; the Worker reads them at the start of the requests that need them (`setOverrides`). Only `nutrition`,
@@ -213,6 +217,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-18 | Claude Code (cloud) | Reports reworked after a full review on the pilot: Overview (key points, who took part, how it ran, every pizza, measure check, first look with the piece-count check), Explore (how to read, ideas in words with dots, stats folded, piece check on leads), Profiles (partial ρ, hidden empty columns), Symmetry purpose, Methods reading guide; analysis/insight.py; per-person diet shares; thumbnails with own base |
 | 2026-11-17 | Claude Code (cloud) | 0.18.2: Explore ideas follow the study's questions (not-asked ideas set apart outside the correction; ideas 10-13 for diet, formal vs self ID, age, gender; diet_plant; explore notes on own questions, checked by both servers); report miniatures drawn by PizzaBuilder.picture; reports rebuild on opening when out of date; Non-spicy label |
 | 2026-11-17 | Claude Code (cloud) | 0.18.1: lost saves fixed (keepalive quota: one save at a time, timeout, save_seq stale guard on both servers, past-the-build = submitted, Data check saves_lost); live scan of 32 sessions, Pad0b44f1 recovered (included); small window covers the task until it fits (small-window info only); plain-language ⚠/ℹ tooltips; ResizeObserver notice ignored |
 | 2026-11-17 | Claude Code (cloud) | 0.18.0: nutrition hidden until asked (blurred + button, reveal measures, nutrition_mode); Settings tab (nutrition, questions, conditions; global and per study; both servers, settings.py = settings.js); defaults shown + before; green pulsing Gotowe (nudges); whole flow fits 1366×657 |
