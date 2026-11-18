@@ -1331,6 +1331,11 @@ def about_measures(about):
     # the metryczka (pizza-builder.js, style 'metryczka') asks the age in years and whether the person is transgender
     out['age_years'] = about.get('ageYears') if isinstance(about.get('ageYears'), int) else None
     out['transgender'] = {'yes': 1, 'no': 0}.get(about.get('trans'))
+    # trans or non-binary (gender diverse): 1 = non-binary or another gender, or transgender; 0 = a cisgender woman or man (said
+    # no to transgender); empty when not known (no answer, or the transgender question not asked of a woman or man)
+    g = out['gender']
+    out['gender_diverse'] = (1 if g in ('nonbinary', 'other') or out['transgender'] == 1 else
+                             0 if g in ('woman', 'man') and out['transgender'] == 0 else None)
     return out
 
 
@@ -2389,6 +2394,11 @@ def sample_facts(recs):
     tg = [r.get('transgender') for r in recs if r.get('transgender') in (0, 1)]
     if tg:
         rows.append(('Transgender', '%d of %d who answered' % (sum(tg), len(tg))))
+    gd = [r for r in recs if r.get('gender_diverse') in (0, 1)]
+    if gd and any(r['gender_diverse'] for r in gd):
+        ov = gender_overlap(recs)
+        rows.append(('Trans or non-binary', '%d of %d%s' % (sum(r['gender_diverse'] for r in gd), len(gd),
+                     ('; %d of the %d neurodivergent, %d of the %d others' % (ov['c'][(1, 1)], ov['nd'], ov['c'][(0, 1)], ov['nt'])) if ov else '')))
     diets = Counter(d for r in recs for d in (r.get('diet') or '').split() if d in DIET_WORDS)
     if diets:
         rows.append(('Diet (own account)', ', '.join('%s %d' % (DIET_WORDS[k], v) for k, v in diets.most_common())))
@@ -2417,7 +2427,32 @@ def first_look(recs):
             c['label'] = IN.LABELS.get(k, k)
             c['unit'] = next((u for kk, _, _, u in IN.KEY_MEASURES if kk == k), '')
             rows.append(c)
-    return {'key': key, 'a': la, 'b': lb, 'rows': rows, 'n_a': sum(1 for r in recs if r.get(key) == 1), 'n_b': sum(1 for r in recs if r.get(key) == 0)}
+    ov = gender_overlap(recs) if key == 'nd_any' else None
+    cis = bool(ov and ov['entangled'] and ov['cis_nd'] >= IN.MIN_GROUP and ov['cis_nt'] >= IN.MIN_GROUP)
+    if cis:
+        for c in rows:
+            c['cis'] = cis_compare(recs, c['key'])
+    return {'key': key, 'a': la, 'b': lb, 'rows': rows, 'n_a': sum(1 for r in recs if r.get(key) == 1), 'n_b': sum(1 for r in recs if r.get(key) == 0),
+            'cis': (ov['cis_nd'], ov['cis_nt']) if cis else None}
+
+
+def gender_overlap(recs):
+    """How neurodivergence and gender identity overlap (larger studies find gender diversity more often among autistic
+    people): the counts, and whether they are entangled here (the share of trans or non-binary people differs by 30 points
+    or more between the neurodivergent and the other participants, with 3+ in each). None without both answers."""
+    have = [r for r in recs if r.get('nd_any') in (0, 1) and r.get('gender_diverse') in (0, 1)]
+    if len(have) < 6 or not any(r['gender_diverse'] == 1 for r in have):
+        return None
+    c = Counter((r['nd_any'], r['gender_diverse']) for r in have)
+    nd, nt = c[(1, 0)] + c[(1, 1)], c[(0, 0)] + c[(0, 1)]
+    s_nd, s_nt = (c[(1, 1)] / nd if nd else 0), (c[(0, 1)] / nt if nt else 0)
+    return {'c': c, 'nd': nd, 'nt': nt, 'share_nd': s_nd, 'share_nt': s_nt, 'entangled': nd >= 3 and nt >= 3 and abs(s_nd - s_nt) >= 0.3,
+            'cis_nd': c[(1, 0)], 'cis_nt': c[(0, 0)], 'n': len(have)}
+
+
+def cis_compare(recs, key):
+    """Neurodivergent against not, among cisgender participants only (insight.compare; None with under 3 on a side)."""
+    return IN.compare(recs, key, lambda r: r.get('nd_any') == 1 and r.get('gender_diverse') == 0, lambda r: r.get('nd_any') == 0 and r.get('gender_diverse') == 0)
 
 
 def diet_fit(recs):
@@ -2491,6 +2526,16 @@ def key_points(recs, check, mc, fl):
             out.append(('info', 'No clear difference beyond the number of pieces yet',
                         'Once the number of pieces is taken into account, none of the %d measures differs clearly between %s and %s participants.'
                         % (len(rest), fl['a'].lower(), fl['b'].lower()), 'Expected with groups this small; it is not evidence of no difference.'))
+    # neurotype and gender identity: entangled?
+    ov = gender_overlap(recs)
+    if ov and ov['entangled']:
+        out.append(('warn', 'Neurodivergence and gender identity overlap',
+                    '%d of the %d neurodivergent participants are trans or non-binary, against %d of the %d others. A difference between neurodivergent and other '
+                    'participants could just as well be one between gender-diverse and cisgender participants (larger studies also find gender diversity more '
+                    'often among autistic people).' % (ov['c'][(1, 1)], ov['nd'], ov['c'][(0, 1)], ov['nt']),
+                    ('The first look below also compares neurodivergent and other participants among cisgender participants only (%d and %d).' % (ov['cis_nd'], ov['cis_nt']))
+                    if ov['cis_nd'] >= IN.MIN_GROUP and ov['cis_nt'] >= IN.MIN_GROUP else
+                    'Too few cisgender neurodivergent participants to compare within cisgender participants yet: the main study should recruit to separate the two.'))
     # validity: the stated diet
     said, fits = diet_fit(recs)
     if len(said) >= 2:
@@ -2590,16 +2635,24 @@ def first_look_html(fl):
                '<span class="muted">–</span>' if c['d_adj'] is None else
                '%s%s' % (esc(IN.size_word(c['d_adj'])), ' <b class="flag">mostly the pieces</b>' if IN.pieces_explain(c) else ''))
         hi = c['d'] > 0
-        rows.append('<tr><td class="l"><b>%s</b></td><td>%s</td><td>%s</td><td>%s</td><td class="l">%s%s</td><td class="l">%s</td></tr>'
+        cis = ''
+        if fl.get('cis'):
+            cc = c.get('cis')
+            cis = '<td class="l">%s</td>' % (esc(IN.size_word(cc['d'])) + (' <span class="note">(%s higher)</span>' % esc((fl['a'] if cc['d'] > 0 else fl['b']).lower()) if abs(cc['d']) >= .147 else '')
+                                            if cc and cc['d'] is not None else '<span class="muted">–</span>')
+        rows.append('<tr><td class="l"><b>%s</b></td><td>%s</td><td>%s</td><td>%s</td><td class="l">%s%s</td><td class="l">%s</td>%s</tr>'
                     % (esc(c['label']), IN.fmt_value(c['med_a'], c['unit']), IN.fmt_value(c['med_b'], c['unit']), strip_svg(c['a'], c['b'], False, fl['a'], fl['b']),
                        esc(IN.size_word(c['d'])), ('<br><span class="note">%s higher in %d of 10 pairs</span>' % (esc(fl['a'] if hi else fl['b']), IN.times_out_of_ten(abs(c['d'])))) if abs(c['d']) >= .147 else '',
-                       adj))
+                       adj, cis))
     return ('<p class="muted">%s (%d) <span class="swatch a"></span>against %s (%d) <span class="swatch b"></span>, by their own account. '
-            '"In 7 of 10 pairs": take one person from each group at random, and that is how often the first is higher. The last column takes the number '
-            'of pieces into account: a difference that shrinks there was mostly about how much was on the pizza. These are descriptions of these people, '
+            '"In 7 of 10 pairs": take one person from each group at random, and that is how often the first is higher. "With the pieces taken into account" '
+            'allows for the number of pieces: a difference that shrinks there was mostly about how much was on the pizza.%s These are descriptions of these people, '
             'not tests; Explore has the tests.</p><div class="tbl"><table><tr><th class="l">Measure</th><th>%s</th><th>%s</th><th class="l">Each person</th>'
-            '<th class="l">Difference</th><th class="l">With the pieces taken into account</th></tr>%s</table></div>'
-            % (esc(fl['a']), fl['n_a'], esc(fl['b'].lower()), fl['n_b'], esc(fl['a']), esc(fl['b']), ''.join(rows)))
+            '<th class="l">Difference</th><th class="l">With the pieces taken into account</th>%s</tr>%s</table></div>'
+            % (esc(fl['a']), fl['n_a'], esc(fl['b'].lower()), fl['n_b'],
+               ' "Among cisgender participants only" repeats the comparison without trans and non-binary people, because neurodivergence and gender identity '
+               'overlap here: a difference that holds there is not just about gender.' if fl.get('cis') else '',
+               esc(fl['a']), esc(fl['b']), ('<th class="l">Among cisgender participants only (%d and %d)</th>' % fl['cis']) if fl.get('cis') else '', ''.join(rows)))
 
 
 def gallery_html(entries):
@@ -3610,7 +3663,7 @@ EXPLORE_GROUPINGS = [
     ('neurotype', 'Neurotype (self-described)'), ('nd_any', 'Any neurodivergence (yes / no)'), ('nd_autistic', 'Autistic, incl. AuDHD (yes / no)'), ('nd_adhd', 'ADHD, incl. AuDHD (yes / no)'),
     ('nd_identified', 'Autism / ADHD: formally diagnosed or not'), ('eat_any', 'Any eating difficulty, allergy or intolerance (yes / no)'),
     ('eat_picky', 'Picky eating since childhood (yes / no)'), ('gender', 'Gender'), ('age_band', 'Age'),
-    ('transgender', 'Transgender (yes / no)'), ('diet_special', 'Special diet (vegetarian, vegan or other; yes / no)'), ('diet_plant', 'Vegetarian or vegan (yes / no)'),
+    ('transgender', 'Transgender (yes / no)'), ('gender_diverse', 'Trans or non-binary (yes / no)'), ('diet_special', 'Special diet (vegetarian, vegan or other; yes / no)'), ('diet_plant', 'Vegetarian or vegan (yes / no)'),
     ('nutrition_mode', 'Nutrition information: shown / hidden until asked / none'), ('nutrition_panel', 'Nutrition panel shown (yes / no)'), ('nutri_revealed', 'Revealed the nutrition while building (yes / no)'), ('group', 'Recruitment group (study link)'), ('source', 'Recruitment source'), ('study', 'Study'), ('condition', 'Condition'),
 ]
 EXPLORE_COVARIATES = [('self_picky', '"I am a picky eater" (1-7)'), ('self_sensory_food', '"Food textures, smells or looks bother me" (1-7)'), ('age_years', 'Age (years)')]
@@ -3734,7 +3787,7 @@ def t_sf2(t, df):
 TOPPING_AREAS = ('Toppings', 'Strong ', 'Changed mind', 'Considered')      # per-topping rows of explore.html
 # the groupings the study is about; the others (demographics, recruitment) are shown folded away. The task is desktop
 # only, so the device is not a grouping.
-RESEARCH_GROUPINGS = ('neurotype', 'nd_any', 'nd_autistic', 'nd_adhd', 'nd_identified', 'eat_picky', 'eat_any', 'nutri_revealed', 'nutrition_mode', 'nutrition_panel', 'study', 'condition')
+RESEARCH_GROUPINGS = ('neurotype', 'nd_any', 'nd_autistic', 'nd_adhd', 'nd_identified', 'gender_diverse', 'eat_picky', 'eat_any', 'nutri_revealed', 'nutrition_mode', 'nutrition_panel', 'study', 'condition')
 # measures that make a lead: not the per-topping indicators, base choices or the low-level process and movement
 # timings (they stay in the full screen)
 NOT_LEADS = TOPPING_AREAS + ('Base and diet', 'Process', 'Movement')
@@ -3811,7 +3864,7 @@ def explore_measures(recs, tray):
 def group_labels(recs, key):
     """Each pizza's group in a grouping, as text (yes / no for the yes/no groupings), None when unknown."""
     raw = [r.get(key) for r in recs]
-    if key in ('nd_any', 'nd_autistic', 'nd_adhd', 'eat_any', 'eat_picky', 'nutrition_panel', 'nutri_revealed', 'diet_plant', 'diet_special', 'transgender'):
+    if key in ('nd_any', 'nd_autistic', 'nd_adhd', 'eat_any', 'eat_picky', 'nutrition_panel', 'nutri_revealed', 'diet_plant', 'diet_special', 'transgender', 'gender_diverse'):
         raw = [None if v is None else ('yes' if v else 'no') for v in raw]
     return [None if v in (None, '') else str(v) for v in raw]
 
@@ -3826,7 +3879,7 @@ def grouping_levels(recs, key, min_n=3):
 # groupings with a natural reference group: each other group is compared with it, not with everyone else (pooling
 # autistic, ADHD and AuDHD people into "the rest" mixes the groups the study compares)
 GROUPING_REF = {'neurotype': 'Not ND', 'nd_any': 'no', 'nd_autistic': 'no', 'nd_adhd': 'no', 'eat_any': 'no', 'eat_picky': 'no',
-                'nutri_revealed': 'no', 'nutrition_panel': 'no', 'diet_plant': 'no', 'diet_special': 'no'}       # yes/no groupings read "yes vs no"
+                'nutri_revealed': 'no', 'nutrition_panel': 'no', 'diet_plant': 'no', 'diet_special': 'no', 'gender_diverse': 'no', 'transgender': 'no'}       # yes/no groupings read "yes vs no"
 
 
 def min_n_to_pass(m, fdr=0.05):
@@ -3940,13 +3993,18 @@ def is_ms(key):
 
 
 def fmt_m(v, binary, key=''):
-    """A typical value for the tables: % for yes/no measures, seconds for times, otherwise 2 decimals or whole numbers."""
+    """A typical value for the tables: % for yes/no measures, seconds for times, the diet class in words, counts as whole
+    numbers, otherwise 2 decimals (whole numbers from 100)."""
     if v is None:
         return ''
     if binary:
         return '%.0f%%' % (100 * v)
     if is_ms(key):
         return '%.1f s' % (v / 1000)
+    if key == 'diet_rank' and v == int(v) and 0 <= v <= 3:     # 0 vegan .. 3 meat: the class in words
+        return ('vegan', 'vegetarian', 'fish', 'meat')[int(v)]
+    if key.startswith('n_') and v == int(v):                    # counts: whole numbers
+        return '%d' % v
     return ('%.0f' % v) if abs(v) >= 100 else ('%.2f' % v)
 
 
@@ -3967,6 +4025,8 @@ EXPLORE_CSS = """
 .hl { border-left: 4px solid var(--muted); padding-left: 6px; } .hl.yes { border-color: #2f7d4f; } .hl.no { border-color: #b3261e; } .hl.wait { border-color: #9a6a00; }
 .outline { margin: 4px 0 8px; padding-left: 22px; } .outline li { margin: 3px 0; }
 .inwords { margin: 2px 0 8px; padding-left: 20px; max-width: 98ch; } .inwords li { margin: 3px 0; }
+.cross { border-collapse: collapse; font-size: .9rem; } .cross th, .cross td { border-bottom: 1px solid var(--line); padding: 4px 12px; text-align: right; }
+.cross td:first-child, .cross th:first-child { text-align: left; }
 .hyp h3 { margin: 2px 0 4px; } .hyp .verdict { font-weight: 600; margin: 4px 0 8px; }
 .hyp .ok { color: #2f7d4f; font-weight: 600; } .hyp .bad { color: #b3261e; font-weight: 600; } .flag { color: var(--miss); } .hyp tr.na td { color: var(--muted, #6e635b); }
 .ready { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; font-size: .85rem; color: var(--muted, #6e635b); }
@@ -4087,6 +4147,15 @@ IDEAS = [
     ('Idea 13', 'Gender and the pizza', 'Men and women differ in average food choices (e.g. meat, energy); a confound to check before comparing '
      'neurotypes, as autism and ADHD are diagnosed at different rates by gender. The largest gender group against the rest.',
      [('gender', '*')], [('diet_rank', 0), ('nut_kcal', 0), ('n_pieces', 0)]),
+    ('Idea 14', 'Neurodivergent people build differently', 'Autism and ADHD share differences in sensory processing, attention and planning, but '
+     'pull different ways on some of them, so for neurodivergence as a whole there is no single expected direction: does anything differ at all, in '
+     'what is chosen, how it is placed, and how quickly?',
+     [('nd_any', 'yes')], [('diet_rank', 0), ('atypicality_bits', 0), ('mirror_score', 0), ('resized_share', 0), ('decision_median', 0), ('revision_rate', 0)]),
+    ('Idea 15', 'Trans and non-binary participants', 'Studies report eating difficulties and body-image concerns more often among trans and non-binary '
+     'people; whether anything like that shows in a pizza built freely is open. Also a check before comparing neurotypes, since gender diversity is '
+     'more common among autistic people. Trans and non-binary participants together (each group alone is usually too small to test); Explore → '
+     'Neurotype and gender identity describes them separately.',
+     [('gender_diverse', 'yes')], [('nut_kcal', 0), ('n_distinct', 0), ('diet_rank', 0), ('decision_median', 0)]),
 ]
 # what records an idea's measures, when a study has none of them
 MEASURE_NEEDS = [('n_strong', 'the standard follow-up (strong feelings about the toppings)'), ('n_sensory', 'the standard follow-up (strong feelings about the toppings)'),
@@ -4097,7 +4166,7 @@ IDEA_NEEDS = {'nd_autistic': 'autism (short card or About you)', 'nd_adhd': 'ADH
               'neurotype': 'autism / ADHD', 'eat_picky': 'eating history (About you, standard follow-up)',
               'self_sensory_food': 'the sensory food rating (About you, standard follow-up)', 'revealers': 'nutrition hidden until asked (Settings)',
               'diet_plant': 'diet (short card)', 'nd_identified': 'autism / ADHD with how it was identified', 'age_years': 'age in years (short card)',
-              'gender': 'gender'}
+              'gender': 'gender', 'gender_diverse': 'gender and whether they are transgender (short card)'}
 LARGE_DELTA = 0.474     # a large Cliff's δ (Romano et al. 2006): the effect the sample sizes below are planned for
 SAMPLE_TIP = ('People per group for 80%% power, two-sided: n = 2 (z(α/2) + z(0.80))² / (3 δ²) (Noether 1987), with α = .05 / t for t tests '
               '(Bonferroni over the idea\'s tests). Correlations: n = ((z(α/2) + z(0.80)) / atanh ρ)² + 3. Change within a person (sign test, '
@@ -4238,13 +4307,15 @@ GROUPING_NOTES = {
     'nd_adhd': 'Yes = ADHD, with or without autism (AuDHD people are in this group and in the autistic one).',
     'nd_identified': 'formal = every reported condition diagnosed by a specialist; mixed = AuDHD, diagnosed for one and self-identified for the other; '
                      'self or waiting = none diagnosed.',
+    'gender_diverse': 'Yes = non-binary (or another gender), or transgender; no = a cisgender woman or man. Larger studies find gender diversity more '
+                      'often among autistic people: see Neurotype and gender identity for how the two overlap here.',
 }
 
 
 # the groups of a comparison in words, for sentences ("autistic participants higher than the others")
 YESNO_WORDS = {'nd_any': 'neurodivergent participants', 'nd_autistic': 'autistic participants (incl. AuDHD)', 'nd_adhd': 'participants with ADHD (incl. AuDHD)',
                'eat_picky': 'picky eaters', 'eat_any': 'people with an eating difficulty', 'diet_plant': 'vegetarians and vegans',
-               'diet_special': 'people on a special diet', 'transgender': 'transgender participants', 'nutrition_panel': 'those who saw the nutrition table',
+               'diet_special': 'people on a special diet', 'transgender': 'transgender participants', 'gender_diverse': 'trans or non-binary participants', 'nutrition_panel': 'those who saw the nutrition table',
                'nutri_revealed': 'those who looked at the nutrition'}
 LEVEL_WORDS = {'AuDHD': 'AuDHD participants (autistic and ADHD)', 'Autistic': 'autistic participants without ADHD', 'ADHD': 'participants with ADHD who are not autistic',
                'Not ND': 'not neurodivergent participants', 'Other ND': 'participants with another neurodivergence', 'formal': 'those diagnosed by a specialist',
@@ -4259,6 +4330,84 @@ def group_words(gkey, level, vs):
     a = LEVEL_WORDS.get(level, level)
     b = 'the others' if vs in ('the rest', 'rest', '') else LEVEL_WORDS.get(vs, vs)
     return a, b
+
+
+# gender identity in finer groups, for the description in Explore (non-binary people who also said transgender count as non-binary)
+GENDER_GROUPS = [('Non-binary or another gender', lambda r: r.get('gender') in ('nonbinary', 'other')),
+                 ('Trans women', lambda r: r.get('gender') == 'woman' and r.get('transgender') == 1),
+                 ('Trans men', lambda r: r.get('gender') == 'man' and r.get('transgender') == 1),
+                 ('Cisgender women', lambda r: r.get('gender') == 'woman' and r.get('transgender') == 0),
+                 ('Cisgender men', lambda r: r.get('gender') == 'man' and r.get('transgender') == 0)]
+GENDER_DESCRIBE = ['n_pieces', 'n_distinct', 'diet_rank', 'nut_kcal', 'decision_median']
+
+
+def gender_groups_html(recs):
+    """Trans and non-binary participants described separately (not tested: these groups are small): how many, how many
+    neurodivergent, and the median of a few measures for groups of 3 or more."""
+    units = {k: u for k, _, _, u in IN.KEY_MEASURES}
+    rows = []
+    for name, inside in GENDER_GROUPS:
+        g = [r for r in recs if inside(r)]
+        if not g:
+            continue
+        nd = sum(1 for r in g if r.get('nd_any') == 1)
+        cells = []
+        for k in GENDER_DESCRIBE:
+            v = [IN.num(r.get(k)) for r in g if IN.num(r.get(k)) is not None]
+            m = statistics.median(v) if len(v) >= IN.MIN_GROUP else None
+            text = ('–' if m is None else ['vegan', 'vegetarian', 'fish', 'meat'][int(m)] if k == 'diet_rank' and m == int(m) and 0 <= m <= 3
+                    else IN.fmt_value(m, units.get(k, '')))
+            cells.append('<td>%s</td>' % ('<span class="muted">–</span>' if m is None else esc(text)))
+        rows.append('<tr><td class="l"><b>%s</b></td><td>%d</td><td>%d</td>%s</tr>' % (esc(name), len(g), nd, ''.join(cells)))
+    if not rows:
+        return ''
+    nb_trans = sum(1 for r in recs if r.get('gender') in ('nonbinary', 'other') and r.get('transgender') == 1)
+    head = ''.join('<th>%s</th>' % esc(IN.LABELS.get(k, k)) for k in GENDER_DESCRIBE)
+    return ('<p id="gender-groups" style="margin:12px 0 2px"><b>Trans and non-binary participants, separately</b></p><div class="tbl"><table><tr><th class="l">Group</th>'
+            '<th>People</th><th>Neurodivergent</th>%s</tr>%s</table></div><p class="note">Medians, for groups of %d or more (– fewer). Descriptions, not '
+            'tests: groups this small say little on their own (Idea 15 tests trans and non-binary participants together). %s"Gender" and '
+            '"Transgender" in the screen below compare them once the groups are big enough.</p>'
+            % (head, ''.join(rows), IN.MIN_GROUP, ('%d non-binary participant%s also said they are transgender, and %s counted as non-binary. '
+                                                  % (nb_trans, '' if nb_trans == 1 else 's', 'is' if nb_trans == 1 else 'are')) if nb_trans else ''))
+
+
+def gender_nd_html(recs):
+    """explore.html: how neurodivergence and gender identity overlap, the neurodivergent / other comparison among
+    cisgender participants only (to separate the two), and trans and non-binary participants described separately."""
+    ov = gender_overlap(recs)
+    if not ov:
+        return ''
+    c = ov['c']
+    table = ('<table class="cross" style="margin:6px 0"><tr><th></th><th>Cisgender</th><th>Trans or non-binary</th></tr>'
+             '<tr><td>Neurodivergent</td><td>%d</td><td>%d</td></tr><tr><td>Not neurodivergent</td><td>%d</td><td>%d</td></tr></table>'
+             % (c[(1, 0)], c[(1, 1)], c[(0, 0)], c[(0, 1)]))
+    msg = ('<p class="verdict">They overlap: %.0f%% of the neurodivergent participants are trans or non-binary, against %.0f%% of the others. A difference '
+           'between neurodivergent and other participants could just as well be one between gender-diverse and cisgender participants. Below, the same '
+           'comparison among cisgender participants only.</p>' % (100 * ov['share_nd'], 100 * ov['share_nt']) if ov['entangled'] else
+           '<p class="muted">They do not overlap much here, so neurotype comparisons are not mainly about gender identity.</p>')
+    rows = []
+    if ov['cis_nd'] >= IN.MIN_GROUP and ov['cis_nt'] >= IN.MIN_GROUP:
+        for k in FIRST_LOOK:
+            allc = IN.compare(recs, k, lambda r: r.get('nd_any') == 1, lambda r: r.get('nd_any') == 0, adjust=False)
+            cc = cis_compare(recs, k)
+            if not allc or not cc or cc['d'] is None:
+                continue
+            gone = abs(allc['d']) >= .33 and abs(cc['d']) < abs(allc['d']) / 2
+            flips = abs(allc['d']) >= .147 and abs(cc['d']) >= .147 and (allc['d'] > 0) != (cc['d'] > 0)
+            way = lambda d: IN.size_word(d) + ('' if abs(d) < .147 else ', neurodivergent %s' % ('higher' if d > 0 else 'lower'))
+            rows.append('<tr><td class="l"><b>%s</b></td><td class="l">%s</td><td class="l">%s%s</td><td>%s</td></tr>'
+                        % (esc(IN.LABELS.get(k, k)), esc(way(allc['d'])), esc(way(cc['d'])),
+                           ' <b class="flag">gone among cisgender</b>' if gone else ' <b class="flag">the other way among cisgender</b>' if flips else '',
+                           strip_svg(cc['a'], cc['b'], False, 'neurodivergent, cisgender', 'not neurodivergent, cisgender')))
+    cis = ('<div class="tbl"><table><tr><th class="l">Measure</th><th class="l">Neurodivergent against not, everyone</th><th class="l">Among cisgender only (%d and %d)</th>'
+           '<th class="l">Each cisgender person</th></tr>%s</table></div><p class="note">A difference marked <b>gone among cisgender</b> shrinks to under half '
+           'when only cisgender participants are compared: it may be about gender identity rather than neurodivergence (or the cisgender groups are too small '
+           'to show it); <b>the other way among cisgender</b> reverses there.</p>' % (ov['cis_nd'], ov['cis_nt'], ''.join(rows))) if rows else (
+        '<p class="muted">Too few cisgender neurodivergent participants (%d) to compare within cisgender participants: the main study should recruit to '
+        'separate the two.</p>' % ov['cis_nd'])
+    return ('<h2 id="gender-nd">Neurotype and gender identity</h2><p class="muted">Larger studies find gender diversity (being trans or non-binary) more '
+            'often among autistic people. If the two go together in a sample, a neurotype difference cannot be told apart from a gender-identity difference. '
+            'How they overlap among these %d participants:</p>%s%s%s%s' % (ov['n'], table, msg, cis if ov['entangled'] else '', gender_groups_html(recs)))
 
 
 def grouping_words(recs, gkey, tests):
@@ -4590,6 +4739,9 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
                '<li><a href="#planned"><b>Ideas to test</b></a>: what research on eating in autism and ADHD, and this study\'s own questions, would predict, '
                'checked against these data, in words first. Start here.</li>'
                '<li><a href="#leads"><b>Leads</b></a>: the clearest differences these data show, and how many people a new study would need to check each.</li>'
+               + (('<li><a href="#gender-nd"><b>Neurotype and gender identity</b></a>: how the two overlap here%s, and trans and non-binary participants '
+                   'described separately.</li>' % (', the neurotype comparison among cisgender participants only' if gender_overlap(recs)['entangled'] else ''))
+                  if gender_overlap(recs) else '')
                + ('<li><b>Each grouping in full</b>: %s. Every measure for one way of splitting the participants. These are the same people split in different '
                   'ways, so their results overlap: read them together, not as separate findings.</li>' % group_links if group_links else '')
                + ('<li><a href="#links"><b>Links with self-reports</b></a>: measures that rise or fall with %s.</li>' % esc(', '.join(c[0].lower() for c in cov_res)) if cov_res else '')
@@ -4615,7 +4767,7 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
             'another, the ideas a third; bootstrap 95%% intervals; the piece-count check compares rank residuals of the measure on log(pieces) '
             '(Methods → Comparing groups).</p></details></div>'
             % ('verdict pass' if best[0] >= 24 else 'verdict', n, can, outline, len(defs), len([d for d in defs if d[0].startswith(TOPPING_AREAS)]))
-            + planned_html(planned, groupings, covariates, skipped) + leads_html
+            + planned_html(planned, groupings, covariates, skipped) + leads_html + gender_nd_html(recs)
             + ''.join(body)
             + ('<details class="more" id="other"><summary>Other groupings: demographics and recruitment (%d)</summary>%s</details>' % (len(other_body), ''.join(other_body))
                if other_body else '')

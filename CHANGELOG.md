@@ -5,6 +5,25 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Neurodivergence and gender identity: new explorations.**
+- **Trans or non-binary** (`gender_diverse`, a new column): non-binary or another gender, or transgender; `0` = a
+  cisgender woman or man (said no to transgender); empty when not known. An Explore grouping in the study's family of
+  tests, a line in Who took part (with how many of the neurodivergent and of the other participants), the codebook and
+  Methods.
+- **Neurotype and gender identity** (Explore, new section): neurodivergence by gender identity as a table. When the two
+  overlap (the share of trans or non-binary people differs by 30 points or more), the neurodivergent / not comparison is
+  repeated among cisgender participants only, marking differences that vanish there (*gone among cisgender*) or reverse
+  (*the other way*). Overview adds the same column to its first look and a key point. Trans women, trans men and
+  non-binary participants are also described separately (medians for groups of 3 or more), not tested.
+- **Idea 14**, neurodivergence as a whole, with no expected direction (animal products, unusual combination, symmetry,
+  resizing, decision time, changes of mind); **idea 15**, trans and non-binary participants together (energy, kinds of
+  topping, animal products, decision time). Pooled: each group alone is too small, and testing the subgroups as well
+  would test the same people again and widen the correction.
+- Counts read as whole numbers and the diet class in words in the sentences and tables ("vegan against meat", not
+  "0.00 against 3.00"); every cisgender-only difference says which way it goes.
+- In the pilot, 6 of the 9 neurodivergent participants are trans or non-binary and none of the 6 others. Among
+  cisgender participants (3 and 6) most neurotype differences hold, except coverage.
+
 **Explore, second pass: outlined and explained; the data checked independently.**
 - **One opening box:** what the page does, where these pizzas stand (the largest comparison and what it can and cannot
   show), an outline of the sections with one line each, and "how to read the numbers" (δ, pairs, the piece check, p, q,

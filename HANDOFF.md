@@ -147,9 +147,16 @@ push, check the GitHub Actions run, and republish the demo artifact.
   in step: same routes, page and schema. The smoke test runs the same kinds of checks against both.
 - **Standard library only** (Python 3.10+, base R, no JS dependencies). The repository must run in a fresh Codespace,
   and in CI without installs beyond R.
+- **Trans and non-binary participants pooled for tests** (`gender_diverse`, idea 15). Each group alone is small, and
+  testing the subgroups too would test the same people again; they are described separately in Explore instead. When
+  neurodivergence and gender identity overlap, the reports repeat the neurotype comparison among cisgender participants.
 
 ## Known limitations and open questions
 
+- **Neurotype and gender identity overlap in the pilot.** 6 of its 9 neurodivergent participants are trans or
+  non-binary and none of the 6 others, so a neurotype difference there is also a gender-identity difference. Explore →
+  *Neurotype and gender identity* repeats the comparison among cisgender participants (3 and 6 in the pilot). The main
+  study should recruit cisgender neurodivergent and trans or non-binary neurotypical participants to separate the two.
 - **Turnstile and lab networks (decision pending).** When the person check cannot run in a browser (blocked, failing),
   the participant still cannot start; and new sessions are limited to 30 requests a minute per address (a lab shares
   one). Options and trade-offs: `docs/BROWSERS.md` → *Open decision*. The page already sends the reason (`nocheck=`).
@@ -217,6 +224,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-18 | Claude Code (cloud) | Neurodivergence and gender identity: gender_diverse column and grouping, Explore section (overlap table, neurotype comparison among cisgender only, trans / non-binary described separately), Overview line + key point + cisgender column, ideas 14 (ND overall) and 15 (trans and non-binary, pooled) |
 | 2026-11-18 | Claude Code (cloud) | Fixed Explore blinking (reload loop after a build); AuDHD one definition (idea 6 vs autistic-only / ADHD-only, nd_identified mixed, Sessions label + filter on both servers); Explore outline and explanations, verdicts discount piece-driven differences; independent recount of the pilot matched; recount added to the smoke test |
 | 2026-11-18 | Claude Code (cloud) | Reports reworked after a full review on the pilot: Overview (key points, who took part, how it ran, every pizza, measure check, first look with the piece-count check), Explore (how to read, ideas in words with dots, stats folded, piece check on leads), Profiles (partial ρ, hidden empty columns), Symmetry purpose, Methods reading guide; analysis/insight.py; per-person diet shares; thumbnails with own base |
 | 2026-11-17 | Claude Code (cloud) | 0.18.2: Explore ideas follow the study's questions (not-asked ideas set apart outside the correction; ideas 10-13 for diet, formal vs self ID, age, gender; diet_plant; explore notes on own questions, checked by both servers); report miniatures drawn by PizzaBuilder.picture; reports rebuild on opening when out of date; Non-spicy label |

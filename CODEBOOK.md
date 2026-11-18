@@ -245,6 +245,7 @@ Scales run 1-7:
 | `neurotype` | from "About you" or the short card: `AuDHD` (autistic and ADHD: yes to both, diagnosed or self-identified), `Autistic` (without ADHD), `ADHD` (without autism), `Other ND` (dyslexic etc. or otherwise neurodivergent only), `Not ND`; empty if not asked or prefer not to say |
 | `nd_autistic`, `nd_adhd`, `nd_dys`, `nd_otherND`, `nd_none`, `nd_pnts` | each self-description ticked (0/1) |
 | `dx_autistic`, `dx_adhd`, `nd_identified` | how each was identified (`formal` / `self` / `waiting` / `pnts`); `formal` if every autism/ADHD identity is formally diagnosed, `mixed` if AuDHD with one diagnosed and one not, else `self or waiting` |
+| `gender_diverse` | trans or non-binary: `1` = non-binary / another gender, or transgender; `0` = a cisgender woman or man; empty if not known |
 | `eat_picky`, `eat_arfid`, `eat_ed`, `eat_allergy`, `eat_none`, `eat_pnts`, `eat_any` | eating history ticked (0/1); `eat_any`: any of the first four |
 | `self_picky`, `self_sensory_food` | the two 1-7 self-ratings |
 | `age_band`, `gender` | demographics (empty if prefer not to say) |

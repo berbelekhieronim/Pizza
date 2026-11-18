@@ -532,12 +532,13 @@ def main():
         check(len(rows) == 24, 'one row per participant')
         ex = open(os.path.join(out, 'explore.html'), encoding='utf-8').read()
         planned = [r for r in csv.DictReader(open(os.path.join(out, 'explore.csv'), encoding='utf-8')) if r['grouping'] == 'planned']
-        n_cards, apart = ex.count('class="hyp '), re.search(r'Not asked in this study \((\d+) idea', ex)
-        check(n_cards + (int(apart.group(1)) if apart else 0) == 13 and n_cards >= 9 and 'Ideas to test' in ex and ex.count('class="cost"') == n_cards
-              and planned and all(r['q'] != '' for r in planned),
-              'Explore: the 13 ideas, those this study can test as their own family (each with its number of tests and the people it needs; rows in explore.csv), the rest set apart as not asked')
         sys.path.insert(0, os.path.join(ROOT, 'analysis'))
         import analyse as AN
+        n_cards, apart = ex.count('class="hyp '), re.search(r'Not asked in this study \((\d+) idea', ex)
+        check(len(AN.IDEAS) == 15 and n_cards + (int(apart.group(1)) if apart else 0) == len(AN.IDEAS) and n_cards >= 9 and 'Ideas to test' in ex
+              and ex.count('class="cost"') == n_cards and planned and all(r['q'] != '' for r in planned),
+              'Explore: the %d ideas, those this study can test as their own family (each with its number of tests and the people it needs; rows in explore.csv), '
+              'the rest set apart as not asked' % len(AN.IDEAS))
         notes = [{'_explore_notes': [{'id': 'sleep', 'type': 'single', 'explore': {'measures': ['n_distinct', 'nut_kcal'], 'direction': 'lower', 'answer': 'bad', 'title': 'Tired people choose less'}},
                                      {'id': 'hunger', 'type': 'number', 'explore': {'measures': ['nut_kcal'], 'direction': 'higher'}}]}]
         got = AN.note_ideas(notes)
@@ -555,6 +556,28 @@ def main():
               and both['nd_identified'] == 'formal' and selfid['nd_identified'] == 'self or waiting' and selfid['neurotype'] == 'Autistic'
               and idea6[3] == [('neurotype', 'AuDHD', 'Autistic'), ('neurotype', 'AuDHD', 'ADHD')],
               'AuDHD: yes to both autism and ADHD; counted in both yes / no groupings; diagnosed for one only is "mixed"; idea 6 compares AuDHD with autistic-only and ADHD-only')
+        # trans or non-binary: who counts, how it overlaps with neurodivergence, the cisgender-only comparison, the finer groups
+        gd = [AN.about_measures(a).get('gender_diverse') for a in ({'gender': 'nonbinary'}, {'gender': 'other', 'trans': 'no'}, {'gender': 'woman', 'trans': 'yes'},
+                                                                   {'gender': 'man', 'trans': 'no'}, {'gender': 'man'}, {'gender': 'pnts', 'trans': 'no'}, {'gender': 'pnts', 'trans': 'yes'})]
+        rnd3 = __import__('random').Random(7)
+        mk = lambda nd, gender, trans, i: {'nd_any': nd, 'gender': gender, 'transgender': trans, 'n_pieces': (30 if nd else 15) + i + rnd3.randint(0, 3),
+                                           'n_distinct': 3 + (i + nd) % 4, 'diet_rank': i % 4, 'nut_kcal': 900 + 30 * i, 'decision_median': 900 + 50 * i,
+                                           'gender_diverse': 1 if gender == 'nonbinary' or trans == 1 else 0}
+        sample = ([mk(1, 'woman', 0, i) for i in range(4)] + [mk(1, 'nonbinary', None, i) for i in range(4)] + [mk(1, 'man', 1, 0)]
+                  + [mk(0, 'woman', 0, i) for i in range(3)] + [mk(0, 'man', 0, i) for i in range(3)])
+        ov, fl, gx = AN.gender_overlap(sample), AN.first_look(sample), AN.gender_nd_html(sample)
+        cis_rows = [c for c in fl['rows'] if c.get('cis')]
+        overview_row = dict(AN.sample_facts(sample)).get('Trans or non-binary', '')
+        idea14, idea15 = (next(i for i in AN.IDEAS if i[0] == h) for h in ('Idea 14', 'Idea 15'))
+        check(gd == [1, 1, 1, 0, None, None, 1] and ov['entangled'] and (ov['cis_nd'], ov['cis_nt']) == (4, 6) and fl['cis'] == (4, 6)
+              and cis_rows and all(c['cis']['n_a'] == 4 and c['cis']['n_b'] == 6 for c in cis_rows) and overview_row.startswith('5 of 15; 5 of the 9 neurodivergent, 0 of the 6')
+              and 'id="gender-nd"' in gx and 'Among cisgender only (4 and 6)' in gx and 'id="gender-groups"' in gx and '<b>Trans men</b></td><td>1</td>' in gx
+              and '<b>Non-binary or another gender</b></td><td>4</td><td>4</td>' in gx and 'Trans women' not in gx
+              and idea15[3] == [('gender_diverse', 'yes')] and idea14[3] == [('nd_any', 'yes')]
+              and AN.gender_overlap([mk(1, 'woman', 0, i) for i in range(6)]) is None and AN.gender_nd_html([mk(0, 'man', 0, i) for i in range(8)]) == '',
+              'Trans or non-binary: non-binary, another gender or transgender (cisgender only when they said no to transgender); its overlap with '
+              'neurodivergence shown in Overview and Explore with the comparison among cisgender participants only; finer groups described, not tested; '
+              'ideas 14 (neurodivergence as a whole) and 15 (trans and non-binary) in place')
         # an independent recount from the raw sessions, without analyse.py: pieces, kinds of topping, the base and the diet class
         # of each analysed pizza, and one group difference (Cliff's delta) by hand
         MEAT, FISH, VEG_ONLY = {'pep', 'ham', 'chk', 'kan'}, {'anc', 'tun', 'shr'}, {'egg', 'gor'}
