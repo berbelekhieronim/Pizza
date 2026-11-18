@@ -165,7 +165,8 @@ export class Store {
     if (f.stage === 'synthetic') sql.push(SYN_SQL);
     if (f.stage === 'real') sql.push('NOT ' + SYN_SQL);
     for (const col of ['grp', 'source', 'stage', 'cond']) if (f[col] && !(col === 'stage' && (ACTIVITY.includes(f[col]) || ANALYSIS.includes(f[col])))) { sql.push(col + ' = ?'); args.push(f[col]); }
-    if (f.neuro) { sql.push("(' ' || neuro || ' ') LIKE ?"); args.push(`% ${f.neuro} %`); }
+    if (f.neuro === 'audhd') sql.push("(' ' || neuro || ' ') LIKE '% autistic %' AND (' ' || neuro || ' ') LIKE '% adhd %'");     // AuDHD: autistic and ADHD (store.py)
+    else if (f.neuro) { sql.push("(' ' || neuro || ' ') LIKE ?"); args.push(`% ${f.neuro} %`); }
     if (f.q) { sql.push('pid LIKE ?'); args.push(`%${f.q}%`); }
     const ids = String(f.pids || '').split(/[\s,]+/).filter(Boolean).slice(0, 90);   // D1 takes at most 100 values a query
     if (ids.length) { sql.push(`pid IN (${ids.map(() => '?').join(', ')})`); args.push(...ids); }

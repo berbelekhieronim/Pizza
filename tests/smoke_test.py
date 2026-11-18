@@ -122,6 +122,18 @@ def save_order_checks(base, key, who):
     return pid
 
 
+def neuro_filter_checks(base, key, who):
+    """The Sessions tab's neurotype filter: AuDHD = autistic and ADHD; Autistic and ADHD include AuDHD people."""
+    made = {}
+    for name, neuro in (('NEUROAU1', ['autistic', 'adhd']), ('NEUROAU2', ['autistic'])):
+        pid = json.loads(http('GET', base + '/api/start?study=pilot-asd&pid=' + name)[1])['pid']
+        http('POST', base + '/api/save', {'pid': pid, 'stage': 'done', 'fields': {'pzf_data': json.dumps({'about': {'neuro': neuro}})}})
+        made[name] = pid
+    got = lambda v: sorted(r['pid'] for r in api(base, 'sessions', key, study='pilot-asd', neuro=v, flat='1')['rows'] if r['pid'] in made.values())
+    check(got('audhd') == [made['NEUROAU1']] and got('autistic') == sorted(made.values()) and got('adhd') == [made['NEUROAU1']],
+          who + 'Sessions tab: the AuDHD filter finds people who are autistic and ADHD; the autistic and ADHD filters include them')
+
+
 def deploy_api_checks():
     """cloudflare/deploy.py's use of Cloudflare's API (account, workers.dev address, Turnstile), against a stand-in."""
     import http.server
@@ -295,7 +307,8 @@ def cloudflare_checks(tmp, fields):
         check(r.returncode == 0 and started == 'Started: 1 to build (main).' and api(base, 'state', key, study='main')['reports']['fresh']
               and not api(base, 'state', key, study='all')['reports']['fresh'],
               '"Build reports" on a study\'s page builds that study only (not "all" or the other studies)' + ('' if r.returncode == 0 else ' - ' + r.stderr[-300:]))
-        save_order_checks(base, key, 'Worker: ')         # last: it adds a session
+        save_order_checks(base, key, 'Worker: ')         # last: these add sessions
+        neuro_filter_checks(base, key, 'Worker: ')
     finally:
         os.killpg(srv.pid, 15)
         srv.wait(timeout=20)
@@ -534,6 +547,14 @@ def main():
         check([g[1] for g in got] == ['Tired people choose less', 'Survey: hunger'] and got[0][3] == [('q_sleep', 'bad')] and got[1][4] == [('nut_kcal', 1)]
               and 'Fewer, more familiar toppings' in titles and any(h[0] == 'Idea 12' for h, _ in apart) and any(h[0] == 'Idea 8' for h, _ in apart),
               'Explore: a question\'s "explore" note becomes an idea (its answer, measures and direction); ideas whose questions or measures a study lacks are set apart')
+        mixed = AN.about_measures({'neuro': ['autistic', 'adhd'], 'dx': {'autistic': 'formal', 'adhd': 'self'}})
+        both = AN.about_measures({'neuro': ['autistic', 'adhd'], 'dx': {'autistic': 'formal', 'adhd': 'formal'}})
+        selfid = AN.about_measures({'neuro': ['autistic'], 'dx': {'autistic': 'self'}})
+        idea6 = next(i for i in AN.IDEAS if i[0] == 'Idea 6')
+        check(mixed['neurotype'] == 'AuDHD' and mixed['nd_autistic'] == 1 and mixed['nd_adhd'] == 1 and mixed['nd_identified'] == 'mixed'
+              and both['nd_identified'] == 'formal' and selfid['nd_identified'] == 'self or waiting' and selfid['neurotype'] == 'Autistic'
+              and idea6[3] == [('neurotype', 'AuDHD', 'Autistic'), ('neurotype', 'AuDHD', 'ADHD')],
+              'AuDHD: yes to both autism and ADHD; counted in both yes / no groupings; diagnosed for one only is "mixed"; idea 6 compares AuDHD with autistic-only and ADHD-only')
         # the plain-language reading (analysis/insight.py): a measure that only follows the number of pieces is caught,
         # a real difference survives the adjustment, a measure stuck at one value is called out
         import insight as INS
@@ -860,7 +881,8 @@ def main():
             after = next(r for r in api(base, 'sessions', 'smoke-key', study='main', pids=pend['pid'])['rows'])
             check(pend['analysis'] == 'pending' and int(pend['listgroup']) == 1 and after['analysis'] == 'left_out' and int(after['listgroup']) == 2,
                   'a pending pizza (not finished, saved in the last 24 hours) is listed with those in progress; after 24 hours without a save it is abandoned and folded')
-            save_order_checks(base, 'smoke-key', '')         # last: it adds a session
+            save_order_checks(base, 'smoke-key', '')         # last: these add sessions
+            neuro_filter_checks(base, 'smoke-key', '')
         finally:
             srv.terminate()
             srv.wait(timeout=10)

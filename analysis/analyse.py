@@ -1317,7 +1317,10 @@ def about_measures(about):
         out['dx_' + c] = dx.get(c)
     ids = [dx.get(c) for c in ('autistic', 'adhd') if c in neuro]
     # how the autistic / ADHD identity was established, for checking whether patterns hold with formal diagnoses only
-    out['nd_identified'] = None if not ids or 'pnts' in ids or None in ids else ('formal' if all(v == 'formal' for v in ids) else 'self or waiting')
+    # formal: every one formally diagnosed; mixed: AuDHD diagnosed for one and self-identified (or waiting) for the other;
+    # self or waiting: none formally diagnosed
+    out['nd_identified'] = (None if not ids or 'pnts' in ids or None in ids else 'formal' if all(v == 'formal' for v in ids)
+                            else 'mixed' if any(v == 'formal' for v in ids) else 'self or waiting')
     for k in AB_EATING:
         out['eat_' + k] = int(k in eating) if eating else None
     out['eat_any'] = int(any(k in eating for k in ('picky', 'arfid', 'ed', 'allergy'))) if eating and 'pnts' not in eating else None
@@ -2339,7 +2342,11 @@ OVERVIEW_CSS = """
 details.charts { margin: 18px 0; } details.charts > summary { cursor: pointer; font-weight: 600; font-size: 1.05rem; }
 """
 
-NEURO_WORDS = {'Not ND': 'not neurodivergent', 'Autistic': 'autistic', 'ADHD': 'ADHD', 'AuDHD': 'autistic and ADHD', 'Other ND': 'other neurodivergence'}
+NEURO_WORDS = {'Not ND': 'not neurodivergent', 'Autistic': 'autistic only', 'ADHD': 'ADHD only', 'AuDHD': 'AuDHD (autistic and ADHD)', 'Other ND': 'other neurodivergence'}
+# the one definition, said wherever the neurotype groups appear
+NEUROTYPE_NOTE = ('AuDHD: answered yes to both the autism and the ADHD question (yes = diagnosed by a specialist, or self-identified; in the longer '
+                  'follow-up also waiting for an assessment). Autistic only and ADHD only: yes to one of the two. Not neurodivergent: no to both. '
+                  'The yes / no groupings (autistic, ADHD) count AuDHD people in both.')
 GENDER_WORDS = {'man': 'men', 'woman': 'women', 'nonbinary': 'non-binary'}
 DIET_WORDS = {'vegetarian': 'vegetarian', 'vegan': 'vegan', 'allergy': 'food allergies', 'other': 'another diet', 'none': 'no special diet'}
 MODE_WORDS = {'visible': 'in view the whole time', 'hidden': 'hidden until asked', 'button': 'on a button', 'none': 'not shown'}
@@ -2370,7 +2377,8 @@ def sample_facts(recs):
         rows.append(('Neurotype (own account)', ', '.join('%s %d' % (NEURO_WORDS.get(k, k), nt[k]) for k in order if nt.get(k))))
         ident = Counter(r.get('nd_identified') for r in recs if r.get('nd_identified'))
         if ident:
-            rows.append(('Autism / ADHD identified', 'by a specialist %d, self-identified or waiting %d' % (ident.get('formal', 0), ident.get('self or waiting', 0))))
+            rows.append(('Autism / ADHD identified', 'by a specialist %d, self-identified or waiting %d%s' % (ident.get('formal', 0), ident.get('self or waiting', 0),
+                         (', diagnosed for one and self-identified for the other (AuDHD) %d' % ident['mixed']) if ident.get('mixed') else '')))
     g = Counter(r.get('gender') for r in recs if r.get('gender'))
     if g:
         rows.append(('Gender', ', '.join('%s %d' % (GENDER_WORDS.get(k, k), v) for k, v in g.most_common())
@@ -2776,7 +2784,8 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
             '<h3>Most unusual pizzas</h3><div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">%s</div><!--/normal-->'
             '%s'
             '<details class="charts" id="charts"><summary>All charts by %s: space, size and amount, time</summary><p class="muted">One dot per person; groups of 5 or more '
-            'also get a median and the middle half. Remember the measure check above: several of these follow the number of pieces.</p>'
+            'also get a median and the middle half. Remember the measure check above: several of these follow the number of pieces. Autistic = autistic '
+            'without ADHD, ADHD = ADHD without autism, AuDHD = both.</p>'
             '<h2 id="space">Space</h2>%s<h2 id="size">Size and amount</h2>%s<h2 id="time">Time</h2>%s</details>'
             '<h2 id="people">Every participant</h2><p class="muted">Click a column to sort. Pizzas started but not analysed (still being built, '
             'stopped, or left out) are at the end.</p><div class="tablewrap"><table class="people"><thead>%s</thead><tbody>%s</tbody>%s</table></div>'
@@ -2785,7 +2794,8 @@ document.querySelectorAll('table.people th').forEach(function (th, i) {
             % (REPORT_CSS, DASH_TOKENS, DASH_CSS, PENDING_CSS, OVERVIEW_CSS, len(recs), (', compared by %s' % esc(group_label.lower())) if len(groups) > 1 else '', kpis,
                ''.join('<a href="#%s">%s</a>' % t for t in toc),
                key_points_html(key_points(recs, check, mc, fl)),
-               '<table class="facts">%s</table>' % ''.join('<tr><th>%s</th><td>%s</td></tr>' % (esc(k), esc(v)) for k, v in facts) if facts else '<p class="muted">No answers about the participants.</p>',
+               ('<table class="facts">%s</table><p class="note">%s</p>' % (''.join('<tr><th>%s</th><td>%s</td></tr>' % (esc(k), esc(v)) for k, v in facts), esc(NEUROTYPE_NOTE)))
+               if facts else '<p class="muted">No answers about the participants.</p>',
                course_html(check), gallery_html(entries), measure_check_html(mc), first_h, first_look_html(fl),
                legend, diet, pieces, cross, nutrition_section(recs, groups),
                esc(ref_txt), hist, bands, examples, feelings, esc(group_label.lower()), space, size, time_, head, ''.join(body), pending_rows(pending, len(cols)),
@@ -2857,7 +2867,8 @@ def arrangement_report(entries, group_label):
             'partners one other), so the piece counts as matched. The share of green rings is the match; chance is the share the same pieces get at random '
             'positions with the same search; score = (match − chance) / (1 − chance), so 0 is no more symmetric than chance and 1 is every piece matched. '
             'Full definitions are on the Methods page. The contact panel joins pieces whose outlines touch or overlap; faded pieces touch nothing, and a number gives the '
-            'height of a pile of three or more. A negative gap means pieces overlap. Groups come from the <code>%s</code> column.</p>'
+            'height of a pile of three or more. A negative gap means pieces overlap. Groups come from the <code>%s</code> column (Autistic = without ADHD, '
+            'ADHD = without autism, AuDHD = both).</p>'
             '%s<h2>Across the sample</h2>%s<h2>Each pizza, most mirror-symmetric first</h2><div class="cards">%s</div></div></body></html>'
             % (REPORT_CSS, esc(group_label), key, plots, ''.join(cards)))
 
@@ -4046,8 +4057,9 @@ IDEAS = [
      [('nd_autistic', 'yes'), ('self_sensory_food', None)], [('n_strong', 1), ('n_sensory_reasons', 1), ('n_safe_foods', 1)]),
     ('Idea 5', 'Quicker choices, more changes of mind', 'Impulsivity and novelty seeking in ADHD.',
      [('nd_adhd', 'yes')], [('decision_median', -1), ('n_adjustments', 1), ('revision_rate', 1), ('prop_unusual_distinct', 1)]),
-    ('Idea 6', 'AuDHD: its own pattern', 'Autism (sameness) and ADHD (novelty) pull in opposite directions; AuDHD may sit between or differ from both.',
-     [('neurotype', 'AuDHD')], [('n_distinct', 0), ('prop_unusual_distinct', 0), ('revision_rate', 0), ('prop_touching', 0)]),
+    ('Idea 6', 'AuDHD: its own pattern', 'Autism (sameness) and ADHD (novelty) pull in opposite directions; AuDHD people (autistic and ADHD) may sit between '
+     'or differ from both: compared with autistic people without ADHD, and with people with ADHD who are not autistic.',
+     [('neurotype', 'AuDHD', 'Autistic'), ('neurotype', 'AuDHD', 'ADHD')], [('n_distinct', 0), ('prop_unusual_distinct', 0), ('revision_rate', 0), ('prop_touching', 0)]),
     ('Idea 7', 'Seeing the nutrition changes the pizza', 'Interoception and attention to health information differ between people; the change is measured within each person.',
      [('revealers', None), ('nd_autistic', 'yes')], [('post_nutri_d_kcal', -1)]),
     ('Idea 8', 'My pizza vs a typical person\'s', 'Self-other differences: how far one\'s own choice is from what one expects of others.',
@@ -4160,7 +4172,8 @@ def planned_tests(recs, defs, groupings, covariates, rnd):
             continue
         comps, measures = asked, avail
         tests = []
-        for gkey, level in comps:
+        for comp in comps:
+            gkey, level, pair = comp[0], comp[1], (comp[2] if len(comp) > 2 else None)     # pair: compared with that group only
             for k, sign in measures:
                 base = {'hyp': hid, 'key': k, 'label': names.get(k, k), 'sign': sign, 'grouping': gkey}
                 if gkey == 'revealers':              # within each person: the change after seeing the nutrition, against no change
@@ -4188,10 +4201,16 @@ def planned_tests(recs, defs, groupings, covariates, rnd):
                     have = cnt.get(level, 0)
                     tests.append(dict(base, level=level, vs='the rest', n1=have, n0=sum(cnt.values()) - have, missing='needs 3+ in each group'))
                     continue
-                order = [level] + [lv for lv in levels if lv != level]
+                if pair and pair not in levels:
+                    tests.append(dict(base, level=level, vs=pair, n1=cnt.get(level, 0), n0=cnt.get(pair, 0), missing='needs 3+ in each group'))
+                    continue
+                if pair:                             # just these two groups
+                    labels, order = [g if g in (level, pair) else None for g in labels], [level, pair]
+                else:
+                    order = [level] + [lv for lv in levels if lv != level]
                 got = [t for t in explore_grouping([('Planned', k, names.get(k, k))], {k: num(k)}, labels, order, rnd) if t['level'] == level]
                 if not got:
-                    tests.append(dict(base, level=level, vs='the rest', n1=cnt.get(level, 0), n0=sum(cnt.values()) - cnt.get(level, 0), missing='no variation yet'))
+                    tests.append(dict(base, level=level, vs=pair or 'the rest', n1=cnt.get(level, 0), n0=cnt.get(pair, 0) if pair else sum(cnt.values()) - cnt.get(level, 0), missing='no variation yet'))
                     continue
                 t = got[0]
                 tests.append(dict(base, level=level, vs=t['vs'], n1=t['n1'], n0=t['n0'], m1=t['m1'], m0=t['m0'], delta=t['delta'], p=t['p'], binary=t['binary'],
@@ -4204,13 +4223,26 @@ def planned_tests(recs, defs, groupings, covariates, rnd):
     return out, skipped
 
 
+# what a grouping's groups mean, said under its heading in Explore
+GROUPING_NOTES = {
+    'neurotype': 'Autistic = autistic without ADHD; ADHD = ADHD without autism; AuDHD = both (yes to the autism and the ADHD question: diagnosed by a '
+                 'specialist or self-identified); Not ND = no to both. Each group is compared with Not ND.',
+    'nd_any': 'Yes = autistic, ADHD, AuDHD or otherwise neurodivergent, by their own account.',
+    'nd_autistic': 'Yes = autistic, with or without ADHD (AuDHD people are in this group and in the ADHD one).',
+    'nd_adhd': 'Yes = ADHD, with or without autism (AuDHD people are in this group and in the autistic one).',
+    'nd_identified': 'formal = every reported condition diagnosed by a specialist; mixed = AuDHD, diagnosed for one and self-identified for the other; '
+                     'self or waiting = none diagnosed.',
+}
+
+
 # the groups of a comparison in words, for sentences ("autistic participants higher than the others")
 YESNO_WORDS = {'nd_any': 'neurodivergent participants', 'nd_autistic': 'autistic participants (incl. AuDHD)', 'nd_adhd': 'participants with ADHD (incl. AuDHD)',
                'eat_picky': 'picky eaters', 'eat_any': 'people with an eating difficulty', 'diet_plant': 'vegetarians and vegans',
                'diet_special': 'people on a special diet', 'transgender': 'transgender participants', 'nutrition_panel': 'those who saw the nutrition table',
                'nutri_revealed': 'those who looked at the nutrition'}
-LEVEL_WORDS = {'AuDHD': 'autistic and ADHD participants', 'Autistic': 'autistic participants', 'ADHD': 'participants with ADHD', 'Not ND': 'not neurodivergent participants',
-               'Other ND': 'participants with another neurodivergence', 'formal': 'those diagnosed by a specialist', 'self or waiting': 'those self-identified or waiting',
+LEVEL_WORDS = {'AuDHD': 'AuDHD participants (autistic and ADHD)', 'Autistic': 'autistic participants without ADHD', 'ADHD': 'participants with ADHD who are not autistic',
+               'Not ND': 'not neurodivergent participants', 'Other ND': 'participants with another neurodivergence', 'formal': 'those diagnosed by a specialist',
+               'self or waiting': 'those self-identified or waiting', 'mixed': 'AuDHD participants diagnosed for one and self-identified for the other',
                'woman': 'women', 'man': 'men', 'nonbinary': 'non-binary participants'}
 
 
@@ -4289,7 +4321,7 @@ def planned_html(planned, groupings, covariates, skipped=()):
             verdict, cls = ('No sign yet. %d of %d tests with an expected direction point that way.' % (as_expected, len(directional))
                             if directional else 'No sign yet.'), 'no'
         # how many tests the idea runs, and what that costs in people
-        n_meas, n_comp = len({t['key'] for t in tests}), len({(t['grouping'], t['level']) for t in tests})
+        n_meas, n_comp = len({t['key'] for t in tests}), len({(t['grouping'], t['level'], t.get('vs')) for t in tests})
         need_alone, need_all, need_plain = n_per_group(LARGE_DELTA, 0.05 / len(tests)), n_per_group(LARGE_DELTA, 0.05 / n_all), n_per_group(LARGE_DELTA)
         cost = ('<p class="cost" title="%s">%d measure%s × %d comparison%s = <b>%d tests</b>. For a large effect (δ = %.2f) with 80%% power: <b>%d per group</b> if this idea '
                 'alone is preregistered (α = .05 / %d), %d per group as part of all %d tests here (α = .05 / %d), %d per group for one test without correction.</p>'
@@ -4410,7 +4442,8 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
         if dropped:
             counts += '<span class="muted">left out (fewer than 3): %s</span>' % esc(', '.join('%s %d' % kv for kv in dropped.items()))
         smallest = min(sum(1 for g in labels if g == lv) for lv in levels)
-        (body if key in research else other_body).append('<h2 id="g-%s">%s</h2><div class="chips">%s</div>'
+        dest = body if key in research else other_body
+        dest.append('<h2 id="g-%s">%s</h2><div class="chips">%s</div>'
                     '%s'
                     '<div class="tbl"><table class="leads"><tr><th class="l">Measure</th><th class="l">Group</th><th>n</th><th>median or %%<br>%s</th><th>Cliff\'s δ</th><th>95%% CI of δ</th><th>p</th><th>q (FDR)</th><th class="l">Data (orange = group)</th></tr>%s</table></div>'
                     '<details class="more"><summary>Every measure (Cliff\'s δ; orange = higher in %s; outlined = q &lt; 0.10)</summary><div class="tbl"><table>%s%s</table></div></details>'
@@ -4423,6 +4456,8 @@ def explore_report(recs, tray, groupings, covariates, seed=1):
                                                                                        '; with groups this small they describe these people only' if smallest < LEAD_MIN else '')),
                        ('group / %s' % esc(ref)) if ref else 'group / rest' if len(levels) > 2 else '%s / %s' % (esc(levels[0]), esc(levels[1])),
                        ''.join(rows), 'the group' if len(levels) > 2 or ref else esc(levels[0]), thead, heat_rows(main), thead, heat_rows(tops)))
+        if GROUPING_NOTES.get(key):                   # what the groups mean, under the group sizes
+            dest[-1] = dest[-1].replace('</div>', '</div><p class="note">%s</p>' % esc(GROUPING_NOTES[key]), 1)
     # links with continuous self-reports
     cov_html = []
     for clabel, res in cov_res:

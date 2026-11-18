@@ -295,7 +295,9 @@ class Store:
                 continue
             if f.get(col):
                 sql.append('%s = ?' % col); args.append(f[col])
-        if f.get('neuro'):
+        if f.get('neuro') == 'audhd':                       # AuDHD: autistic and ADHD (as the reports' neurotype)
+            sql.append("(' ' || neuro || ' ') LIKE '% autistic %' AND (' ' || neuro || ' ') LIKE '% adhd %'")
+        elif f.get('neuro'):
             sql.append("(' ' || neuro || ' ') LIKE ?"); args.append('%% %s %%' % f['neuro'])
         if f.get('q'):
             sql.append('pid LIKE ?'); args.append('%%%s%%' % f['q'])

@@ -5,6 +5,18 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**AuDHD: one definition everywhere.** AuDHD = yes to both the autism and the ADHD question (diagnosed by a specialist or
+self-identified; the short card asks them as two questions, the longer follow-up as ticks); autistic only / ADHD only =
+yes to one. This was already how the task and the analysis worked; now everything says so and follows it:
+- **Explore idea 6** compares AuDHD people with autistic people without ADHD and with people with ADHD who are not
+  autistic, as designed in docs/sample-sizes.md (it compared them with everyone else).
+- **How it was identified** (`nd_identified`): AuDHD people diagnosed for one and self-identified for the other are now
+  `mixed` (they counted as `self or waiting`); 2 of the pilot's 5 AuDHD participants.
+- **The reports** say what each group means: under the neurotype groupings in Explore, in Who took part, the folded
+  charts and the Symmetry page; group words read "autistic participants without ADHD", "AuDHD (autistic and ADHD)".
+- **Sessions tab:** a person who is both reads *AuDHD* (it read "Autistic, ADHD"); the neurotype filter has *AuDHD
+  (autistic and ADHD)*, and *Autistic* / *ADHD* say they include AuDHD people (both servers).
+
 **Fix: Explore (and the other reports) blinked and jumped to the top.** When a report build finished, reloading the report re-ran the status check, which saw the same finished build again and reloaded again, dozens of times (98 reloads in 16 s in a test). The finished build is now noted before reloading, a reload touches only the report frames, and opening a tab only updates the out-of-date note. Checked: one reload per finished build, none while a build runs.
 
 **The reports, reworked for reading (analysis).** A review of every report on the pilot's 16 pizzas found them organised by

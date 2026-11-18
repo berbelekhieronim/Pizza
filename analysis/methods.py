@@ -208,10 +208,10 @@ SECTIONS = [
         ('ing, name, cat, tier, perishable, count, included', '<b>ingredients_long</b>: topping code, name, category, tier, perishable (0/1), pieces, included (0/1).', 'ingredient_rows'),
     ]),
     ('About you (groupings)', None, [
-        ('neurotype', 'From the ticked self-descriptions: autistic + ADHD → AuDHD; autistic → Autistic; ADHD → ADHD; dyslexic etc. or otherwise neurodivergent → Other ND; none → Not ND; prefer not to say → empty.', 'neurotype'),
+        ('neurotype', 'From the self-descriptions: autistic + ADHD → AuDHD; autistic → Autistic (without ADHD); ADHD → ADHD (without autism); dyslexic etc. or otherwise neurodivergent → Other ND; none → Not ND; prefer not to say → empty. The short card (metryczka) asks autism and ADHD as two questions (no / diagnosed by a specialist / self-diagnosed): any answer but no counts as yes, so AuDHD = yes to both. The yes / no groupings nd_autistic and nd_adhd count AuDHD people in both.', 'neurotype'),
         ('nd_{nd}, dx_autistic, dx_adhd', 'Each self-description ticked (0/1); how autism / ADHD was identified (formal / self / waiting / pnts).', 'about_measures'),
         ('nd_any', '1 if the neurotype is AuDHD, Autistic, ADHD or Other ND; 0 if Not ND; empty if not stated (self-described, any neurodivergence).', 'about_measures'),
-        ('nd_identified', 'formal if every ticked autism / ADHD identity is formally diagnosed, else "self or waiting".', 'about_measures'),
+        ('nd_identified', 'formal if every autism / ADHD identity is formally diagnosed; mixed if AuDHD with one diagnosed and the other self-identified or waiting; self or waiting if none is diagnosed (until 2026-11-18 mixed counted as self or waiting). Empty without autism / ADHD, or prefer not to say.', 'about_measures'),
         ('eat_{eat}, eat_any', 'Eating history ticked (0/1); any of picky, ARFID, eating disorder, allergy.', 'about_measures'),
         ('self_picky, self_sensory_food, age_band, gender', '1-7 self-ratings; demographics (prefer not to say → empty).', 'about_measures'),
         ('age_years, transgender', 'From the metryczka (the short demographic card, style "metryczka"): age in years (16-99), and age_band from it; transgender 1 / 0 (prefer not to say → empty). The metryczka also fills neurotype (autism / ADHD: no, diagnosed by a specialist = formal, self-diagnosed = self), gender, diet (vegetarian, vegan, other with its text) and health_allergy.', 'about_measures'),

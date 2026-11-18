@@ -377,7 +377,8 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     // "Where": first the statuses (as the tiles), then the part of the study they are at, then the rest
     opts(f.stage, ['analysed', 'in_progress', 'excluded', 'abandoned', 'no_pizza'].concat(Object.keys(S.stages), ['flagged', 'real', 'synthetic']),
       Object.assign({}, S.stages, { analysed: 'status: in the reports', in_progress: 'status: in progress', excluded: 'status: excluded', abandoned: 'status: abandoned',
-        no_pizza: 'status: left before the pizza', declined: 'declined consent', flagged: 'needs a look (browser flags, page errors)', synthetic: 'synthetic (simulated) only', real: 'real participants only' })); opts(f.neuro, Object.keys(S.neuro), S.neuro);
+        no_pizza: 'status: left before the pizza', declined: 'declined consent', flagged: 'needs a look (browser flags, page errors)', synthetic: 'synthetic (simulated) only', real: 'real participants only' })); // the neurotype as in the reports: AuDHD (autistic and ADHD) on its own; Autistic and ADHD include AuDHD people
+    opts(f.neuro, ['audhd'].concat(Object.keys(S.neuro)), Object.assign({}, S.neuro, { audhd: 'AuDHD (autistic and ADHD)', autistic: 'Autistic (incl. AuDHD)', adhd: 'ADHD (incl. AuDHD)' }));
     copyButtons();
     show(location.hash.slice(1) || 'overview');
   }
@@ -793,7 +794,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     study: 'The study (version) the link belonged to',
     grp: 'The group set in their link (?group=...)',
     source: 'Where the link came from (?source=..., e.g. a panel or a mailing)',
-    neuro: 'What they answered about themselves: autism / ADHD (diagnosed or self-identified), or Non-spicy (neither). Empty when not answered yet or not asked',
+    neuro: 'What they answered about themselves: autism / ADHD (diagnosed or self-identified), AuDHD when both, or Non-spicy (neither). Empty when not answered yet or not asked',
     cond: 'The experimental condition the session was given',
     stage: 'The last part of the study they reached (consent, questions, practice, pizza, follow-up, thank-you page). "stopped at" = no save for 30 minutes',
     n_pieces: 'Pieces placed on the pizza',
@@ -859,7 +860,11 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
             var idle = r.stage !== 'done' && r.stage !== 'declined' && r.updated && Date.now() - Date.parse(r.updated) > (S.idle_minutes || 30) * 60000;
             v = (idle ? 'stopped at ' : '') + (S.stages[v] || v) + (idle ? ' (last saved ' + shortTime(r.updated) + ')' : '');
           }
-          if (c[0] === 'neuro') v = (v || '').split(' ').filter(Boolean).map(function (x) { return S.neuro[x] || x; }).join(', ');
+          if (c[0] === 'neuro') {        // AuDHD = yes to both autism and ADHD (diagnosed or self-identified), as in the reports
+            var nc = (v || '').split(' ').filter(Boolean);
+            if (nc.indexOf('autistic') >= 0 && nc.indexOf('adhd') >= 0) nc = ['AuDHD'].concat(nc.filter(function (x) { return x !== 'autistic' && x !== 'adhd'; }));
+            v = nc.map(function (x) { return S.neuro[x] || x; }).join(', ');
+          }
           if (c[0] === 'started') v = when(v);
           if (c[0] === 'seconds') v = v == null ? '' : mins(v);
           if (c[0] === 'status') return '<td>' + statusCell(r) + '</td>';
