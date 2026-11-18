@@ -5,6 +5,8 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Fix: Explore (and the other reports) blinked and jumped to the top.** When a report build finished, reloading the report re-ran the status check, which saw the same finished build again and reloaded again, dozens of times (98 reloads in 16 s in a test). The finished build is now noted before reloading, a reload touches only the report frames, and opening a tab only updates the out-of-date note. Checked: one reload per finished build, none while a build runs.
+
 **The reports, reworked for reading (analysis).** A review of every report on the pilot's 16 pizzas found them organised by
 measure family (a wall of near-identical charts), statistics-first, and blind to one fact that explains much of the
 pilot: neurodivergent participants put about twice as many pieces on their pizza (median 36 vs 16), and touching,

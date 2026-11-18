@@ -423,9 +423,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     } else {
       html = '<span class="msg">' + (S.reports_build_on_open ? 'Reports are built when you open them.' : (b && b.auto ? 'No reports yet: they are built 5 minutes after the first session data comes in.' : 'No reports yet: press Build reports.')) + '</span>';
     }
-    var stale = (b && b.pending) || (r && !r.fresh) || (!r && !S.reports_build_on_open);
-    staleNotes(r, stale, running || queued || waiting);
-    if (stale || (r && r.code_changed)) autoBuild(running || queued || waiting);
+    var stale = freshness();
     html += '<form method="post" action="/admin/reports?' + esc(q({ tab: location.hash.slice(1) || 'overview' })) + '" style="margin:0"><button class="' + (stale ? '' : 'alt ') + 'small" type="submit"'
       + (running || waiting || queued ? ' disabled' : '') + ' title="Analyses the sessions that changed since the last build">Build reports</button></form>';
     if (st && st.run_url) html += '<a class="small" href="' + esc(st.run_url) + '" target="_blank" rel="noopener">Open the run on GitHub</a>';
@@ -437,10 +435,11 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     el.className = cls; el.innerHTML = html;
     if (open && el.querySelector('details')) el.querySelector('details').open = true;
     var pre = el.querySelector('pre'); if (pre) pre.scrollTop = pre.scrollHeight;
-    // keep the bar live while something is happening; reload the reports when a build finishes
-    var built = r ? r.when : null;
-    if (lastBuilt && built && built !== lastBuilt) reloadReports();
+    // keep the bar live while something is happening; reload the reports once when a build finishes (lastBuilt is set
+    // first: reloading must not see the same finished build again, which reloaded the report over and over)
+    var built = r ? r.when : null, finished = lastBuilt && built && built !== lastBuilt;
     lastBuilt = built;
+    if (finished) reloadReports();
     clearTimeout(poll);
     // refresh only while a build is queued or running (every 5 s / 20 s), and not while this tab is hidden
     // (and, with automatic builds, once a minute while new data waits, so the tile turns green when its build is done)
@@ -656,6 +655,16 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     fetch('/admin/reports?' + q({ tab: location.hash.slice(1) || 'overview' }), { method: 'POST', headers: { Accept: 'text/html' } })
       .then(function () { refresh(); }, function () {});
   }
+  // whether the reports are out of date; updates the note above each report and starts the automatic build if needed
+  function freshness() {
+    var r = S.reports, b = S.build, st = b && b.status;
+    var running = st && st.state === 'running', queued = st && (st.state === 'queued' || st.state === 'waiting');
+    var waiting = b && b.wanted && !(running && st.started >= b.wanted), busy = running || queued || waiting;
+    var stale = (b && b.pending) || (r && !r.fresh) || (!r && !S.reports_build_on_open);
+    staleNotes(r, stale, busy);
+    if (stale || (r && r.code_changed)) autoBuild(busy);
+    return stale;
+  }
   function staleNotes(r, stale, busy) {
     var d = S.study === 'all' ? S.all : current(), now = d && d.status ? d.status.analysed : null;
     [].forEach.call(document.querySelectorAll('.frame'), function (fr) {
@@ -671,7 +680,18 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
 
   function reloadReports() {
     [].forEach.call(document.querySelectorAll('iframe.report'), function (fr) { fr.removeAttribute('src'); });
-    show(location.hash.slice(1) || 'overview');
+    loadFrame(document.querySelector('.panel:not([hidden]) iframe.report'));
+  }
+  // a report frame shows the current report of this view (loaded when its tab opens, again after a build)
+  function loadFrame(fr) {
+    if (!fr) return;
+    var want = (fr.dataset.src === 'methods' ? '/admin/methods?' : '/admin/reports/' + fr.dataset.src + '?') + q();
+    if (fr.getAttribute('src') === want) return;
+    var note = fr.parentNode.querySelector('.loading');
+    note.textContent = S.reports_build_on_open ? 'Building the report from the latest sessions; with many sessions this takes a minute…' : 'Loading…';
+    note.hidden = false;
+    fr.onload = function () { note.hidden = true; };
+    fr.setAttribute('src', want);
   }
 
   function show(tab) {
@@ -682,19 +702,10 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     [].forEach.call(document.querySelectorAll('#tabs button'), function (b) { b.setAttribute('aria-selected', String(b.dataset.tab === tab)); });
     [].forEach.call(document.querySelectorAll('.panel'), function (p) { p.hidden = p.dataset.panel !== tab; });
     var fr = document.querySelector('[data-panel="' + tab + '"] iframe');
-    if (fr) {
-      var want = (fr.dataset.src === 'methods' ? '/admin/methods?' : '/admin/reports/' + fr.dataset.src + '?') + q();
-      if (fr.getAttribute('src') !== want) {
-        var note = fr.parentNode.querySelector('.loading');
-        note.textContent = S.reports_build_on_open ? 'Building the report from the latest sessions; with many sessions this takes a minute…' : 'Loading…';
-        note.hidden = false;
-        fr.onload = function () { note.hidden = true; };
-        fr.setAttribute('src', want);
-      }
-    }
+    loadFrame(fr);
     if (tab === 'sessions') sessions();
     if (tab === 'settings') settings();
-    if (fr && S.studies) buildBar();             // the out-of-date note (and, if needed, the build) for the report just opened
+    if (fr && S.studies) freshness();            // the out-of-date note (and, if needed, the build) for the report just opened
     if (tab === 'overview') liveStrip();
     setUrl(S.study, open ? 'sessions/' + encodeURIComponent(open) : tab);
     if (open) openSession(open);
