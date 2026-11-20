@@ -114,8 +114,10 @@ records what was shown (`summary.look`, the `look` column).
   canvas, or one that blocks reading canvas pixels (privacy settings), gets the drawn look, and the data say so.
 - **Photographs (0.20.0).** When `images/real/` (next to `pizza-builder.js`, or `PizzaBuilder.imageBase`) loads, the
   realistic look uses photographs instead of the painted pieces and base: `PHOTOS` in `REAL` lists how many photos
-  each topping has (`<code><n>.webp`, 192 px, the piece centred, its farthest edge at 0.46 of the side, drawn so it
-  reaches `ING[code].size` from its centre, like the drawn piece). A piece shows photo `(v + 3 * id) % n`, so it keeps
+  each topping has (`<code><n>.webp`, 192 px, the piece centred, its farthest edge at 0.46 of the side) with each
+  photo's turn and scale, fitted to the drawn piece (best overlap with the drawn masks, then scaled to exactly the drawn
+  area), so the analysis' footprints (`FOOT`, made for the drawn pieces) fit the photos as well as the drawn pieces:
+  mean overlap with the footprint 0.78 (drawn 0.77), the same area. Refit when a photo or a drawn shape changes. A piece shows photo `(v + 3 * id) % n`, so it keeps
   its photo when moved. The base is `dough.webp`, `sauce_<sauce>.webp`, `cheese_<cheese>.webp` (1024 px, pizza radius
   470 px) stacked; the board is `board.webp`. If the photos fail, the painted look is used.
 - A new topping needs a painter in `PAINT` and its photographs (`PHOTOS` and the files); the smoke test checks both.

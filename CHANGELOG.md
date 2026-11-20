@@ -12,9 +12,12 @@ matched to the format below. Add an entry for every change that reaches particip
   chosen sauce (tomato, white, BBQ), then the chosen cheese (light, normal, extra, vegan), so all 20 sauce and cheese
   combinations share the same crust and only the chosen layer changes. The pizza lies on a floured wooden board, with a
   soft shadow; baking warms the colours. Generated with an image model (Canva), each piece cut out and checked by eye.
-- **Sizes**: each photo is scaled so the piece reaches as far from its centre as the drawn piece does (a pepperoni
-  slice about 4 cm across on a 30 cm pizza, an olive ring 1.8 cm, a pinch of three corn kernels), so positions, sizes,
-  overlap and every measure mean the same in both looks.
+- **Sizes and footprints**: each photo is turned and scaled as fitted to its drawn piece (the same orientation and
+  exactly the same area; a pepperoni slice about 4 cm across on a 30 cm pizza, an olive ring 1.8 cm, a pinch of three
+  corn kernels). The analysis' footprints (`FOOT`: coverage, touching, stacking, area in cm²) were made for the drawn
+  pieces; the photos agree with them as well as the drawn pieces do (mean overlap with the footprint 0.78 vs 0.77, area
+  0.93 of it in both), so every measure means the same in both looks. Nutrition follows the recorded piece sizes, not
+  the picture.
 - **Everything follows the project's look**: the tray, the piece being dragged, the follow-up cards, the end page, the
   researcher page's pictures (Overview, Sessions, the session drawer) and the reports' small pizzas. On the researcher
   page and in a study's reports they follow the study's current setting, so switching it switches every picture (All

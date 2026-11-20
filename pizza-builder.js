@@ -918,11 +918,39 @@
     // ---- photographs (images/real next to this script): the realistic look uses them when they load, and the painted
     // pieces and base above when they cannot (offline copy, blocked host): the picture changes, never the data.
     // Toppings: PHOTOS[code] cut-out photos of single pieces (192 px WebP, the piece centred, its farthest edge at 0.46 of
-    // the side), drawn so the piece reaches ING[code].size from its centre, as the drawn piece does; which photo a piece
+    // the side), each turned and scaled as fitted to the drawn piece (same orientation, same area); which photo a piece
     // shows follows its id and v, so it keeps its photo when moved. Base: dough, sauce_<sauce>, cheese_<cheese> (1024 px,
     // pizza radius 470 px), stacked; the board: a wooden board.
-    var PHOTOS = { anc: 4, ban: 6, bas: 6, chk: 6, crn: 6, egg: 4, fig: 4, gor: 6, grp: 6, ham: 6, jal: 6, kan: 4, kim: 4, mus: 6, nor: 4,
-      oli: 8, oni: 6, par: 4, pep: 6, pin: 6, shr: 4, tof: 6, tom: 4, tun: 6, wal: 6 };
+    // per photo [turn in degrees, scale]: fitted so each photo lies like the drawn piece and covers the same area
+    // (the analysis' footprints were made for the drawn pieces; see docs/BUILDER.md)
+    var PHOTOS = {
+      anc: [[359,1.36],[173,1.195],[0,1.475],[6,1.318]],
+      ban: [[312,0.992],[78,0.996],[263,0.993],[53,0.98],[75,0.984],[43,1.004]],
+      bas: [[92,0.782],[87,1.02],[86,0.994],[88,0.914],[279,0.795],[91,0.87]],
+      chk: [[316,0.922],[137,0.879],[331,0.96],[318,0.935],[327,0.921],[200,0.891]],
+      crn: [[115,0.989],[224,0.86],[359,1.057],[152,1.073],[103,0.834],[42,0.923]],
+      egg: [[11,1.158],[223,1.058],[359,1.226],[14,1.06]],
+      fig: [[354,1.277],[356,1.169],[0,1.177],[3,1.143]],
+      gor: [[328,0.962],[170,0.979],[345,0.902],[138,0.879],[128,0.873],[206,0.84]],
+      grp: [[80,1.127],[86,0.939],[276,0.94],[88,1.023],[80,0.982],[85,0.947]],
+      ham: [[82,0.847],[269,0.812],[183,0.805],[269,0.849],[270,0.821],[4,0.847]],
+      jal: [[31,0.953],[313,0.964],[354,0.95],[288,0.957],[222,0.97],[1,0.955]],
+      kan: [[2,1.088],[358,1.062],[2,1.086],[2,1.058]],
+      kim: [[19,0.794],[177,0.849],[148,0.808],[169,0.844]],
+      mus: [[357,1.209],[358,1.085],[359,1.191],[4,1.117],[358,1.131],[10,1.135]],
+      nor: [[180,0.974],[180,0.965],[180,0.981],[182,0.972]],
+      oli: [[296,1.002],[92,1.005],[257,0.99],[55,0.988],[17,0.998],[13,1.002],[175,0.98],[308,0.994]],
+      oni: [[55,0.8],[19,1.024],[5,1.047],[151,0.85],[347,0.91],[11,0.857]],
+      par: [[171,0.968],[3,0.947],[135,0.951],[344,0.936]],
+      pep: [[340,1.051],[45,1.037],[6,1.04],[36,1.053],[336,1.055],[35,1.029]],
+      pin: [[180,0.975],[178,0.96],[187,0.979],[185,0.964],[185,0.978],[182,0.959]],
+      shr: [[182,1.287],[56,0.944],[43,1.194],[295,1.065]],
+      tof: [[260,1.004],[81,1.001],[81,0.997],[261,1.019],[80,1.012],[82,1.002]],
+      tom: [[353,1.028],[345,1.029],[338,1.022],[254,1.021]],
+      tun: [[189,1.104],[293,0.94],[181,1.122],[214,1.073],[88,0.986],[76,0.997]],
+      wal: [[89,0.915],[299,0.961],[263,0.927],[90,1.045],[86,0.908],[268,0.904]]
+    };
+    var PHOTO_N = {}; for (var pk in PHOTOS) PHOTO_N[pk] = PHOTOS[pk].length;
     var photo = { state: null, waiting: [] };          // state: null (not tried), 'wait', 'ok', 'no'
     function photoUrl(name) { return photoBase() + name + '.webp'; }
     function photoBase() {
@@ -949,9 +977,9 @@
     }
     function usePhotos() { if (photo.state == null) photos(); return photo.state !== 'no'; }
     function photoPiece(code, v, rot) {
-      var n = PHOTOS[code], half = ING[code].size / 0.92;
-      return '<image href="' + photoUrl(code + (((v % n) + n) % n)) + '" x="' + P(-half) + '" y="' + P(-half) + '" width="' + P(2 * half) +
-        '" height="' + P(2 * half) + '" transform="rotate(' + rot + ')"/>';
+      var n = PHOTOS[code].length, i = ((v % n) + n) % n, f = PHOTOS[code][i], half = ING[code].size / 0.92 * f[1];
+      return '<image href="' + photoUrl(code + i) + '" x="' + P(-half) + '" y="' + P(-half) + '" width="' + P(2 * half) +
+        '" height="' + P(2 * half) + '" transform="rotate(' + ((rot + f[0]) % 360) + ')"/>';
     }
     function photoBaseLayers(box, sauce, cheese, baked) {
       var names = ['dough'];
@@ -993,7 +1021,7 @@
       base: base,
       photos: photos,                     // photos(fn): fn(true) once the photographs load, fn(false) if they cannot
       photoUrl: photoUrl,
-      photoCounts: PHOTOS,
+      photoCounts: PHOTO_N,
       // canvas, Path2D, and reading pixels back as painted: privacy settings that block or scramble canvas reads (Firefox
       // resistFingerprinting, Tor) would turn the lit pieces into blank squares, so those browsers keep the drawn look
       ok: function () {
@@ -2662,8 +2690,8 @@
     names: function (lang, flat) { var o = { lang: lang, texts: flat }; texts(o); var out = {}; for (var k in ING) out[k] = iname(o, k); return out; },
     picture: picture,
     looks: ['drawn', 'realistic'],          // the study setting "look"; realistic needs canvas (else the drawn look is used and recorded)
-    realisticToppings: Object.keys(REAL.paints),
-    photoCounts: REAL.photoCounts,          // photographs per topping in images/real (the smoke test checks the files)   // every topping needs a painter for the realistic look (the smoke test checks)
+    realisticToppings: Object.keys(REAL.paints),   // every topping needs a painter for the realistic look (the smoke test checks)
+    photoCounts: REAL.photoCounts,          // photographs per topping in images/real (the smoke test checks the files)
     mount: function (root, opts) {
       if (typeof root === 'string') root = document.querySelector(root);
       if (!(opts && opts.desktopOnly === false) && !isDesktop()) return blocked(root, opts || {});
