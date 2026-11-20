@@ -13,6 +13,8 @@ matched to the format below. Add an entry for every change that reaches particip
   this change" loads them into the form, to be reviewed and saved like any change. Kept in the database
   (`meta` `setlog:<layer>`, the last 200 per layer; no migration): a record of the protocol for the methods section and
   ethics amendments.
+- **Switches**: each choice (nutrition, look, when and what is asked, this study / every study) is a switch with one
+  button per option and "Default · …" naming what the default is; the line under it says what the chosen option does.
 - **Unsaved changes** bar (what is changed, Discard, Review and save); leaving the tab or the page asks first.
 - Own questions are checked as you type (✓ the questions / ✗ what is wrong); the condition boxes follow the list of
   conditions as it is typed (no extra button); "As inherited" now reads "Default: … (set in …)"; a note when people
