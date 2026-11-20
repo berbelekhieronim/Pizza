@@ -224,6 +224,14 @@ push, check the GitHub Actions run, and republish the demo artifact.
 
 ## Suggested next steps
 
+0. **Development plan (2026-11-20): `docs/PLAN.html`** (Polish; also published as the user's private artifact "Pizza
+   study: plan rozwoju"). Architecture: a control plane (projects, roles, versioned settings, audit) and one database
+   per project; the pilot stays in the current database, untouched, until it closes (stages E0–E5, each behind a flag,
+   with a byte-for-byte "pilot replay" of the reports before any switch). Methodology: P0 items before the main study
+   (blocked stratified randomisation instead of round-robin, protocol freeze with waves, a frozen analysis plan with a
+   data lock, validated scales and covariates such as hunger and mouse/trackpad, pre-set exclusions and blind manual
+   exclusions, composite primary outcomes, simulation-based power, report provenance: code SHA + data hash). Open
+   decisions for the user are listed at its end; start with E1 and the "now" P0 items once they are answered.
 1. Cloudflare: the user creates the account, the token and Turnstile, and adds the GitHub secrets
    (cloudflare/README.md). Then run *Actions → cloudflare*, open `/admin`, and do a dry run there.
 2. Pilot dry run: make 3 invite links for `pilot-asd`, run them on two computers, check *Personal links (.csv)*, the
@@ -236,6 +244,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-20 | Claude Code (cloud) | Settings tab: review before saving, required reason once people took part, history of changes (meta setlog:<layer>, both servers, smoke-tested), unsaved-changes bar, live question check; photos fitted to the drawn footprints; docs/PLAN.html (architecture, methodology, UX plan, Polish) |
 | 2026-11-20 | Claude Code (cloud) | 0.20.0: the realistic look in photographs (images/real: 134 topping cut-outs, dough + 3 sauce + 4 cheese layers, board; Canva-generated, cut out locally); every picture follows the project's look (researcher page, reports via /study.json); both servers serve /images/real; photo fallback to the painted look |
 | 2026-11-20 | Claude Code (cloud) | 0.19.0: realistic (photo-like) look as a setting (`look`: drawn default / realistic; global, per study, per condition; Settings tab preview; both servers); canvas renderer `REAL` in pizza-builder.js (painters per topping, lit height fields, base layers); `look` column, Explore grouping; test study uses it |
 | 2026-11-18 | Claude Code (cloud) | Neurodivergence and gender identity: gender_diverse column and grouping, Explore section (overlap table, neurotype comparison among cisgender only, trans / non-binary described separately), Overview line + key point + cisgender column, ideas 14 (ND overall) and 15 (trans and non-binary, pooled) |

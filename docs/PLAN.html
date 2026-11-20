@@ -1,0 +1,342 @@
+<title>Pizza study: plan rozwoju</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a long working document. Narrow reading column, a sticky contents rail on wide screens, priority chips. */
+:root {
+  --bg: #fbfbfa; --panel: #ffffff; --fg: #1d2326; --muted: #5d676b; --line: #dfe3e3;
+  --accent: #0f6a73; --accent-soft: #e3f0f1;
+  --p0: #b3261e; --p0-soft: #fbe9e7; --p1: #9a6200; --p1-soft: #fbf1dc; --p2: #4b5a60; --p2-soft: #edf0f1;
+  --ok: #2e7d32; --ok-soft: #e7f3e8;
+  --display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121617; --panel: #192022; --fg: #e4e9ea; --muted: #9aa6aa; --line: #2c3639;
+  --accent: #5fc0c8; --accent-soft: #163236;
+  --p0: #ff8a80; --p0-soft: #3a1b19; --p1: #f0b860; --p1-soft: #33280f; --p2: #b0bec5; --p2-soft: #232c2f;
+  --ok: #81c784; --ok-soft: #1a2e1c; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121617; --panel: #192022; --fg: #e4e9ea; --muted: #9aa6aa; --line: #2c3639;
+  --accent: #5fc0c8; --accent-soft: #163236;
+  --p0: #ff8a80; --p0-soft: #3a1b19; --p1: #f0b860; --p1-soft: #33280f; --p2: #b0bec5; --p2-soft: #232c2f;
+  --ok: #81c784; --ok-soft: #1a2e1c; color-scheme: dark }
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--fg); font: 15.5px/1.6 var(--body); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 32px 64px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; }
+@media (max-width: 900px) { .wrap { grid-template-columns: 1fr; gap: 16px } nav.toc { position: static !important } }
+nav.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 20px); align-self: start; font-size: .86rem; }
+nav.toc p { font: 600 .72rem/1 var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px }
+nav.toc a { display: block; color: var(--fg); text-decoration: none; padding: 4px 0 4px 10px; border-left: 2px solid var(--line) }
+nav.toc a:hover, nav.toc a:focus-visible { border-left-color: var(--accent); color: var(--accent); outline: none }
+nav.toc a.sub { padding-left: 22px; color: var(--muted); font-size: .82rem }
+main { min-width: 0; max-width: 760px }
+h1, h2, h3, h4 { font-family: var(--display); text-wrap: balance; line-height: 1.2 }
+h1 { font-size: 2.1rem; margin: 0 0 6px; letter-spacing: -.01em }
+h2 { font-size: 1.45rem; margin: 48px 0 10px; padding-top: 14px; border-top: 1px solid var(--line) }
+h3 { font-size: 1.12rem; margin: 28px 0 6px }
+h4 { font-size: .98rem; margin: 18px 0 4px }
+p, li { max-width: 68ch }
+.lede { color: var(--muted); margin: 0 0 18px }
+.meta { font-size: .82rem; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 24px }
+code, .code { font: .84em var(--mono); background: var(--p2-soft); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere }
+a { color: var(--accent) }
+.summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0 8px }
+@media (max-width: 700px) { .summary { grid-template-columns: 1fr } }
+.summary div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0 }
+.summary b { display: block; font-family: var(--display); font-size: 1rem; margin-bottom: 4px }
+.summary span { font-size: .88rem; color: var(--muted) }
+.chip { display: inline-block; font: 600 .7rem/1.6 var(--display); letter-spacing: .05em; padding: 0 7px; border-radius: 999px; vertical-align: 2px; margin-right: 6px; white-space: nowrap }
+.chip.p0 { background: var(--p0-soft); color: var(--p0) } .chip.p1 { background: var(--p1-soft); color: var(--p1) } .chip.p2 { background: var(--p2-soft); color: var(--p2) }
+.chip.done { background: var(--ok-soft); color: var(--ok) }
+.item { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin: 12px 0 }
+.item h4 { margin-top: 0 }
+.item dl { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 4px 12px; margin: 6px 0 0; font-size: .92rem }
+@media (max-width: 560px) { .item dl { grid-template-columns: 1fr } .item dt { margin-top: 6px } }
+.item dt { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; padding-top: 2px }
+.item dd { margin: 0 }
+.good { background: var(--ok-soft); border-radius: 10px; padding: 12px 16px; margin: 12px 0; font-size: .93rem }
+.good ul { margin: 6px 0 0; padding-left: 18px }
+.rule { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 10px 14px; border-radius: 0 10px 10px 0; margin: 12px 0 }
+.rule ol { margin: 4px 0 0; padding-left: 20px }
+.tbl { overflow-x: auto; margin: 12px 0 }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; min-width: 560px }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line) }
+th { font: 600 .78rem var(--display); letter-spacing: .04em; text-transform: uppercase; color: var(--muted) }
+td.n { font-variant-numeric: tabular-nums; white-space: nowrap }
+pre.mermaid { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; overflow-x: auto }
+.ask { border: 1px dashed var(--accent); border-radius: 10px; padding: 12px 16px; margin: 12px 0 }
+.ask ol { margin: 6px 0 0; padding-left: 20px }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+</style>
+
+<div class="wrap">
+<nav class="toc" aria-label="Spis treści">
+  <p>Spis treści</p>
+  <a href="#skrot">W skrócie</a>
+  <a href="#arch">1. Architektura</a>
+  <a class="sub" href="#arch-now">Stan obecny</a>
+  <a class="sub" href="#arch-target">Docelowo</a>
+  <a class="sub" href="#arch-pilot">Pilot bezpieczny</a>
+  <a class="sub" href="#arch-steps">Etapy</a>
+  <a href="#metod">2. Rygor i metodologia</a>
+  <a class="sub" href="#m-a">A. Projekt i przydział</a>
+  <a class="sub" href="#m-b">B. Pomiar</a>
+  <a class="sub" href="#m-c">C. Jakość danych</a>
+  <a class="sub" href="#m-d">D. Analiza</a>
+  <a class="sub" href="#m-e">E. Reprodukowalność, etyka</a>
+  <a href="#ux">3. UX: zrobione i dalej</a>
+  <a href="#kolejnosc">4. Kolejność wdrożenia</a>
+  <a href="#decyzje">5. Decyzje dla Ciebie</a>
+</nav>
+
+<main>
+<h1>Pizza study: plan rozwoju</h1>
+<p class="lede">Architektura z panelem głównym i osobnymi bazami danych, rygor metodologiczny przed badaniem głównym, UX strony badacza.</p>
+<div class="meta"><span>Stan na 20.11.2026</span><span>Zadanie 0.20.0</span><span>Repozytorium: berbelekhieronim/Pizza, gałąź main</span></div>
+
+<section id="skrot">
+<h2 style="border-top:0;margin-top:8px">W skrócie</h2>
+<div class="summary">
+  <div><b>Architektura</b><span>Panel główny z rejestrem projektów i jedna baza na projekt. Pilot zostaje w obecnej bazie do końca zbierania danych; później przenosimy go kopią, z weryfikacją wyników co do bajtu.</span></div>
+  <div><b>Metodologia</b><span>Siedem zmian P0 przed badaniem głównym: zamrożony protokół i preregistracja, randomizacja blokowa, plan analizy potwierdzającej, walidowane skale i kowarianty, z góry ustalone wykluczenia, rzetelność miar, reprodukowalne raporty.</span></div>
+  <div><b>UX</b><span>Wdrożone dziś na obu serwerach: przegląd zmian przed zapisem, uzasadnienie, historia zmian, pasek niezapisanych zmian, sprawdzanie pytań na bieżąco. Dalej: kreator projektu, podgląd jako uczestnik, edytor pytań bez JSON.</span></div>
+</div>
+<p>Priorytety: <span class="chip p0">P0</span> przed badaniem głównym, <span class="chip p1">P1</span> w trakcie przygotowań, <span class="chip p2">P2</span> gdy będzie czas. <span class="chip done">ZROBIONE</span> oznacza, co jest już w repozytorium.</p>
+</section>
+
+<section id="arch">
+<h2>1. Architektura: panel główny i osobne bazy</h2>
+
+<h3 id="arch-now">Stan obecny</h3>
+<p>Aplikacja działa na dwóch serwerach, które muszą robić to samo: <code>server/server.py</code> z SQLite (Codespace) oraz Cloudflare Worker z D1 i R2. Strona badacza (<code>server/admin.html</code>) jest jedna dla obu. Wszystkie badania leżą w jednej bazie: tabela <code>sessions</code> z kolumną <code>study</code>, pola zadania w <code>fields</code>. Konfiguracja badań siedzi w <code>server/study.json</code>, a zmiany z zakładki Settings w tabeli <code>meta</code>. Dostęp daje klucz w adresie: właściciel, link do wszystkich badań albo link do jednego badania.</p>
+<div class="tbl"><table>
+<tr><th>Problem</th><th>Skutek</th></tr>
+<tr><td>Dane wszystkich projektów w jednym pliku lub jednej bazie D1</td><td>Błąd, przywrócenie kopii albo usunięcie dotyka wszystkich projektów naraz. Rozdział projektów istnieje tylko w kodzie (filtr po <code>study</code>), nie fizycznie.</td></tr>
+<tr><td>Nowe badanie wymaga edycji <code>study.json</code> i commita</td><td>Projektu nie da się założyć ani zamknąć z panelu; badacz bez dostępu do repozytorium jest zależny od programisty.</td></tr>
+<tr><td>Retencja i usuwanie dla całej bazy</td><td>Dane zdrowotne (art. 9 RODO) jednego projektu trudno usunąć lub zarchiwizować osobno, zgodnie z jego zgodą etyczną.</td></tr>
+<tr><td>Wspólne limity (D1: 500 MB na bazę na planie darmowym)</td><td>Jeden duży projekt zabiera miejsce pozostałym.</td></tr>
+<tr><td>Brak kont: klucze w adresie URL</td><td>Nie wiadomo, kto co obejrzał lub pobrał. Klucz przekazany dalej daje pełny dostęp, a jedyną reakcją jest wymiana klucza.</td></tr>
+</table></div>
+
+<h3 id="arch-target">Docelowo</h3>
+<p>Dwie warstwy. <b>Warstwa sterująca</b> (panel główny i jego baza) wie, jakie są projekty, kto ma do nich dostęp i jak są skonfigurowane. <b>Warstwa danych</b> to osobna baza dla każdego projektu, z tym samym schematem co dziś (<code>sessions</code>, <code>fields</code>, <code>invites</code>). Dzięki temu obecny kod zapisu i analizy działa bez zmian: dostaje tylko uchwyt do właściwej bazy.</p>
+<pre class="mermaid">
+flowchart LR
+  U[Uczestnik<br>?study=pilot-asd] --> R{Router projektu}
+  B[Badacz] --> P[Panel główny /console]
+  P --> C[(Baza sterująca<br>projekty · role · ustawienia<br>historia zmian · audyt)]
+  R --> C
+  R --> D1[(Baza: pilot<br>obecna baza, bez zmian)]
+  R --> D2[(Baza: projekt B)]
+  R --> D3[(Baza: projekt C)]
+  P --> A[Raporty per projekt<br>GitHub Actions lub komputer lokalny]
+  A --> F[(Pliki per projekt<br>R2: projects/&lt;id&gt;/)]
+</pre>
+<h4>Panel główny</h4>
+<ul>
+  <li>Lista projektów ze stanem: szkic, zbieranie danych, wstrzymany, zamknięty, w archiwum. Przy każdym: liczba uczestników, ukończone, ostatnia aktywność, rozmiar bazy, data ostatniej kopii zapasowej.</li>
+  <li>Zakładanie projektu z szablonu (kopia ustawień innego projektu) i zamykanie go: przy zamknięciu zatrzymanie przyjmowania uczestników, zamrożenie danych i kopia.</li>
+  <li>Dostęp: osoby i role na projekt (właściciel, badacz, analityk tylko do odczytu). Linki do udostępnienia z datą wygaśnięcia zamiast stałych kluczy.</li>
+  <li>Dziennik audytu: kto otworzył, pobrał lub zmienił dane, kiedy i w którym projekcie.</li>
+  <li>Stan systemu: zużycie limitów Cloudflare i błędy zapisu u uczestników.</li>
+</ul>
+<h4>Baza sterująca: zawartość</h4>
+<div class="tbl"><table>
+<tr><th>Tabela</th><th>Zawartość</th></tr>
+<tr><td><code>projects</code></td><td>id, nazwa, stan, wskazanie bazy danych, wersja protokołu, daty utworzenia i zamknięcia, okres przechowywania danych.</td></tr>
+<tr><td><code>members</code>, <code>share_links</code></td><td>Osoby i role per projekt; linki do udostępnienia (skrót klucza, rola, wygaśnięcie).</td></tr>
+<tr><td><code>settings</code></td><td>Ustawienia projektu jako wersjonowane wiersze, nie jeden JSON. Tu przechodzi zawartość <code>study.json</code>; plik zostaje jako zapas i źródło startowe.</td></tr>
+<tr><td><code>settings_log</code>, <code>audit</code></td><td>Historia zmian ustawień (już działa, dziś w <code>meta</code>) i dziennik dostępu.</td></tr>
+</table></div>
+<h4>Bazy projektów na obu serwerach</h4>
+<ul>
+  <li><b>Serwer lokalny:</b> plik na projekt, <code>data/projects/&lt;id&gt;.db</code>. Obecna <code>data/study.db</code> to baza pilota.</li>
+  <li><b>Cloudflare, wariant A (D1 na projekt):</b> <code>deploy.py</code> tworzy bazę D1 i dopisuje powiązanie (binding) w konfiguracji Workera. Nowy projekt wymaga więc ponownego wdrożenia przez Actions (około 2 minut, bez przerwy w działaniu). Plan darmowy ma limit liczby baz D1 (o ile pamiętam 10 na konto; do sprawdzenia w aktualnym cenniku).</li>
+  <li><b>Cloudflare, wariant B (Durable Object z SQLite na projekt):</b> bazy tworzą się same, bez wdrożenia. Eksport i narzędzia są jednak inne niż dla D1, więc przybywa kodu do utrzymania. Dostępność na planie darmowym do sprawdzenia.</li>
+  <li><b>Pliki:</b> R2 z prefiksem projektu. Raporty już dziś są budowane per badanie, więc zmiana jest niewielka.</li>
+</ul>
+
+<h3 id="arch-pilot">Jak nie zepsuć pilota</h3>
+<div class="rule"><b>Zasady, które obowiązują na każdym etapie</b>
+<ol>
+  <li>Pilot zostaje „projektem zastanym” w obecnej bazie, pod obecnymi adresami i kluczami, aż do zamknięcia zbierania danych. W trakcie pilota nie ma żadnej migracji.</li>
+  <li>Adresy dla uczestników, format pól zadania i <code>VERSION</code> się nie zmieniają. Router rozpoznaje projekt po dzisiejszym <code>?study=…</code> i linkach osobistych.</li>
+  <li>Każdy etap wchodzi za flagą, domyślnie wyłączoną, i przechodzi smoke test na obu serwerach.</li>
+  <li>Test „powtórka pilota”: z kopii bazy pilota budujemy raporty starym i nowym kodem i porównujemy je co do bajtu. Każda różnica blokuje wdrożenie.</li>
+  <li>Migracja to kopia, nie przeniesienie. Kolejno: eksport, import do nowej bazy, weryfikacja (liczba sesji i pól, suma kontrolna każdego rekordu, ten sam wynik <code>analyse.py</code>), przełączenie odczytu. Stara baza zostaje tylko do odczytu przez 30 dni.</li>
+  <li>Przed każdym krokiem robimy kopię zapasową: <i>Database (.sqlite)</i> lokalnie, eksport D1 w Cloudflare. Kroki wykonujemy w godzinach bez sesji uczestników; panel pokazuje sesje w toku.</li>
+</ol></div>
+
+<h3 id="arch-steps">Etapy</h3>
+<div class="tbl"><table>
+<tr><th>Etap</th><th>Co</th><th>Ryzyko dla pilota</th><th>Kiedy gotowe</th></tr>
+<tr><td class="n">E0 <span class="chip done">CZĘŚCIOWO</span></td><td>Historia zmian ustawień z uzasadnieniem (zrobione). Dalej: dziennik pobrań i eksportów.</td><td>Brak (tylko zapis)</td><td>Każda zmiana i każde pobranie ma wpis.</td></tr>
+<tr><td class="n">E1</td><td>Warstwa dostępu: każde żądanie najpierw ustala projekt, potem bierze jego bazę. Na tym etapie zawsze dostaje tę samą, obecną bazę, więc nic się nie zmienia.</td><td>Bardzo niskie</td><td>Smoke test i powtórka pilota bez różnic.</td></tr>
+<tr><td class="n">E2</td><td>Baza sterująca i panel główny tylko do odczytu: projekty z <code>study.json</code>, liczniki, stan. Import ustawień do bazy sterującej (plik zostaje zapasem).</td><td>Niskie</td><td>Panel pokazuje to samo co dzisiejszy wybór badania.</td></tr>
+<tr><td class="n">E3</td><td>Nowe projekty dostają własną bazę. Zakładanie i zamykanie projektu z panelu. Pilot dalej w bazie zastanej.</td><td>Niskie (pilot nietknięty)</td><td>Projekt testowy przechodzi pełny cykl na obu serwerach.</td></tr>
+<tr><td class="n">E4</td><td>Konta i role zamiast kluczy w adresie, linki z wygaśnięciem. Opcja na Cloudflare: Cloudflare Access przed panelem.</td><td>Średnie (logowanie badaczy)</td><td>Stare linki działają równolegle przez okres przejściowy.</td></tr>
+<tr><td class="n">E5</td><td>Po zamknięciu pilota: kopia do własnej bazy z weryfikacją, archiwum, retencja według zgody etycznej.</td><td>Brak (pilot zamknięty)</td><td>Weryfikacja bez różnic; stara baza usunięta po 30 dniach.</td></tr>
+</table></div>
+<p>Do rozstrzygnięcia: czy utrzymywać dwa serwery na zawsze. Każda funkcja kosztuje dziś podwójnie. Proponuję zostawić serwer Pythonowy jako tryb lokalny i laboratoryjny (bez internetu, na jednym komputerze) i zamrozić jego zakres, a nowe funkcje panelu robić tylko w Cloudflare. To decyzja dla Ciebie (punkt 5).</p>
+</section>
+
+<section id="metod">
+<h2>2. Rygor naukowy i metodologia</h2>
+<div class="good"><b>Co już jest dobre</b> (warto to zachować i opisać w metodach):
+<ul>
+  <li>Uczciwe ramy eksploracyjne: δ Cliffa z bootstrapowym 95% CI, kontrola FDR (Benjamini-Hochberg), N potrzebne przy połowie efektu z pilota, bo efekty pilotażowe są zawyżone.</li>
+  <li>Kontrola liczby kawałków (reszty rangowe na log liczby kawałków): wiele miar rośnie z liczbą składników, a analiza to uwzględnia.</li>
+  <li>Dane syntetyczne o znanych różnicach grupowych (<code>analysis/synthetic.py</code>): sprawdzają, czy cały potok wykrywa to, co ma wykryć.</li>
+  <li>Każda pizza zapisuje wersję zadania, wygląd, tryb informacji o wartościach odżywczych i kolejność pytań. Flagi przeglądarki (tłumaczenie, zgrubny zegar, automatyzacja) są zapisywane, a automatyzacja wyklucza sesję automatycznie.</li>
+  <li>Kontrola trafności wbudowana w analizę: deklarowana dieta powinna być widoczna na pizzy (idea 10).</li>
+</ul></div>
+
+<h3 id="m-a">A. Projekt badania i przydział</h3>
+<div class="item"><h4><span class="chip p0">P0</span>Losowy przydział zamiast „po kolei”</h4><dl>
+<dt>Problem</dt><dd>Warunki są przydzielane po kolei, A, B, A, B (<code>store.next_condition</code>, licznik w <code>meta</code>). To nie jest randomizacja: kolejność da się przewidzieć, a przy rezygnacjach i grupach z linków (np. ASD/NT) warunki rozjeżdżają się w grupach.</dd>
+<dt>Propozycja</dt><dd>Randomizacja blokami permutowanymi o losowej długości (4 lub 6), warstwowana po grupie i źródle rekrutacji. Sekwencja jest generowana z ziarnem i zapisywana w bazie sterującej przed startem, więc nikt jej nie widzi (ukrycie przydziału). Każda sesja zapisuje <code>alloc_seq</code> i numer bloku. Raport pokazuje balans w każdej warstwie, a analiza idzie według przydziału (ITT), z analizą per protokół obok.</dd>
+<dt>Pilot</dt><dd>Bez zmian. Nowy sposób przydziału dotyczy tylko nowych projektów.</dd></dl></div>
+<div class="item"><h4><span class="chip p0">P0</span>Zamrożony protokół i fale</h4><dl>
+<dt>Problem</dt><dd>Ustawienia, które zmieniają bodziec (wygląd, wartości odżywcze, pytania, warunki), można zmienić w każdej chwili. Badanie dzieli się wtedy na wersje, a zmiana pokrywa się z czasem zbierania danych.</dd>
+<dt>Zrobione</dt><dd>Historia zmian z uzasadnieniem. Gdy ktoś już wziął udział, uzasadnienie jest wymagane, a przed zapisem pojawia się ostrzeżenie.</dd>
+<dt>Dalej</dt><dd>Stan „zbieranie danych”: zmiana bodźca wymaga świadomej „poprawki protokołu”, która zaczyna nową <b>falę</b> z numerem zapisywanym w każdej sesji. Analiza dzieli dane według fal. Każda sesja zapisuje też skrót (hash) pełnego zestawu ustawień, nie tylko wybranych pól: dziś nie ma tam np. treści pytań ani tacy składników.</dd></dl></div>
+<div class="item"><h4><span class="chip p1">P1</span>Kolejność i pozycja na tacy</h4><dl>
+<dt>Problem</dt><dd>Taca jest tasowana dla każdej osoby, a pozycja jest zapisywana (<code>tray_pos</code>), ale analiza jej nie uwzględnia. W pilocie raz pytano przed pizzą, raz po niej (<code>survey_when</code>).</dd>
+<dt>Propozycja</dt><dd>Model efektu pozycji (pierwsze miejsca vs dalsze) i jego kontrola. W badaniu głównym jedna kolejność pytań albo kolejność losowana i równoważona.</dd></dl></div>
+<div class="item"><h4><span class="chip p0">P0</span>Grupa porównawcza i kwoty</h4><dl>
+<dt>Problem</dt><dd>Grupa porównawcza nie jest ustalona. W pilocie neurotyp nakłada się na tożsamość płciową (6 z 9 osób neuroatypowych to osoby trans lub niebinarne).</dd>
+<dt>Propozycja</dt><dd>Te same kanały rekrutacji dla obu grup, dopasowanie po wieku, płci i wykształceniu, kwoty w komórkach neurotyp × tożsamość płciowa monitorowane w panelu. Rekrutacja ma celowo objąć cispłciowe osoby neuroatypowe i osoby trans lub niebinarne neurotypowe.</dd></dl></div>
+
+<h3 id="m-b">B. Pomiar</h3>
+<div class="item"><h4><span class="chip p0">P0</span>Walidowane skale obok samoopisu</h4><dl>
+<dt>Problem</dt><dd>Neurotyp to wyłącznie samoopis: diagnoza, autodiagnoza albo oczekiwanie na ocenę. Pytania o jedzenie to pojedyncze oceny, a nie skale o znanej rzetelności.</dd>
+<dt>Propozycja</dt><dd>Krótkie skale przesiewowe w wersjach polskich:
+<ul>
+  <li>AQ-10 (autyzm) i ASRS v1.1 część A (6 pytań, ADHD);</li>
+  <li>Food Neophobia Scale (10 pozycji);</li>
+  <li>NIAS (unikanie i ograniczanie jedzenia, 9 pozycji);</li>
+  <li>opcjonalnie skala wrażliwości sensorycznej.</li>
+</ul>
+Skale służą jako kowarianty i kontrola trafności, nie zastępują diagnozy. Wymagają zgody autorów lub licencji i aneksu etycznego.</dd></dl></div>
+<div class="item"><h4><span class="chip p0">P0</span>Stan i urządzenie jako kowarianty</h4><dl>
+<dt>Problem</dt><dd>Głód silnie zmienia wybór jedzenia, a nie jest mierzony. Myszy nie da się odróżnić od touchpada (oba dają <code>pointerType</code> „mouse”), a to wpływa na czasy i precyzję. Rozmiar ekranu jest zapisany, ale nie jest używany.</dd>
+<dt>Propozycja</dt><dd>Przed zadaniem trzy pytania:
+<ul>
+  <li>głód na skali 0–100;</li>
+  <li>godziny od ostatniego posiłku;</li>
+  <li>mysz czy touchpad.</li>
+</ul>
+Dodatkowo jak często dana osoba je pizzę i czy ją lubi. Rozmiar okna i gęstość pikseli trafiają do modeli jako kowarianty miar czasowych i przestrzennych.</dd></dl></div>
+<div class="item"><h4><span class="chip p1">P1</span>Rzetelność: czy to cecha osoby?</h4><dl>
+<dt>Problem</dt><dd>Nie wiemy, czy ta sama osoba zbuduje podobną pizzę drugi raz. Bez tego różnice grupowe mogą być szumem jednej próby.</dd>
+<dt>Propozycja</dt><dd>Test–retest na podpróbie (np. 40 osób, druga pizza po 1–2 tygodniach, ten sam link osobisty jako druga fala), ICC dla każdej miary. Dla miar procesu (czasy, rewizje) rzetelność połówkowa w obrębie sesji. Miary z ICC poniżej około 0,5 nie powinny być wynikami pierwszorzędowymi.</dd></dl></div>
+<div class="item"><h4><span class="chip p1">P1</span>Trafność miar automatycznych</h4><dl>
+<dt>Problem</dt><dd>Wykrywanie twarzy działa w benchmarku (84%), ale nie było porównane z ludźmi. „Symetria” i „bloki” nie mają porównania z oceną człowieka.</dd>
+<dt>Propozycja</dt><dd>Dwóch niezależnych sędziów koduje 100–150 pizz bez wiedzy o grupie; liczymy κ Cohena między sędziami i między sędziami a algorytmem. Do tego trafność zbieżna (neofobia ↔ liczba rodzajów składników, NIAS ↔ wybór bezpiecznych składników).</dd></dl></div>
+<div class="item"><h4><span class="chip p0">P0</span>Mniej miar pierwszorzędowych</h4><dl>
+<dt>Problem</dt><dd>Miar są dziesiątki i są ze sobą silnie powiązane. Kontrola FDR na wielu prawie tych samych miarach rozmywa moc i utrudnia interpretację.</dd>
+<dt>Propozycja</dt><dd>Na danych pilota analiza struktury (PCA lub analiza czynnikowa) i 4–6 wskaźników złożonych, np. wybór, rozłożenie, porządek, tempo, rewizje i energia. W badaniu głównym te wskaźniki są wynikami pierwszorzędowymi, a ich strukturę potwierdzamy (CFA). Pozostałe miary są eksploracyjne.</dd></dl></div>
+<div class="item"><h4><span class="chip p2">P2</span>Wagi kawałków</h4><dl>
+<dt>Problem</dt><dd>Gramy na kawałek są szacunkami (README).</dd>
+<dt>Propozycja</dt><dd>Jeśli wartości odżywcze mają być wynikiem: zważyć prawdziwe porcje (10 sztuk każdego składnika) i podać niepewność.</dd></dl></div>
+
+<h3 id="m-c">C. Jakość danych</h3>
+<div class="item"><h4><span class="chip p0">P0</span>Wykluczenia ustalone z góry, decyzje ręczne „na ślepo”</h4><dl>
+<dt>Problem</dt><dd>Obok reguły automatycznej (pizza ukończona, brak automatyzacji) badacz może ręcznie włączyć lub wykluczyć sesję po obejrzeniu danych. To „stopień swobody badacza”, który może przesuwać wyniki.</dd>
+<dt>Propozycja</dt><dd>Lista kryteriów w planie analizy przed zbieraniem danych, np.:
+<ul>
+  <li>0 składników;</li>
+  <li>czas aktywny poniżej progu;</li>
+  <li>trening nieukończony lub z dużym błędem celu (<code>practice_target_err</code>), co oznacza niezrozumienie zadania;</li>
+  <li>automatyzacja;</li>
+  <li>duplikat.</li>
+</ul>
+Ręczne wykluczenie wymaga powodu z listy i jest robione bez widoku grupy i neurotypu; wszystko trafia do dziennika. Wyniki raportujemy z wykluczeniami i bez nich.</dd></dl></div>
+<div class="item"><h4><span class="chip p1">P1</span>Duplikaty i uważność</h4><dl>
+<dt>Problem</dt><dd>Nic nie wykrywa tej samej osoby pod dwoma identyfikatorami. Nie ma pytania o uważność.</dd>
+<dt>Propozycja</dt><dd>Flaga duplikatu dla tego samego ID Prolific lub tego samego odcisku urządzenia (przeglądarka, ekran, strefa czasowa), do decyzji badacza. Na końcu pytanie: „Czy wykonywałeś(-aś) zadanie uważnie? Czy możemy użyć Twoich danych?” (bez konsekwencji dla wynagrodzenia).</dd></dl></div>
+<div class="item"><h4><span class="chip p0">P0</span>Diagram przepływu i różnicowy odpływ</h4><dl>
+<dt>Problem</dt><dd>Lejek etapów już istnieje (Overview), ale nie jest liczony per warunek i grupa. Odpływ, który różni się między grupami (np. osoby autystyczne częściej przerywają przy pytaniach), zniekształca porównania.</dd>
+<dt>Propozycja</dt><dd>Diagram w stylu CONSORT per warunek i grupa (zaproszeni, otworzyli, zgoda, trening, budowa, ukończyli, włączeni) z testem różnic w odpływie. Gotowy do wklejenia do artykułu.</dd></dl></div>
+
+<h3 id="m-d">D. Analiza</h3>
+<div class="item"><h4><span class="chip p0">P0</span>Plan analizy potwierdzającej i zamknięcie bazy</h4><dl>
+<dt>Problem</dt><dd>Raporty przeliczają się w trakcie zbierania danych i pokazują porównania grupowe na bieżąco. To zachęca do zatrzymania się „gdy wyjdzie” (optional stopping). Potwierdzenie i eksploracja nie są rozdzielone.</dd>
+<dt>Propozycja</dt><dd>Plik planu analizy per projekt (<code>analysis_plan.json</code>), zamrożony skrótem i datą przed startem: hipotezy z kierunkiem, wyniki pierwszorzędowe, test, α, korekta, kowarianty, wykluczenia, docelowe N i reguła zatrzymania. Analiza potwierdzająca liczy się dokładnie według planu, a odblokowuje się dopiero po osiągnięciu N i zamknięciu bazy. Do tego czasu panel pokazuje jakość danych i opis próby, a porównania grupowe są ukryte. Wszystko poza planem ma etykietę „eksploracyjne”. Gdy potrzebny jest podgląd w trakcie, plan sekwencyjny z wydatkowaniem α (O'Brien–Fleming).</dd></dl></div>
+<div class="item"><h4><span class="chip p0">P0</span>Moc z symulacji, nie z efektów pilota</h4><dl>
+<dt>Problem</dt><dd>N jest liczone przy połowie efektu z pilota. To rozsądne do eksploracji, ale nie wystarcza do potwierdzenia.</dd>
+<dt>Propozycja</dt><dd>Najmniejszy efekt, który ma znaczenie (SESOI), ustalony merytorycznie dla każdego wskaźnika złożonego. Moc liczona symulacją na generatorze syntetycznym (już istnieje) z rozkładami z pilota, kowariantami i spodziewanym odpływem.</dd></dl></div>
+<div class="item"><h4><span class="chip p1">P1</span>Modele zamiast samych testów dwugrupowych</h4><dl>
+<dt>Problem</dt><dd>Dziś porównania to głównie testy rangowe dwóch grup i korekta na liczbę kawałków. Kowariantów (wiek, płeć, głód, urządzenie, fala) nie ma w jednym modelu.</dd>
+<dt>Propozycja</dt><dd>Regresja dobrana do miary (porządkowa, beta, ujemna dwumianowa) z kowariantami z planu. Dla danych na poziomie kawałków modele wielopoziomowe (kawałki w osobach) zamiast średnich. Do twierdzeń „brak różnicy” testy równoważności (TOST) z SESOI; czynniki Bayesa opcjonalnie. Implementacja w R (eksport już jest: <code>load_pizza.R</code>), z testem zgodności z Pythonem.</dd></dl></div>
+<div class="item"><h4><span class="chip p1">P1</span>Analiza wrażliwości</h4><dl>
+<dt>Problem</dt><dd>Wynik zależy od decyzji: wykluczeń, korekty kawałków, diagnozy vs autodiagnozy, próby cispłciowej.</dd>
+<dt>Propozycja</dt><dd>Stała tabela wrażliwości (mały multiverse): główny wynik przy każdej z tych decyzji. Opis jest w raporcie, a nie wybierany po fakcie.</dd></dl></div>
+<div class="item"><h4><span class="chip p2">P2</span>Poziom przypadku w symetrii</h4><dl>
+<dt>Problem</dt><dd>Poziom przypadku bierze się z 12 losowych układów na pizzę (<code>SYM_NULLS = 12</code>), więc jest trochę zaszumiony.</dd>
+<dt>Propozycja</dt><dd>W analizie potwierdzającej 200 układów ze stałym ziarnem i raportem stabilności. Koszt to czas obliczeń, a nie ryzyko.</dd></dl></div>
+
+<h3 id="m-e">E. Reprodukowalność, otwartość, etyka</h3>
+<div class="item"><h4><span class="chip p0">P0</span>Każdy raport mówi, z czego powstał</h4><dl>
+<dt>Problem</dt><dd>Raport nie zapisuje commita kodu analizy ani skrótu danych.</dd>
+<dt>Propozycja</dt><dd>W każdym raporcie i eksporcie: SHA kodu analizy, wersje zadania, skrót (sha256) zbioru danych, ziarno, data. Przy zamknięciu bazy zamrożony zrzut (.sqlite i sha256) do repozytorium danych (OSF), razem z planem i materiałami: kodem zadania i zdjęciami.</dd></dl></div>
+<div class="item"><h4><span class="chip p0">P0</span>Preregistracja</h4><dl>
+<dt>Propozycja</dt><dd>Preregistracja na OSF przed badaniem głównym: plan analizy (wyżej), wybrane tropy z pilota jako hipotezy, kryteria wykluczeń, N z symulacji. Panel może wygenerować z ustawień i planu gotowy szkic preregistracji.</dd></dl></div>
+<div class="item"><h4><span class="chip p1">P1</span>Dane zdrowotne i RODO</h4><dl>
+<dt>Problem</dt><dd>Neurotyp, diagnozy i zaburzenia odżywiania to dane szczególnej kategorii. Raporty w GitHub Actions przetwarzają dane poza UE. Wycofanie zgody wymaga dziś ręcznej pracy.</dd>
+<dt>Propozycja</dt><dd>DPIA, okres przechowywania per projekt (w panelu), przycisk „usuń dane osoby” z wpisem do dziennika, budowanie raportów na zatwierdzonym komputerze, jeśli komisja nie zgodzi się na Actions. Otwarte dane po deidentyfikacji: wiek w przedziałach, rzadkie kombinacje płeć × neurotyp scalone do co najmniej 5 osób.</dd></dl></div>
+<div class="item"><h4><span class="chip p1">P1</span>Współprojektowanie z osobami autystycznymi</h4><dl>
+<dt>Propozycja</dt><dd>Konsultacja zadania, instrukcji i pytań z osobami autystycznymi i z ADHD (2–3 spotkania, wynagrodzone) przed badaniem głównym: zrozumiałość, obciążenie sensoryczne (np. pulsujący przycisk), język pytań o diagnozę. Opis tego procesu w metodach.</dd></dl></div>
+</section>
+
+<section id="ux">
+<h2>3. UX: co zrobiłem i co dalej</h2>
+<h3>Zrobione dziś (oba serwery, smoke test zielony)</h3>
+<ul>
+  <li><span class="chip done">ZROBIONE</span><b>Przegląd przed zapisem:</b> zmiany opisane słowami („Wygląd pizzy: domyślny (Realistic) → Drawn”), dla kogo i od kiedy obowiązują.</li>
+  <li><span class="chip done">ZROBIONE</span><b>Uzasadnienie:</b> gdy ktoś już wziął udział, panel to mówi i wymaga kilku słów powodu; wcześniej powód jest opcjonalny.</li>
+  <li><span class="chip done">ZROBIONE</span><b>Historia zmian:</b> czas, kto (właściciel lub link), powód, przed i po. Przycisk „przywróć ustawienia sprzed tej zmiany” też przechodzi przez przegląd.</li>
+  <li><span class="chip done">ZROBIONE</span><b>Niezapisane zmiany:</b> pasek na dole (co zmienione, Odrzuć, Przejrzyj i zapisz); wyjście z zakładki lub strony pyta o potwierdzenie.</li>
+  <li><span class="chip done">ZROBIONE</span><b>Pytania własne</b> sprawdzane w trakcie pisania (✓ lista pytań / ✗ co jest źle). Warunki aktualizują się przy wpisywaniu, bez dodatkowego przycisku. „As inherited” zastąpione przez „Default: … (set in …)”. Komunikat „Zapisano o …”.</li>
+</ul>
+<h3>Dalej</h3>
+<div class="tbl"><table>
+<tr><th>Priorytet</th><th>Co</th><th>Dlaczego</th></tr>
+<tr><td><span class="chip p0">P0</span></td><td>Podgląd jako uczestnik: sesja testowa oznaczona TEST, poza analizami, z ustawieniami w danej chwili</td><td>Najczęstszy błąd to zmiana, której nikt nie zobaczył oczami uczestnika.</td></tr>
+<tr><td><span class="chip p0">P0</span></td><td>Lista kontrolna przed startem projektu: teksty etyczne, test na dwóch komputerach, kopia zapasowa, plan analizy zamrożony</td><td>Start zbierania danych jako świadoma decyzja, nie skutek uboczny.</td></tr>
+<tr><td><span class="chip p1">P1</span></td><td>Edytor pytań z formularzem i podglądem zamiast JSON</td><td>JSON jest źródłem błędów i wyklucza osoby, które nie programują.</td></tr>
+<tr><td><span class="chip p1">P1</span></td><td>Kreator nowego projektu w panelu głównym (krok po kroku, z szablonu)</td><td>Wymaga etapów E2 i E3 architektury.</td></tr>
+<tr><td><span class="chip p1">P1</span></td><td>Polska wersja strony badacza</td><td>Zespół pracuje po polsku; teksty dla uczestników już są przetłumaczone.</td></tr>
+<tr><td><span class="chip p2">P2</span></td><td>Powiadomienia e-mail: nowi uczestnicy, błędy zapisu, zbliżające się limity</td><td>Mniej ręcznego sprawdzania panelu.</td></tr>
+<tr><td><span class="chip p2">P2</span></td><td>Dostępność: przegląd WCAG 2.1 AA strony badacza i zadania (kontrast, klawiatura, fokus w oknach)</td><td>Dotyczy też uczestników z grupy badanej.</td></tr>
+</table></div>
+</section>
+
+<section id="kolejnosc">
+<h2>4. Proponowana kolejność</h2>
+<div class="tbl"><table>
+<tr><th>Kiedy</th><th>Metodologia</th><th>Architektura i UX</th></tr>
+<tr><td class="n">Teraz, w trakcie pilota</td><td>Plan analizy, wybór skal, SESOI, kryteria wykluczeń, zgody na skale, aneks etyczny</td><td>E1 (warstwa dostępu, bez ryzyka), podgląd jako uczestnik, SHA i skrót danych w raportach</td></tr>
+<tr><td class="n">Po pilocie</td><td>Struktura miar na danych pilota, wskaźniki złożone, symulacja mocy, preregistracja</td><td>E2 (panel tylko do odczytu), randomizacja blokowa, fale i skrót ustawień w sesji</td></tr>
+<tr><td class="n">Przed badaniem głównym</td><td>Test–retest i kodowanie sędziowskie, diagram przepływu, tabela wrażliwości</td><td>E3 (nowe projekty z własną bazą), lista kontrolna startu, edytor pytań</td></tr>
+<tr><td class="n">Po zamknięciu pilota</td><td>Zrzut danych pilota na OSF</td><td>E5 (pilot do własnej bazy, kopią z weryfikacją), E4 (konta i role)</td></tr>
+</table></div>
+</section>
+
+<section id="decyzje">
+<h2>5. Decyzje dla Ciebie</h2>
+<div class="ask"><ol>
+  <li>Cloudflare: D1 na projekt (prostsze, nowy projekt wymaga wdrożenia) czy Durable Objects (bez wdrożenia, więcej kodu)? I czy zostajemy na planie darmowym (limit liczby baz) czy Workers Paid (5 USD miesięcznie)?</li>
+  <li>Czy serwer Pythonowy zostaje jako tryb lokalny z zamrożonym zakresem, a nowe funkcje panelu powstają tylko w Cloudflare?</li>
+  <li>Logowanie badaczy: Cloudflare Access (bez własnego kodu haseł) czy linki z wygaśnięciem?</li>
+  <li>Które skale (AQ-10, ASRS, FNS, NIAS) i czy komisja etyczna zgodzi się na aneks?</li>
+  <li>Czy w badaniu głównym ukrywamy porównania grupowe do zamknięcia bazy, czy robimy plan sekwencyjny?</li>
+  <li>Grupa porównawcza: druga ścieżka na serwerze czy próba ogólna z Prolific?</li>
+</ol></div>
+<p>Po Twoich decyzjach zaczynam od E1 i P0 z listy „Teraz”. Żaden z tych kroków nie dotyka danych ani adresów pilota.</p>
+</section>
+</main>
+</div>
