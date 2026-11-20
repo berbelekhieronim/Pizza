@@ -89,13 +89,13 @@ pre.mermaid { background: var(--panel); border: 1px solid var(--line); border-ra
   <a class="sub" href="#m-e">E. Reprodukowalność, etyka</a>
   <a href="#ux">3. UX: zrobione i dalej</a>
   <a href="#kolejnosc">4. Kolejność wdrożenia</a>
-  <a href="#decyzje">5. Decyzje dla Ciebie</a>
+  <a href="#decyzje">5. Decyzje</a>
 </nav>
 
 <main>
 <h1>Pizza study: plan rozwoju</h1>
 <p class="lede">Architektura z panelem głównym i osobnymi bazami danych, rygor metodologiczny przed badaniem głównym, UX strony badacza.</p>
-<div class="meta"><span>Stan na 20.11.2026</span><span>Zadanie 0.20.0</span><span>Repozytorium: berbelekhieronim/Pizza, gałąź main</span></div>
+<div class="meta"><span>Stan na 20.11.2026 (aktualizacja: decyzje i pierwsze etapy wdrożone)</span><span>Zadanie 0.20.0</span><span>Repozytorium: berbelekhieronim/Pizza, gałąź main</span></div>
 
 <section id="skrot">
 <h2 style="border-top:0;margin-top:8px">W skrócie</h2>
@@ -154,8 +154,10 @@ flowchart LR
 <h4>Bazy projektów na obu serwerach</h4>
 <ul>
   <li><b>Serwer lokalny:</b> plik na projekt, <code>data/projects/&lt;id&gt;.db</code>. Obecna <code>data/study.db</code> to baza pilota.</li>
-  <li><b>Cloudflare, wariant A (D1 na projekt):</b> <code>deploy.py</code> tworzy bazę D1 i dopisuje powiązanie (binding) w konfiguracji Workera. Nowy projekt wymaga więc ponownego wdrożenia przez Actions (około 2 minut, bez przerwy w działaniu). Plan darmowy ma limit liczby baz D1 (o ile pamiętam 10 na konto; do sprawdzenia w aktualnym cenniku).</li>
-  <li><b>Cloudflare, wariant B (Durable Object z SQLite na projekt):</b> bazy tworzą się same, bez wdrożenia. Eksport i narzędzia są jednak inne niż dla D1, więc przybywa kodu do utrzymania. Dostępność na planie darmowym do sprawdzenia.</li>
+  <li><b>Cloudflare: wybrane D1 na projekt</b> <span class="chip done">WDROŻONE</span>. Projekt dostaje własną bazę wpisem <code>"database": "DB_NAZWA"</code> w <code>study.json</code>; <code>deploy.py</code> zakłada bazę D1, migracje i powiązanie. Nowy projekt wymaga więc wdrożenia przez Actions (około 2 minut, bez przerwy w działaniu).</li>
+  <li><b>Dlaczego nie Durable Objects:</b> na planie darmowym dostępne są tylko te z SQLite i mają osobny limit 100 000 żądań dziennie. Każde zapytanie Workera do obiektu to dodatkowe żądanie, a eksport i narzędzia są inne niż dla D1. D1 mieści się w limitach bez dokładania żądań i ma 7-dniowe przywracanie stanu (Time Travel).</li>
+  <li><b>Limity planu darmowego</b> (developers.cloudflare.com, sprawdzone 20.11.2026): 10 baz D1 na konto, 500 MB każda, 5 GB łącznie; 50 zapytań do D1 na jedno żądanie Workera (<code>batch</code> liczy się jako jedno); 5 mln odczytanych i 100 000 zapisanych wierszy dziennie łącznie. Po przekroczeniu nic się nie dolicza: żądania zwracają błąd do resetu.</li>
+  <li><b>Jak zostajemy w limitach:</b> <code>deploy.py</code> nie założy 11. bazy. Każda baza ma limit 450 MB, a 10 × 450 MB to mniej niż 5 GB. Panel czyta liczby wszystkich badań jednym zapytaniem zbiorczym na bazę: 14 zapytań przy dwóch bazach, a smoke test nie przepuści więcej niż 25. Osobna baza nie dokłada zapisów.</li>
   <li><b>Pliki:</b> R2 z prefiksem projektu. Raporty już dziś są budowane per badanie, więc zmiana jest niewielka.</li>
 </ul>
 
@@ -174,13 +176,13 @@ flowchart LR
 <div class="tbl"><table>
 <tr><th>Etap</th><th>Co</th><th>Ryzyko dla pilota</th><th>Kiedy gotowe</th></tr>
 <tr><td class="n">E0 <span class="chip done">CZĘŚCIOWO</span></td><td>Historia zmian ustawień z uzasadnieniem (zrobione). Dalej: dziennik pobrań i eksportów.</td><td>Brak (tylko zapis)</td><td>Każda zmiana i każde pobranie ma wpis.</td></tr>
-<tr><td class="n">E1</td><td>Warstwa dostępu: każde żądanie najpierw ustala projekt, potem bierze jego bazę. Na tym etapie zawsze dostaje tę samą, obecną bazę, więc nic się nie zmienia.</td><td>Bardzo niskie</td><td>Smoke test i powtórka pilota bez różnic.</td></tr>
-<tr><td class="n">E2</td><td>Baza sterująca i panel główny tylko do odczytu: projekty z <code>study.json</code>, liczniki, stan. Import ustawień do bazy sterującej (plik zostaje zapasem).</td><td>Niskie</td><td>Panel pokazuje to samo co dzisiejszy wybór badania.</td></tr>
-<tr><td class="n">E3</td><td>Nowe projekty dostają własną bazę. Zakładanie i zamykanie projektu z panelu. Pilot dalej w bazie zastanej.</td><td>Niskie (pilot nietknięty)</td><td>Projekt testowy przechodzi pełny cykl na obu serwerach.</td></tr>
+<tr><td class="n">E1 <span class="chip done">ZROBIONE</span></td><td>Router baz (<code>cloudflare/src/router.js</code>): każde żądanie najpierw ustala projekt, potem bierze jego bazę. Bez wpisu <code>database</code> wszystko trafia do obecnej bazy, jak dotąd.</td><td>Bardzo niskie</td><td>Cały zestaw testów Workera przechodzi z <code>pilot-asd</code> w osobnej bazie i daje wyniki zgodne z serwerem Pythonowym.</td></tr>
+<tr><td class="n">E2 <span class="chip done">CZĘŚCIOWO</span></td><td>Lista projektów pokazuje „own database”, a panel właściciela pokazuje bazy i ich rozmiar względem planu darmowego. Dalej: baza sterująca i panel główny tylko do odczytu: projekty z <code>study.json</code>, liczniki, stan. Import ustawień do bazy sterującej (plik zostaje zapasem).</td><td>Niskie</td><td>Panel pokazuje to samo co dzisiejszy wybór badania.</td></tr>
+<tr><td class="n">E3 <span class="chip done">CZĘŚCIOWO</span></td><td>Nowe projekty dostają własną bazę (wpis w <code>study.json</code> i wdrożenie). <code>deploy.py</code> nie pozwala dać własnej bazy badaniu, które ma już sesje w bazie głównej, więc pilota nie da się przenieść przez pomyłkę. Dalej: zakładanie i zamykanie projektu z panelu.</td><td>Niskie (pilot nietknięty)</td><td>Projekt testowy przechodzi pełny cykl na obu serwerach.</td></tr>
 <tr><td class="n">E4</td><td>Konta i role zamiast kluczy w adresie, linki z wygaśnięciem. Opcja na Cloudflare: Cloudflare Access przed panelem.</td><td>Średnie (logowanie badaczy)</td><td>Stare linki działają równolegle przez okres przejściowy.</td></tr>
 <tr><td class="n">E5</td><td>Po zamknięciu pilota: kopia do własnej bazy z weryfikacją, archiwum, retencja według zgody etycznej.</td><td>Brak (pilot zamknięty)</td><td>Weryfikacja bez różnic; stara baza usunięta po 30 dniach.</td></tr>
 </table></div>
-<p>Do rozstrzygnięcia: czy utrzymywać dwa serwery na zawsze. Każda funkcja kosztuje dziś podwójnie. Proponuję zostawić serwer Pythonowy jako tryb lokalny i laboratoryjny (bez internetu, na jednym komputerze) i zamrozić jego zakres, a nowe funkcje panelu robić tylko w Cloudflare. To decyzja dla Ciebie (punkt 5).</p>
+<p>Postanowione: serwer Pythonowy zostaje trybem lokalnym i laboratoryjnym (bez internetu, na jednym komputerze, jedna baza) z zamrożonym zakresem. Nowe funkcje panelu powstają w Cloudflare.</p>
 </section>
 
 <section id="metod">
@@ -213,14 +215,15 @@ flowchart LR
 <h3 id="m-b">B. Pomiar</h3>
 <div class="item"><h4><span class="chip p0">P0</span>Walidowane skale obok samoopisu</h4><dl>
 <dt>Problem</dt><dd>Neurotyp to wyłącznie samoopis: diagnoza, autodiagnoza albo oczekiwanie na ocenę. Pytania o jedzenie to pojedyncze oceny, a nie skale o znanej rzetelności.</dd>
-<dt>Propozycja</dt><dd>Krótkie skale przesiewowe w wersjach polskich:
+<dt>Propozycja</dt><dd><b>Na razie propozycja, nie wymóg.</b> Skale można dołączyć do ankiet przed pizzą albo po niej, gdy będą potrzebne. Krótkie skale przesiewowe w wersjach polskich:
 <ul>
   <li>AQ-10 (autyzm) i ASRS v1.1 część A (6 pytań, ADHD);</li>
   <li>Food Neophobia Scale (10 pozycji);</li>
   <li>NIAS (unikanie i ograniczanie jedzenia, 9 pozycji);</li>
   <li>opcjonalnie skala wrażliwości sensorycznej.</li>
 </ul>
-Skale służą jako kowarianty i kontrola trafności, nie zastępują diagnozy. Wymagają zgody autorów lub licencji i aneksu etycznego.</dd></dl></div>
+Skale służą jako kowarianty i kontrola trafności, nie zastępują diagnozy. Wymagają zgody autorów lub licencji i aneksu etycznego.</dd>
+<dt>Gdzie</dt><dd><b>Przed pizzą:</b> głód i czas od posiłku (stan w chwili zadania), mysz czy touchpad. <b>Po pizzy:</b> AQ-10, ASRS, FNS, NIAS (cechy stałe; po pizzy nie wpływają na nią). Mechanizm już istnieje: własne pytania w Settings (przed albo po). Brakuje gotowych zestawów do wstawienia jednym kliknięciem i ich tłumaczeń z walidowanych polskich wersji.</dd></dl></div>
 <div class="item"><h4><span class="chip p0">P0</span>Stan i urządzenie jako kowarianty</h4><dl>
 <dt>Problem</dt><dd>Głód silnie zmienia wybór jedzenia, a nie jest mierzony. Myszy nie da się odróżnić od touchpada (oba dają <code>pointerType</code> „mouse”), a to wpływa na czasy i precyzję. Rozmiar ekranu jest zapisany, ale nie jest używany.</dd>
 <dt>Propozycja</dt><dd>Przed zadaniem trzy pytania:
@@ -327,16 +330,16 @@ Ręczne wykluczenie wymaga powodu z listy i jest robione bez widoku grupy i neur
 </section>
 
 <section id="decyzje">
-<h2>5. Decyzje dla Ciebie</h2>
+<h2>5. Decyzje (20.11.2026)</h2>
 <div class="ask"><ol>
-  <li>Cloudflare: D1 na projekt (prostsze, nowy projekt wymaga wdrożenia) czy Durable Objects (bez wdrożenia, więcej kodu)? I czy zostajemy na planie darmowym (limit liczby baz) czy Workers Paid (5 USD miesięcznie)?</li>
-  <li>Czy serwer Pythonowy zostaje jako tryb lokalny z zamrożonym zakresem, a nowe funkcje panelu powstają tylko w Cloudflare?</li>
-  <li>Logowanie badaczy: Cloudflare Access (bez własnego kodu haseł) czy linki z wygaśnięciem?</li>
-  <li>Które skale (AQ-10, ASRS, FNS, NIAS) i czy komisja etyczna zgodzi się na aneks?</li>
-  <li>Czy w badaniu głównym ukrywamy porównania grupowe do zamknięcia bazy, czy robimy plan sekwencyjny?</li>
-  <li>Grupa porównawcza: druga ścieżka na serwerze czy próba ogólna z Prolific?</li>
+  <li><b>Cloudflare:</b> D1 na projekt, plan darmowy. Limity sprawdzone i pilnowane w kodzie (punkt 1). <span class="chip done">WDROŻONE</span></li>
+  <li><b>Serwer Pythonowy:</b> tryb lokalny z zamrożonym zakresem; nowe funkcje w Cloudflare.</li>
+  <li><b>Logowanie badaczy:</b> według planu (etap E4), bez zmian w trakcie pilota.</li>
+  <li><b>Skale:</b> propozycja do dołączenia do ankiet przed i po, nie teraz.</li>
+  <li><b>Porównania grupowe w badaniu głównym:</b> ukryte do zamknięcia bazy (plan analizy, punkt D).</li>
+  <li><b>Settings:</b> przełączniki zamiast list wyboru. <span class="chip done">WDROŻONE</span></li>
 </ol></div>
-<p>Po Twoich decyzjach zaczynam od E1 i P0 z listy „Teraz”. Żaden z tych kroków nie dotyka danych ani adresów pilota.</p>
+<p>Dalej według kolejności z punktu 4. Żaden krok nie dotyka danych ani adresów pilota.</p>
 </section>
 </main>
 </div>

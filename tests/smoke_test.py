@@ -223,13 +223,22 @@ def cloudflare_checks(tmp, fields):
     state = os.path.join(tmp, 'wrangler-state')
     env = dict(os.environ, WRANGLER_SEND_METRICS='false', CI='1')
     subprocess.run([PY, os.path.join(cf, 'deploy.py'), 'build'], check=True, capture_output=True)
-    r = subprocess.run([exe, 'd1', 'migrations', 'apply', 'pizza-study', '--local', '--persist-to', state], cwd=cf, env=env, capture_output=True, text=True)
-    check(r.returncode == 0, 'applies the D1 migrations')
+    # one database per project (cloudflare/src/router.js): the Worker runs with a second D1 for pilot-asd, so every
+    # check below that uses pilot-asd goes through the router, and the main database keeps the other studies
+    wcfg = json.load(open(os.path.join(cf, 'wrangler.json'), encoding='utf-8'))
+    wcfg.pop('$schema', None)
+    wcfg['d1_databases'].append(dict(wcfg['d1_databases'][0], binding='DB_PILOTASD', database_name='pizza-study-pilotasd', database_id='local-pilotasd'))
+    smoke_cfg = os.path.join(cf, 'wrangler.smoke.json')
+    json.dump(wcfg, open(smoke_cfg, 'w', encoding='utf-8'), indent=1)
+    dbvars = ['--var', 'STUDY_DATABASES:' + json.dumps({'pilot-asd': 'DB_PILOTASD'}), '--var', 'QUERY_COUNT:1']
+    r = subprocess.run([exe, 'd1', 'migrations', 'apply', 'pizza-study', '--local', '--persist-to', state, '--config', smoke_cfg], cwd=cf, env=env, capture_output=True, text=True)
+    r2 = subprocess.run([exe, 'd1', 'migrations', 'apply', 'pizza-study-pilotasd', '--local', '--persist-to', state, '--config', smoke_cfg], cwd=cf, env=env, capture_output=True, text=True)
+    check(r.returncode == 0 and r2.returncode == 0, 'applies the D1 migrations (the main database and a project\'s own)')
     with socket.socket() as s:
         s.bind(('127.0.0.1', 0))
         port = s.getsockname()[1]
     log = open(os.path.join(tmp, 'wrangler.log'), 'w')
-    srv = subprocess.Popen([exe, 'dev', '--local', '--ip', '127.0.0.1', '--port', str(port), '--persist-to', state, '--var', 'ADMIN_KEY:smoke-owner-key'], cwd=cf, env=env,
+    srv = subprocess.Popen([exe, 'dev', '--local', '--ip', '127.0.0.1', '--port', str(port), '--persist-to', state, '--config', smoke_cfg, '--var', 'ADMIN_KEY:smoke-owner-key'] + dbvars, cwd=cf, env=env,
                            stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     base, key = 'http://127.0.0.1:%d' % port, 'smoke-owner-key'
     try:
@@ -324,7 +333,36 @@ def cloudflare_checks(tmp, fields):
               '"Build reports" on a study\'s page builds that study only (not "all" or the other studies)' + ('' if r.returncode == 0 else ' - ' + r.stderr[-300:]))
         save_order_checks(base, key, 'Worker: ')         # last: these add sessions
         neuro_filter_checks(base, key, 'Worker: ')
+        # the databases: pilot-asd's sessions and links are in its own database, the rest in the main one; the
+        # researcher page sees both; its overview stays far below the free plan's 50 queries per request
+        def d1(name, sql):
+            out = subprocess.run([exe, 'd1', 'execute', name, '--local', '--persist-to', state, '--config', smoke_cfg, '--json', '--command', sql],
+                                 cwd=cf, env=env, capture_output=True, text=True).stdout
+            try:
+                return json.loads(out[out.index('['):])[0]['results']
+            except (ValueError, IndexError, KeyError):
+                return None
+        own = d1('pizza-study-pilotasd', "SELECT COUNT(*) AS n FROM sessions WHERE study = 'pilot-asd'")
+        main_pa = d1('pizza-study', "SELECT COUNT(*) AS n FROM sessions WHERE study = 'pilot-asd'")
+        main_other = d1('pizza-study', "SELECT COUNT(*) AS n FROM sessions WHERE study != 'pilot-asd'")
+        links = d1('pizza-study-pilotasd', 'SELECT COUNT(*) AS n FROM invites')
+        req = urllib.request.Request(base + '/admin/api/state?key=' + key)
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            st, nq = json.loads(resp.read()), int(resp.headers.get('X-D1-Queries') or 999)
+        req = urllib.request.Request(base + '/admin/api/sessions?key=%s&page=1' % key)
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            rows, nq2 = json.loads(resp.read()), int(resp.headers.get('X-D1-Queries') or 999)
+        pa = [x for x in st['studies'] if x['id'] == 'pilot-asd']
+        check(own and own[0]['n'] > 0 and main_pa and main_pa[0]['n'] == 0 and main_other and main_other[0]['n'] > 0 and links and links[0]['n'] == 2
+              and pa and pa[0]['n'] == own[0]['n'] and pa[0]['database'] == 'DB_PILOTASD' and any(r['study'] == 'pilot-asd' for r in rows['rows'])
+              and any(r['study'] != 'pilot-asd' for r in rows['rows']) and rows['total'] == sum(x['n'] + (x['synthetic'] or {}).get('stored', 0) for x in st['studies']),
+              'Worker: one database per project: pilot-asd\'s %d sessions and its links in its own D1, none in the main one; the researcher page lists both' % (own[0]['n'] if own else -1))
+        check(nq <= 25 and nq2 <= 10, 'Worker: the researcher page stays inside the free plan (%d D1 queries for the overview, %d for the sessions list; the limit is 50)' % (nq, nq2))
     finally:
+        try:
+            os.remove(smoke_cfg)
+        except OSError:
+            pass
         os.killpg(srv.pid, 15)
         srv.wait(timeout=20)
         log.close()

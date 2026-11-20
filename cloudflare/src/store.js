@@ -6,7 +6,7 @@ export const SORTABLE = ['pid', 'study', 'grp', 'source', 'neuro', 'cond', 'stag
 export const STAGES = ['intro', 'survey', 'practice', 'build', 'typical', 'followup', 'done', 'declined'];   // declined: said no to the consent
 export const ACTIVITY = ['active', 'stopped'];     // extra "where" filter values, from the time of the last save
 export const ANALYSIS = ['included', 'pending', 'left_out', 'flagged', 'synthetic', 'real', 'analysed', 'in_progress', 'excluded', 'abandoned', 'no_pizza'];  // ... from whether the session's pizza is analysed, needs a look, or is synthetic
-const SYN_SQL = "pid LIKE 'SYN-%'";               // synthetic sessions of a test study (analysis/synthetic.py), as in store.py
+export const SYN_SQL = "pid LIKE 'SYN-%'";               // synthetic sessions of a test study (analysis/synthetic.py), as in store.py
 // The researcher's choice for a session (field 'inclusion', never taken from a participant's save), as in store.py
 export const INCLUSION_VALUES = ['include', 'exclude', 'auto'];
 const INCL_SQL = "COALESCE((SELECT NULLIF(value, 'auto') FROM fields WHERE fields.pid = sessions.pid AND name = 'inclusion'), '')";
@@ -55,7 +55,7 @@ export function laterStage(old, stage) {
 // what the analysis does with a session: included / left_out / no_pizza (shown on the Sessions tab and in sessions.csv)
 const ANALYSIS_SQL = `CASE WHEN n_pieces IS NULL THEN 'no_pizza' WHEN ${INCLUDED_SQL} THEN 'included' WHEN ${PENDING_SQL} THEN 'pending' ELSE 'left_out' END`;
 export const IDLE_MINUTES = 30;                    // an unfinished session with no save for this long counts as stopped
-const idleCutoff = () => new Date(Date.now() - IDLE_MINUTES * 60000).toISOString().slice(0, 19) + 'Z';
+export const idleCutoff = () => new Date(Date.now() - IDLE_MINUTES * 60000).toISOString().slice(0, 19) + 'Z';
 const FIELD_RE = /^[a-z_]{2,40}$/;
 
 // true when save_seq a ("<page load>:<n>") is older than the stored b from the same page load (store.py stale_save)
@@ -207,6 +207,14 @@ export class Store {
     return results.map((r) => r.v).filter((v) => v !== '' && v !== null);
   }
 
+  async distinctAll(study = null) {
+    // groups, sources and conditions in one batch
+    const [w, a] = Store.where({ study });
+    const cols = ['grp', 'source', 'cond'];
+    const res = await this.db.batch(cols.map((c) => this.db.prepare(`SELECT DISTINCT ${c} AS v FROM sessions${w} ORDER BY 1`).bind(...a)));
+    return Object.fromEntries(cols.map((c, i) => [c, res[i].results.map((r) => r.v).filter((v) => v !== '' && v !== null)]));
+  }
+
   async lastStarted(study) {
     const [w, a] = Store.where({ study });
     return (await this.db.prepare(`SELECT MAX(started) AS t FROM sessions${w} ${w ? 'AND' : 'WHERE'} NOT ${SYN_SQL}`).bind(...a).first()).t;   // real sessions
@@ -234,6 +242,34 @@ export class Store {
     }
     for (const r of syn.results) (out[r.study] = out[r.study] || empty()).syn = r.n;
     return out;
+  }
+
+  async overview(blank) {
+    // every study's numbers for the researcher page, in one batch (one query against the free plan's 50 per request):
+    // status counts, synthetic counts, last start, the finished sessions' durations, and the personal links
+    const cut = idleCutoff();
+    const [byStatus, syn, last, secs, inv] = await this.db.batch([
+      this.db.prepare(`SELECT study, ${STATUS_SQL} AS status, COUNT(*) AS n, SUM(stage = 'done') AS done FROM sessions WHERE NOT ${SYN_SQL} GROUP BY study, status`).bind(cut),
+      this.db.prepare(`SELECT study, COUNT(*) AS n FROM sessions WHERE ${SYN_SQL} GROUP BY study`),
+      this.db.prepare(`SELECT study, MAX(started) AS t FROM sessions WHERE NOT ${SYN_SQL} GROUP BY study`),
+      this.db.prepare(`SELECT study, seconds FROM sessions WHERE stage = 'done' AND seconds IS NOT NULL AND NOT ${SYN_SQL} ORDER BY seconds`),
+      this.db.prepare("SELECT i.study AS study, COUNT(*) AS n, SUM(s.stage IS NOT NULL) AS opened, SUM(s.stage = 'done') AS done FROM invites i LEFT JOIN sessions s ON s.pid = i.token GROUP BY i.study"),
+    ]);
+    const out = {};
+    const get = (sid) => (out[sid] = out[sid] || blank());
+    for (const r of byStatus.results) { const c = get(r.study); c.n += r.n; c.done += r.done || 0; c.status[r.status] = r.n; }
+    for (const r of syn.results) get(r.study).syn = r.n;
+    for (const r of last.results) get(r.study).last = r.t;
+    for (const r of secs.results) get(r.study).seconds.push(r.seconds);
+    for (const r of inv.results) get(r.study).inv = [r.n, r.opened || 0, r.done || 0];
+    return out;
+  }
+
+  async lastChange(withMeta) {
+    // the newest save or inclusion choice (and, in the control database, a new synthetic choice)
+    const r = await this.db.prepare("SELECT MAX(u) AS u FROM (SELECT MAX(updated) AS u FROM sessions UNION ALL SELECT MAX(updated) FROM fields WHERE name = 'inclusion'"
+      + (withMeta ? " UNION ALL SELECT MAX(v) FROM meta WHERE k LIKE 'synthetic_at:%'" : '') + ')').first();
+    return r ? r.u : null;
   }
 
   async syncSynthetic(study, add, keep, version) {

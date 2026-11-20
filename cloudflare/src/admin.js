@@ -3,6 +3,7 @@
 import { loadStudy, studies, scopeName, SYNTHETIC_CHOICES } from './config.js';
 import { nutritionMode } from './settings.js';
 import { STATUSES } from './store.js';
+import { dbName } from './router.js';
 
 export const ALL_KEY = '*';               // study_keys row of the researcher link for all studies
 const STAGE_NAMES = { intro: 'reading the intro', survey: 'questions (before the pizza)', practice: 'practice', build: 'building', typical: 'typical pizza', followup: 'questions', done: 'finished', declined: 'declined consent' };
@@ -44,8 +45,7 @@ async function buildStatus(st, token, autoReports) {
   let status = null;
   try { status = JSON.parse((await st.meta('reports_status')) || 'null'); } catch (e) { status = null; }
   if (status && status.state === 'running' && Date.now() - Date.parse(status.updated) > 30 * 60 * 1000) status.state = 'failed';   // silent for 30 min
-  const last = (await st.db.prepare("SELECT MAX(u) AS u FROM (SELECT MAX(updated) AS u FROM sessions UNION ALL SELECT MAX(updated) FROM fields WHERE name = 'inclusion' "
-    + "UNION ALL SELECT MAX(v) FROM meta WHERE k LIKE 'synthetic_at:%')").first()).u;
+  const last = await st.lastChange();            // every database's newest save (router.js)
   const built = await st.meta('reports_built_upto');
   const pending = !!last && (!built || last > built);
   return { status, wanted: await st.meta('reports_wanted'), instant: token, auto: token && autoReports, pending, last_save: last,
@@ -56,23 +56,26 @@ export async function adminState(r, scope, f) {
   const st = r.store;
   const own = scope[0] === 'owner';
   const ids = scope[0] === 'study' ? [scope[1]] : [''].concat(studies());
-  const counts = await st.countsByStudy();
+  // every study's numbers: one batch per database, however many studies (Cloudflare's free plan: 50 queries per request)
+  const counts = await st.overview();
+  const keys = own ? await st.keysFor(ids.concat([ALL_KEY])) : {};
+  const synN = await st.syntheticChoices();
+  const median = (v) => (v.length ? (v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : null);
   const out = [];
   for (const sid of ids) {
     const cfg = loadStudy(sid);
-    const invs = await st.invites(sid);
-    const c = counts[sid] || { n: 0, done: 0, syn: 0, status: Object.fromEntries(STATUSES.map((k) => [k, 0])) };
+    const c = counts[sid] || { n: 0, done: 0, syn: 0, status: Object.fromEntries(STATUSES.map((k) => [k, 0])), last: null, seconds: [], inv: [0, 0, 0] };
     const stt = c.status, syn = c.syn;
     // status: one count per status, adding up to n (store.js STATUS_SQL); the other numbers are taken from it
     const row = {
       id: sid || 'main', title: cfg.title || '', description: cfg.description || (sid ? '' : 'The main study'), n: c.n, done: c.done, status: stt,
       built: stt.analysed, active: stt.active + stt.pending, declined: stt.declined, stopped: c.n - stt.analysed - stt.active - stt.pending - stt.declined,
-      last: await st.lastStarted(sid), median_seconds: await st.medianSeconds(sid),
-      invites: [invs.length, invs.filter((i) => i.stage).length, invs.filter((i) => i.stage === 'done').length],
+      last: c.last, median_seconds: median(c.seconds), invites: c.inv,
       links: openLinks(r, sid), nutrition: nutritionMode(cfg), survey_when: cfg.survey_when || 'after', look: cfg.look || 'drawn', conditions: cfg.conditions || [],
-      synthetic: sid && cfg.synthetic ? { n: await syntheticN(st, sid), stored: syn, choices: SYNTHETIC_CHOICES } : null,
+      synthetic: sid && cfg.synthetic ? { n: synN[sid] !== undefined ? synN[sid] : cfg.synthetic, stored: syn, choices: SYNTHETIC_CHOICES } : null,
+      database: dbName(sid),
     };
-    if (own) row.researcher_link = r.base() + '/admin?' + new URLSearchParams({ key: await st.studyKey(sid) });
+    if (own) row.researcher_link = r.base() + '/admin?' + new URLSearchParams({ key: keys[sid] });
     out.push(row);
   }
   const sel = f.study === null && !r.arg('study') ? null : (f.study === null ? 'all' : f.study || 'main');
@@ -91,17 +94,23 @@ export async function adminState(r, scope, f) {
     storage = `Storage for reports and downloads: ${gb(u.used)} of the ${gb(u.limits.bytes)} cap (Cloudflare R2 is free up to 10 GB). This month `
       + `${u.writes.toLocaleString('en')} of ${u.limits.writes.toLocaleString('en')} writes and ${u.reads.toLocaleString('en')} of ${u.limits.reads.toLocaleString('en')} reads. `
       + `Database ${gb(u.db)} of ${gb(u.limits.db)}; at that size new participants are turned away.`;
+    // the databases against Cloudflare's free plan (10 databases, 500 MB each, 5 GB in all)
+    const dbs = await st.databases();
+    if (dbs.list.length > 1 || dbs.missing.length) {
+      storage += ` Databases (free plan: up to 10, 500 MB each, 5 GB in all): ` + dbs.list.map((d) => `${d.name === 'DB' ? 'main' : d.name} ${gb(d.bytes)} (${d.studies.join(', ')})`).join('; ') + '.'
+        + (dbs.missing.length ? ` Not deployed yet: ${dbs.missing.join(', ')} (run the cloudflare deploy; until then they take no new participants).` : '');
+    }
   }
-  const options = {};
-  for (const c of ['grp', 'source', 'cond']) options[c] = await st.distinct(c, f.study);
+  const options = await st.options(f.study);
   return {
     server: 'cloudflare', scope: scope[0], scope_study: scope[0] === 'study' ? (scope[1] || 'main') : null,
     study: sel, studies: out, idle_minutes: 30,
     all: { n: out.reduce((a, s) => a + s.n, 0), done: out.reduce((a, s) => a + s.done, 0), built: out.reduce((a, s) => a + s.built, 0),
       active: out.reduce((a, s) => a + s.active, 0), stopped: out.reduce((a, s) => a + s.stopped, 0), declined: out.reduce((a, s) => a + (s.declined || 0), 0),
       status: Object.fromEntries(STATUSES.map((k) => [k, out.reduce((a, s) => a + (s.status[k] || 0), 0)])),
-      last: out.map((s) => s.last).filter(Boolean).sort().pop() || null, median_seconds: await st.medianSeconds(null) },
-    global_link: own ? r.base() + '/admin?' + new URLSearchParams({ key: await st.studyKey(ALL_KEY) }) : null,
+      last: out.map((s) => s.last).filter(Boolean).sort().pop() || null,
+      median_seconds: median([].concat(...ids.map((sid) => (counts[sid] || { seconds: [] }).seconds)).sort((a, b) => a - b)) },
+    global_link: own ? r.base() + '/admin?' + new URLSearchParams({ key: keys[ALL_KEY] }) : null,
     reports, reports_build_on_open: false, options,
     build: await buildStatus(st, !!((r.env.GITHUB_TOKEN || r.env.PIZZA_GITHUB_TOKEN || r.env.PIZZA_GITHUB_TOKEN_PIZZA) && r.env.GITHUB_REPO), r.env.REPORTS_AUTO === '1'), stages: STAGE_NAMES, neuro: NEURO_NAMES, storage, msg: r.arg('msg'),
   };

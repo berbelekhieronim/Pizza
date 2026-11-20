@@ -154,6 +154,54 @@ def ensure_database(eu):
     return db['uuid']
 
 
+FREE_D1_DATABASES = 10           # Cloudflare's free plan: 10 D1 databases per account, 500 MB each, 5 GB in all
+DB_RE = __import__('re').compile(r'^DB_[A-Z0-9_]{1,30}$')
+
+
+def project_databases():
+    """{binding: (D1 name, [studies])} for the studies with a database of their own ("database": "DB_<NAME>" in
+    server/study.json); every other study, the pilot included, stays in the main database."""
+    with open(os.path.join(ROOT, 'server', 'study.json'), encoding='utf-8') as f:
+        studies = json.load(f).get('studies') or {}
+    out = {}
+    for sid, cfg in sorted(studies.items()):
+        b = (cfg or {}).get('database')
+        if b is None:
+            continue
+        if not isinstance(b, str) or not DB_RE.match(b):
+            sys.exit('Study %s: "database" must look like DB_NAME (capital letters, digits, _).' % sid)
+        name = NAME + '-' + b[3:].lower().replace('_', '-')
+        out.setdefault(b, (name, []))[1].append(sid)
+    return out
+
+
+def ensure_project_databases(eu, path_main_cfg):
+    """Creates the projects' D1 databases that are missing, inside the free plan's 10, and refuses to give a study its
+    own database while it still has sessions in the main one (they would no longer be seen): the pilot stays safe."""
+    want = project_databases()
+    if not want:
+        return []
+    dbs = json.loads(wrangler('d1', 'list', '--json').stdout)
+    have = {d.get('name'): d['uuid'] for d in dbs}
+    new = [name for name, _ in want.values() if name not in have]
+    if len(dbs) + len(new) > FREE_D1_DATABASES:
+        sys.exit('The account has %d D1 databases; %d more would pass the free plan\'s %d. Remove "database" from a study in '
+                 'server/study.json, or delete a D1 database you no longer need.' % (len(dbs), len(new), FREE_D1_DATABASES))
+    for b, (name, sids) in want.items():
+        for sid in sids:
+            out = wrangler('d1', 'execute', NAME, '--remote', '--json', '--command', "SELECT COUNT(*) AS n FROM sessions WHERE study = '%s'" % sid,
+                           '--config', path_main_cfg).stdout
+            n = json.loads(out[out.index('['):])[0]['results'][0]['n']
+            if n:
+                sys.exit('Study %s already has %d sessions in the main database. Keep it there (remove "database" from it in '
+                         'server/study.json); a study gets its own database before its first participant.' % (sid, n))
+        if name not in have:
+            wrangler('d1', 'create', name, *(['--location', 'eeur'] if eu else []))
+            have = {d.get('name'): d['uuid'] for d in json.loads(wrangler('d1', 'list', '--json').stdout)}
+            print('  Created the D1 database %s for %s.' % (name, ', '.join(sids)))
+    return [{'binding': b, 'database_name': name, 'database_id': have[name], 'migrations_dir': 'migrations'} for b, (name, _) in want.items()]
+
+
 def ensure_bucket(eu):
     r = wrangler('r2', 'bucket', 'create', BUCKET, *(['--jurisdiction', 'eu'] if eu else []), check=False)
     out = (r.stdout or '') + (r.stderr or '')
@@ -283,7 +331,14 @@ def deploy():
     path = os.path.join(HERE, 'wrangler.deploy.json')
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(cfg, f, indent=2)
+    extra = ensure_project_databases(eu, path)          # one D1 per project that asks for its own (none: as before)
+    if extra:
+        cfg['d1_databases'] += extra
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f, indent=2)
     wrangler('d1', 'migrations', 'apply', NAME, '--remote', '--config', path, capture=False)
+    for d in extra:
+        wrangler('d1', 'migrations', 'apply', d['database_name'], '--remote', '--config', path, capture=False)
     wrangler('deploy', '--config', path, capture=False)
     secrets = {'ADMIN_KEY': os.environ['PIZZA_ADMIN_KEY']}
     if os.environ.get('PIZZA_GITHUB_TOKEN'):

@@ -10,6 +10,7 @@ import { adminState, deniedPage, notBuilt, syntheticN, ALL_KEY } from './admin.j
 import ADMIN_HTML from '../../server/admin.html';      // the researcher page, shared with server/server.py
 import { STUDY_RE, STUDY_KEYS, FILTER_KEYS, SYNTHETIC_CHOICES, loadStudy, studies, scopeName, setOverrides, overrides, fileSettings } from './config.js';
 import * as ovr from './settings.js';
+import { Router } from './router.js';
 
 const PID_RE = /^[A-Za-z0-9_-]{4,64}$/;
 const MAX_BODY = 2_000_000;
@@ -120,7 +121,7 @@ class Request_ {
     this.env = env;
     this.ctx = ctx;
     this.url = new URL(request.url);
-    this.store = new Store(env.DB);
+    this.store = new Router(env);          // the database of each study (router.js: one D1 per project, the main one by default)
   }
 
   arg(k, d = '') {
@@ -196,7 +197,10 @@ class Request_ {
     if (!rec && !inv && this.env.TURNSTILE_SECRET && this.env.TURNSTILE_SITE_KEY && !(await turnstileOk(this.env, g('ts'), this.ip()))) {
       return json({ verify: this.env.TURNSTILE_SITE_KEY });        // a new session needs the person check first
     }
-    if (!rec && (await this.dbSize()) > limits(this.env).db) {
+    if (!rec && !this.store.of(study)) {
+      return json({ error: 'This study is not taking new participants at the moment. Thank you for your interest.' });   // its database is not deployed yet
+    }
+    if (!rec && (await this.store.size(study)) > limits(this.env).db) {
       return json({ error: 'This study is not taking new participants at the moment. Thank you for your interest.' });   // the data cap
     }
     if (!rec) {
@@ -333,7 +337,7 @@ class Request_ {
       // one session with every field (the Sessions tab's session panel); a study's researchers see their own study only
       const rec = await st.get(this.arg('pid'));
       if (!rec || (scope[0] === 'study' && (rec.study || '') !== scope[1])) return json({ error: 'no such session' }, 404);
-      const { rows } = await st.query({ study: null, pids: rec.pid }, 'started', true, 1, 0);
+      const { rows } = await st.query({ study: rec.study || '', pids: rec.pid }, 'started', true, 1, 0);
       return json({ record: rec, row: rows[0] || {} });
     }
     if (route === '/admin/api/sessions') {
@@ -529,7 +533,13 @@ class Request_ {
 
 export default {
   async fetch(request, env, ctx) {
-    return new Request_(request, env, ctx).route();
+    const r = new Request_(request, env, ctx);
+    const res = await r.route();
+    if (env.QUERY_COUNT !== '1') return res;
+    // tests: how many D1 queries this request made (the free plan allows 50 per request; a batch counts as one)
+    const out = new Response(res.body, res);
+    out.headers.set('X-D1-Queries', String(r.store.count.n));
+    return out;
   },
 };
 

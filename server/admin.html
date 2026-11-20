@@ -341,6 +341,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
         + (s.synthetic && s.synthetic.stored ? ' · <span class="syn">+' + s.synthetic.stored + ' synthetic</span>' : '')
         + (s.nutrition && s.nutrition !== 'none' ? ' · <span class="pill on">nutrition ' + (s.nutrition === 'hidden' ? 'hidden until asked' : 'shown') + '</span>' : '')
         + (s.look === 'realistic' ? ' · <span class="pill on">realistic look</span>' : '')
+        + (s.database && s.database !== 'DB' ? ' · <span class="pill on" title="This project\'s sessions and personal links are kept in a database of their own (' + esc(s.database) + ')">own database</span>' : '')
         + (s.conditions && s.conditions.length ? ' · <span class="pill on">' + s.conditions.length + ' conditions</span>' : '') + '</span></a>';
     });
     cards.push('<a class="scard" href="?' + new URLSearchParams({ key: KEY, study: 'all' }) + '"><span class="name">All studies together</span>'

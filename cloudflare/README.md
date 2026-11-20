@@ -145,6 +145,28 @@ What the free plans hold, roughly (Cloudflare's limits in 2025):
 | D1 rows written | 100,000 / day | only changed fields are written: roughly 1,000–2,000 per participant, so ~50–100 participants a day |
 | D1 storage | 500 MB per database | ~0.1–0.5 MB per participant, so ~1,000–4,000 participants |
 
+## One database per project (inside the free plan)
+
+Each study can keep its sessions and personal links in a D1 database of its own: add `"database": "DB_<NAME>"` to it
+in `server/study.json` (capital letters, digits, `_`) **before its first participant**, and run the cloudflare deploy.
+`deploy.py` creates the database (`pizza-study-<name>`, in the EU), its migrations and its binding. Everything else
+works as before: the same links, the same researcher page (the study shows *own database*), the same reports job.
+
+- The **main database** (`pizza-study`, binding `DB`) stays the control database: settings and their history,
+  researcher keys, the R2 accounting, the condition counters, and which project each new session and personal link
+  belongs to. It also keeps every study without a database of its own: **the pilot stays there, untouched.**
+- **Free plan** (developers.cloudflare.com/d1/platform/limits, checked 2026-11-20): at most **10 D1 databases** per
+  account, **500 MB** each, **5 GB** in all, **50 queries per Worker request** (a batch counts as one), 5 million rows
+  read and 100,000 rows written a day across all databases, Time Travel (point-in-time recovery) 7 days. On the free
+  plan nothing bills: past a limit, requests fail until it resets.
+- How the study stays inside it: `deploy.py` refuses to create an 11th database; each database has the 450 MB cap
+  above (10 × 450 MB < 5 GB); the researcher page's overview reads every study's numbers in one batch per database
+  (14 queries with two databases; the smoke test fails above 25); a separate database does not add saves (rows
+  written per participant are the same).
+- Safety: `deploy.py` refuses to give a study its own database while that study has sessions in the main one (they
+  would no longer be seen). A study whose database is configured but not deployed yet takes no new participants.
+- The Python study server (local mode) keeps one database file and ignores `"database"`.
+
 ## Data protection
 
 - Participant data is stored by Cloudflare: D1 placed in Eastern Europe, R2 under the EU jurisdiction. Cloudflare is a

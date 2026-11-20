@@ -3,3 +3,4 @@ public/
 .wrangler/
 .dev.vars
 wrangler.deploy.json
+wrangler.smoke.json

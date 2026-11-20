@@ -5,6 +5,21 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Cloudflare: one database per project, inside the free plan (the task is unchanged; the pilot stays where it is).**
+- A study can keep its sessions and personal links in a D1 database of its own (`"database": "DB_<NAME>"` in
+  `server/study.json`, before its first participant); `deploy.py` creates it (in the EU), applies the migrations and
+  binds it. The main database stays the control database (settings, history, keys, R2 accounting, condition counters,
+  where each new session and link lives) and keeps every study without its own database: the pilot, untouched.
+- `cloudflare/src/router.js` picks the database for each request: by the study, by a session's or link's home, or over
+  every database for "all studies" (lists merged in the same order, exports merged by id).
+- **Free plan** (checked against Cloudflare's docs on 2026-11-20: 10 D1 databases, 500 MB each, 5 GB in all, 50
+  queries per request): `deploy.py` refuses an 11th database and refuses to give a study its own database while it has
+  sessions in the main one; the researcher page reads every study's numbers in one batch per database (14 queries
+  with two databases, was several per study); the owner's storage line lists the databases and their sizes.
+- The smoke test runs the whole Worker suite with pilot-asd in its own database (sessions and links land there, none in
+  the main one, the page lists both, the reports job and exports work) and fails if the overview needs more than 25
+  queries. The Python study server (local mode) keeps one database and ignores `"database"`.
+
 **Settings tab: safer changes and a record of them (both servers; the task is unchanged).**
 - **Review before saving**: the changes in words (old → new, with what "default" is), for whom, and from when. Once
   people have taken part, it says so and asks why (required; a few words); before that the reason is optional.

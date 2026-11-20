@@ -155,6 +155,11 @@ push, check the GitHub Actions run, and republish the demo artifact.
   study's current look (switching it switches them all); each pizza still records what its participant saw.
 - **One crust for every base.** The 20 sauce × cheese bases are layers on one dough photo (sauce, then cheese), not 20
   separate photos, so changing the sauce or cheese never changes the crust or the pizza's size.
+- **One D1 database per project, free plan only** (user: "stay inside the free limits"). Chosen over Durable Objects:
+  on the free plan they add 100k requests/day of their own (each Worker → object call is one) and other tooling; D1
+  needs no extra requests and has 7-day Time Travel. Limits (checked 2026-11-20): 10 databases, 500 MB each, 5 GB, 50
+  queries per request. The main database is the control database and keeps the pilot. `router.js`; README → *One
+  database per project*. The Python server is local mode with a frozen scope (user's decision): one database.
 - **The look is a setting, not a new task.** The realistic look repeats the drawn toppings' shapes, sizes and random
   draws, so positions and every measure mean the same in both; only the picture differs, and each pizza records it.
 
@@ -244,6 +249,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-20 | Claude Code (cloud) | Cloudflare: a D1 database per project (router.js, deploy.py, free-plan guards, smoke test with pilot-asd in its own D1); Settings switches; plan updated with the decisions (docs/PLAN.html) |
 | 2026-11-20 | Claude Code (cloud) | Settings tab: review before saving, required reason once people took part, history of changes (meta setlog:<layer>, both servers, smoke-tested), unsaved-changes bar, live question check; photos fitted to the drawn footprints; docs/PLAN.html (architecture, methodology, UX plan, Polish) |
 | 2026-11-20 | Claude Code (cloud) | 0.20.0: the realistic look in photographs (images/real: 134 topping cut-outs, dough + 3 sauce + 4 cheese layers, board; Canva-generated, cut out locally); every picture follows the project's look (researcher page, reports via /study.json); both servers serve /images/real; photo fallback to the painted look |
 | 2026-11-20 | Claude Code (cloud) | 0.19.0: realistic (photo-like) look as a setting (`look`: drawn default / realistic; global, per study, per condition; Settings tab preview; both servers); canvas renderer `REAL` in pizza-builder.js (painters per topping, lit height fields, base layers); `look` column, Explore grouping; test study uses it |
