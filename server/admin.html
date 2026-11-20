@@ -90,6 +90,16 @@ textarea.qs{width:100%;min-height:150px;font:12.5px/1.4 ui-monospace,Menlo,Conso
 .condbox h4{margin:0 0 4px;font-size:.92rem}
 .inforce{position:sticky;top:10px;font-size:.88rem}.inforce dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 10px}.inforce dt{color:var(--muted)}.inforce dd{margin:0}
 .probs{background:color-mix(in srgb,#d08a12 12%,transparent);border-radius:8px;padding:6px 10px;margin:8px 0;font-size:.88rem}
+.savebar{position:sticky;bottom:0;z-index:5;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:14px -16px -14px;padding:10px 16px;background:color-mix(in srgb,var(--accent) 10%,var(--panel));border-top:2px solid var(--accent);border-radius:0 0 12px 12px}
+.savebar[hidden]{display:none}
+.setnote{margin:8px 0;padding:8px 12px;border-radius:10px;background:color-mix(in srgb,#d08a12 12%,var(--panel));border:1px solid color-mix(in srgb,#d08a12 40%,transparent);font-size:.88rem}
+.okmsg{margin:8px 0;padding:8px 12px;border-radius:10px;background:color-mix(in srgb,var(--ok) 12%,var(--panel));border:1px solid color-mix(in srgb,var(--ok) 45%,transparent);font-size:.9rem}
+.qcheck{margin:4px 0 6px;min-height:1em}.qcheck.ok{color:var(--ok)}.qcheck.bad{color:#b3261e}
+.hist{margin:0;padding-left:18px;font-size:.88rem}.hist li{margin:0 0 12px}.hist .why{margin:2px 0;font-style:italic}
+.difflist{margin:4px 0 6px;padding-left:18px;font-size:.9rem}.difflist .from{color:var(--muted);text-decoration:line-through}.difflist .to{font-weight:600}
+.modal{position:fixed;inset:0;z-index:50;background:rgba(20,14,8,.45);display:flex;align-items:center;justify-content:center;padding:16px}
+.modalbox{background:var(--panel);color:var(--fg);border-radius:14px;padding:18px 20px;max-width:560px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+.modalbox textarea{font:inherit;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--panel);color:var(--fg)}
 .scopebar{display:flex;gap:6px;margin:0 0 10px}.scopebar button[aria-pressed=true]{background:var(--fg);color:var(--panel)}
 .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}
 @media (max-width:600px){.bar select{margin-left:0}iframe.report{height:80vh}}
@@ -510,7 +520,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     ['realistic', 'Realistic (photo-like)', 'photographs of real toppings, crust, sauce and cheese on a wooden board, at the same sizes and positions; the data mean the same (summary.look). Every picture of a pizza here and in the reports follows this setting']];
   var STYLE = [['metryczka', 'Short card (age, autism / ADHD, gender, diet) or your own questions below', ''], ['strong', 'Standard follow-up: strong feelings about the toppings, About you (always after the pizza)', ''],
     ['ratings', 'Standard follow-up with ratings of every topping (always after the pizza)', '']];
-  var SET = { scope: null, data: null };
+  var SET = { scope: null, data: null, draft: null, dirty: false, flash: '' };
   function settings() {
     var sid = S.study && S.study !== 'all' ? S.study : 'main';
     api('api/settings', { study: sid }).then(function (d) {
@@ -536,22 +546,68 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       });
     });
   }
+  // ---- what a setting means in words, for the review before saving and the history
+  var KEYNAMES = { nutrition: 'Nutrition information', look: 'Look of the pizza', survey_when: 'When the questions are asked', followup: 'What is asked',
+    survey: 'Own questions', conditions: 'Conditions', condition_settings: 'Settings of the conditions' };
+  var FOLLOW_SHORT = [['metryczka', 'Short card / own questions'], ['strong', 'Standard follow-up'], ['ratings', 'Standard follow-up with ratings']];
+  var BY = { owner: 'owner', all: 'all-studies researcher link', study: 'study researcher link' };
+  function sortK(v) {
+    if (Array.isArray(v)) return v.map(sortK);
+    if (v && typeof v === 'object') { var o = {}; Object.keys(v).sort().forEach(function (k) { o[k] = sortK(v[k]); }); return o; }
+    return v;
+  }
+  function same(a, b) { return JSON.stringify(sortK(a)) === JSON.stringify(sortK(b)); }
+  function valWords(k, v) {
+    if (v === undefined || v === null) return 'default';
+    if (k === 'nutrition') return optLabel(NUTRI, v);
+    if (k === 'look') return optLabel(LOOK, v);
+    if (k === 'survey_when') return optLabel(WHEN, v);
+    if (k === 'followup') return optLabel(FOLLOW_SHORT, v);
+    if (k === 'survey') return Array.isArray(v) ? v.length + (v.length === 1 ? ' question' : ' questions') + ' (' + v.map(function (x) { return x && x.id; }).join(', ') + ')' : 'questions';
+    if (k === 'conditions') return Array.isArray(v) && v.length ? v.join(', ') : 'none';
+    if (k === 'condition_settings') return Object.keys(v).map(function (c) {
+      return c + ': ' + (Object.keys(v[c] || {}).map(function (kk) { return (KEYNAMES[kk] || kk).toLowerCase() + ' ' + valWords(kk, v[c][kk]); }).join(', ') || 'as the study');
+    }).join('; ') || 'as the study';
+    return String(v);
+  }
+  // [{key, from, to}] in words, for every setting that differs between two layers' changes
+  // dflt(k): what "default" is for this layer, when known (the form being saved), so it reads "default (Drawn)"
+  function diffWords(before, after, dflt) {
+    before = before || {}; after = after || {};
+    function w(k, v) { if (v !== undefined && v !== null) return valWords(k, v); var x = dflt && dflt(k); return x === undefined || x === null ? 'default' : 'default (' + valWords(k, x) + ')'; }
+    var keys = Object.keys(KEYNAMES).filter(function (k) { return !same(before[k], after[k]); });
+    return keys.map(function (k) { return { key: k, label: KEYNAMES[k], from: w(k, before[k]), to: w(k, after[k]) }; });
+  }
+  function diffHtml(list) {
+    return '<ul class="difflist">' + list.map(function (x) {
+      return '<li><b>' + esc(x.label) + '</b>: <span class="from">' + esc(x.from) + '</span> → <span class="to">' + esc(x.to) + '</span></li>';
+    }).join('') + '</ul>';
+  }
+  // the people who already took part where these settings apply (synthetic sessions left out)
+  function takenPart(d, glob) {
+    var s = glob ? S.all : (S.studies || []).filter(function (x) { return x.id === d.study; })[0];
+    return s ? { n: s.n || 0, done: (s.status && s.status.analysed) || 0 } : { n: 0, done: 0 };
+  }
+  function localTime(iso) { var t = new Date(iso); return isNaN(t) ? iso : t.toLocaleString([], { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+
   function drawSettings(probs) {
-    var d = SET.data, glob = SET.scope === '*', ch = (glob ? d.global.changed : d.own.changed) || {};
+    var d = SET.data, glob = SET.scope === '*', layer = glob ? d.global : d.own, saved = layer.changed || {};
+    var ch = SET.draft || saved;           // a draft: the form as being edited (a condition added, a version restored)
+    var who = takenPart(d, glob);
     // what this layer inherits: for a study, study.json's main settings with the global changes, then the study's own lines in study.json
     function inh(k) {
       if (glob) return d.global.file[k];
       if (d.own.file[k] !== undefined) return d.own.file[k];
       return d.global.changed[k] !== undefined ? d.global.changed[k] : d.global.file[k];
     }
-    function src(k) {           // where the inherited value comes from
-      if (glob) return 'from server/study.json';
-      if (d.own.file[k] !== undefined) return 'from this study\'s lines in server/study.json';
-      return d.global.changed[k] !== undefined ? 'from the settings of every study (changed here)' : 'from the settings of every study (server/study.json)';
+    function src(k) {           // where the default comes from
+      if (glob) return 'set in server/study.json';
+      if (d.own.file[k] !== undefined) return 'set in this study\'s lines of server/study.json';
+      return d.global.changed[k] !== undefined ? 'from the settings of every study' : 'from the settings of every study (server/study.json)';
     }
-    function radios(name, list, help) {
+    function radios(name, list) {
       var cur = ch[name] === undefined ? '' : ch[name], iv = inh(name);
-      return '<div class="opts">' + [['', 'As inherited: ' + optLabel(list, iv || (name === 'survey_when' ? 'after' : name === 'nutrition' ? 'none' : name === 'look' ? 'drawn' : 'strong')), src(name)]].concat(list).map(function (o) {
+      return '<div class="opts">' + [['', 'Default: ' + optLabel(list, iv || (name === 'survey_when' ? 'after' : name === 'nutrition' ? 'none' : name === 'look' ? 'drawn' : 'strong')), src(name)]].concat(list).map(function (o) {
         return '<label><input type="radio" name="' + name + '" value="' + o[0] + '"' + (o[0] === cur ? ' checked' : '') + '><span>' + esc(o[1]) + (o[2] ? '<small>' + esc(o[2]) + '</small>' : '') + '</span></label>';
       }).join('') + '</div>';
     }
@@ -560,15 +616,15 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     }
     var conds = ch.conditions !== undefined ? ch.conditions : (inh('conditions') || []), cs = ch.condition_settings || (ch.conditions === undefined ? inh('condition_settings') || {} : {});
     var inheritedConds = ch.conditions === undefined;
-    var condHtml = conds.map(function (c) {
+    function condBox(c) {
       var x = cs[c] || {};
       return '<div class="condbox" data-cond="' + esc(c) + '"><h4>Condition ' + esc(c) + '</h4><div class="setrow">'
         + '<label>Nutrition table<br>' + sel('c_nutrition', NUTRI, x.nutrition, 'as the study') + '</label>'
         + '<label>Questions<br>' + sel('c_survey_when', WHEN, x.survey_when, 'as the study') + '</label>'
         + '<label>Kind of questions<br>' + sel('c_followup', [['metryczka', 'short card / own questions'], ['strong', 'standard follow-up'], ['ratings', 'standard with ratings']], x.followup, 'as the study') + '</label>'
         + '<label>Look<br>' + sel('c_look', LOOK, x.look, 'as the study') + '</label></div>'
-        + '<details' + (x.survey ? ' open' : '') + '><summary class="small">Own questions for this condition (optional)</summary><textarea class="qs" name="c_survey" spellcheck="false" placeholder="empty: the questions of the study">' + esc(x.survey ? JSON.stringify(x.survey, null, 1) : '') + '</textarea></details></div>';
-    }).join('');
+        + '<details' + (x.survey ? ' open' : '') + '><summary class="small">Own questions for this condition (optional)</summary><textarea class="qs" name="c_survey" spellcheck="false" placeholder="empty: the questions of the study">' + esc(x.survey ? JSON.stringify(x.survey, null, 1) : '') + '</textarea><div class="qcheck small"></div></details></div>';
+    }
     var e = d.effective, effCs = e.condition_settings || {};
     var force = '<div class="card inforce"><h3 style="margin-top:0">In force for new sessions</h3><dl>'
       + '<dt>Nutrition</dt><dd>' + esc(optLabel(NUTRI, e.nutrition || 'none')) + '</dd>'
@@ -579,39 +635,133 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       + (e.conditions || []).map(function (c) {
         var x = effCs[c] || {};
         return '<dt>' + esc(c) + '</dt><dd>' + esc([x.nutrition ? 'nutrition ' + optLabel(NUTRI, x.nutrition).toLowerCase() : '', x.survey_when ? 'questions ' + x.survey_when : '', x.survey ? x.survey.length + ' own questions' : '', x.look ? optLabel(LOOK, x.look).toLowerCase() + ' look' : ''].filter(Boolean).join(', ') || 'as the study') + '</dd>';
-      }).join('') + '</dl><p class="small muted" style="margin:10px 0 0">Applies to new sessions and to people who reload the page; the data keeps what each person saw (summary.nutrition / reveal, summary.look, pzf_data.when, the condition).</p></div>';
-    var title = glob ? 'Every study (global)' : 'This study: ' + d.study;
+      }).join('') + '</dl><p class="small muted" style="margin:10px 0 0">Applies to new sessions and to people who reload the page; each pizza keeps what its participant saw (summary.nutrition / reveal, summary.look, pzf_data.when, the condition).</p></div>';
+    // the history of the changes (newest first): when, who, why, what; a study's view shows the global changes too
+    var log = (d.log || []).slice().sort(function (a, b) { return a.t < b.t ? 1 : -1; });
+    var hist = '<div class="setsec" id="sethist"><h3>History of changes</h3>'
+      + (log.length ? '<p class="help">Every saved change, with its reason: a record of the protocol for the methods section and for an ethics amendment. Times are your local time.</p>'
+        + '<ol class="hist">' + log.map(function (x, i) {
+          var mine = x.layer === (glob ? '*' : d.study), dl = diffWords(x.before, x.after);
+          return '<li' + (i >= 5 ? ' class="more" hidden' : '') + '><div><b>' + esc(localTime(x.t)) + '</b> · ' + esc(x.layer === '*' ? 'every study' : 'this study') + ' · by the ' + esc(BY[x.by] || x.by || '?') + '</div>'
+            + (x.reason ? '<div class="why">“' + esc(x.reason) + '”</div>' : '<div class="why muted">no reason given</div>') + diffHtml(dl)
+            + (mine ? '<button type="button" class="alt small" data-restore="' + i + '">Put back the settings from before this change</button>' : '') + '</li>';
+        }).join('') + '</ol>' + (log.length > 5 ? '<button type="button" class="alt small" id="histmore">Show all ' + log.length + ' changes</button>' : '')
+        : '<p class="help">No changes saved here yet. Each change will be listed with its time, who made it and why.</p>') + '</div>';
+    var title = glob ? 'every study (global)' : 'this study: ' + d.study;
+    var started = who.n ? '<div class="setnote"><b>' + who.n + (who.n === 1 ? ' person has' : ' people have') + ' already taken part' + (glob ? ' across the studies' : ' in this study') + '</b> (' + who.done + ' finished their pizza). '
+      + 'Changes apply to new sessions only; earlier participants keep what they saw and each pizza records it. Changing what people see in the middle of data collection splits the study into two versions: do it only on purpose, and say why when you save.</div>' : '';
     $('setcard').innerHTML = '<div class="setgrid"><form id="setform"><h2 style="margin-top:0">Settings</h2>'
-      + (d.own && d.can_global ? '<div class="scopebar"><button type="button" class="alt small" data-scope="' + esc(d.study) + '" aria-pressed="' + !glob + '">This study</button><button type="button" class="alt small" data-scope="*" aria-pressed="' + glob + '">Every study (global)</button></div>' : '')
-      + '<p class="muted small" style="margin:0 0 6px">Changing: <b>' + esc(title) + '</b>. ' + (glob ? 'A study\'s own settings (on its own Settings tab or in server/study.json) win over these.' : 'Anything left "as inherited" follows the settings of every study.') + '</p>'
-      + (probs && probs.length ? '<div class="probs"><b>Not saved:</b><br>' + probs.map(esc).join('<br>') + '</div>' : '')
+      + (d.own && d.can_global ? '<div class="scopebar" role="group" aria-label="Which settings"><button type="button" class="alt small" data-scope="' + esc(d.study) + '" aria-pressed="' + !glob + '">This study</button><button type="button" class="alt small" data-scope="*" aria-pressed="' + glob + '">Every study (global)</button></div>' : '')
+      + '<p class="muted small" style="margin:0 0 6px">You are changing the settings of <b>' + esc(title) + '</b>. ' + (glob ? 'A study\'s own settings (its Settings tab or server/study.json) win over these.' : 'Anything left on "Default" follows the settings of every study.') + '</p>'
+      + (SET.flash ? '<div class="okmsg" role="status">' + esc(SET.flash) + '</div>' : '') + started
+      + (probs && probs.length ? '<div class="probs" role="alert"><b>Not saved:</b><br>' + probs.map(esc).join('<br>') + '</div>' : '')
       + '<div class="setsec"><h3>Nutrition information while building</h3>' + radios('nutrition', NUTRI) + '</div>'
       + '<div class="setsec"><h3>Look of the pizza</h3>' + radios('look', LOOK) + '<div class="lookprev" id="lookprev"></div></div>'
       + '<div class="setsec"><h3>Questions (survey)</h3><p class="help">When to ask them, and what.</p>' + radios('survey_when', WHEN)
       + '<p class="help" style="margin-top:10px">What to ask:</p>' + radios('followup', STYLE)
       + '<details style="margin-top:8px"' + (ch.survey ? ' open' : '') + '><summary class="small">Your own questions (JSON, see docs/SURVEY.md)' + (ch.survey ? '' : inh('survey') ? ': inherited ' + inh('survey').length + ' questions' : '') + '</summary>'
-      + '<p class="help">A list of questions: <code>{"id": "sleep", "type": "single", "text": "Jak spałeś/spałaś?", "options": [["well", "dobrze"], ["badly", "źle"]]}</code>; types number, single, multi, text. The short card\'s own questions (age, autism, adhd, gender, trans, diet) need only id and type. Add <code>"explore": {"measures": ["n_distinct", "nut_kcal"], "direction": "lower", "answer": "badly"}</code> to make a question an idea to test in Explore (docs/SURVEY.md). Empty: as inherited.</p>'
-      + '<textarea class="qs" name="survey" spellcheck="false">' + esc(ch.survey ? JSON.stringify(ch.survey, null, 1) : '') + '</textarea>'
+      + '<p class="help">A list of questions: <code>{"id": "sleep", "type": "single", "text": "Jak spałeś/spałaś?", "options": [["well", "dobrze"], ["badly", "źle"]]}</code>; types number, single, multi, text. The short card\'s own questions (age, autism, adhd, gender, trans, diet) need only id and type. Add <code>"explore": {"measures": ["n_distinct", "nut_kcal"], "direction": "lower", "answer": "badly"}</code> to make a question an idea to test in Explore (docs/SURVEY.md). Empty: the default.</p>'
+      + '<textarea class="qs" name="survey" spellcheck="false">' + esc(ch.survey ? JSON.stringify(ch.survey, null, 1) : '') + '</textarea><div class="qcheck small"></div>'
       + (inh('survey') && !ch.survey ? '<button type="button" class="alt small" id="copyqs">Start from the inherited questions</button>' : '') + '</details></div>'
       + '<div class="setsec"><h3>Between subjects: conditions</h3><p class="help">Each new session gets the next condition in turn (A, B, A, B…), or the one in its link (<code>&amp;cond=A</code>). A condition can have its own nutrition table, questions and look; the reports compare the conditions (Explore: Condition).</p>'
-      + '<div class="setrow"><label>Conditions (comma-separated, empty = ' + (inheritedConds ? 'as inherited' : 'none') + ')<br><input name="conditions" size="30" value="' + esc(inheritedConds ? '' : conds.join(', ')) + '" placeholder="' + esc((inh('conditions') || []).join(', ') || 'e.g. visible, hidden') + '"></label>'
-      + '<button type="button" class="alt small" id="condapply">Update the list below</button></div>' + condHtml + '</div>'
-      + '<div class="setrow" style="margin-top:12px"><button type="submit">Save</button><span class="small muted" id="setmsg"></span></div></form>' + force + '</div>';
+      + '<div class="setrow"><label>Conditions (comma-separated; empty = ' + (inheritedConds ? 'the default' : 'none') + ')<br><input name="conditions" size="30" value="' + esc(inheritedConds ? '' : conds.join(', ')) + '" placeholder="' + esc((inh('conditions') || []).join(', ') || 'e.g. visible, hidden') + '"></label></div>'
+      + '<div id="condboxes">' + conds.map(condBox).join('') + '</div></div>'
+      + hist
+      + '<div class="savebar" id="savebar" hidden role="region" aria-label="Unsaved changes"><div><b>Unsaved changes</b><span id="dirtylist" class="small"></span></div>'
+      + '<div class="setrow" style="margin:0"><button type="button" class="alt" id="discard">Discard</button><button type="submit">Review and save…</button></div></div>'
+      + '</form>' + force + '</div>';
+    SET.flash = '';
     var form = $('setform');
     lookPreview();
-    [].forEach.call(document.querySelectorAll('.scopebar button'), function (b) { b.onclick = function () { SET.scope = b.dataset.scope; drawSettings(); }; });
-    if ($('copyqs')) $('copyqs').onclick = function () { form.survey.value = JSON.stringify(inh('survey'), null, 1); };
-    $('condapply').onclick = function () { var v = collect(); if (v.ok) { (glob ? d.global : d.own).changed = v.settings; drawSettings(); } else drawSettings(v.problems); };
+    // ---- the unsaved-changes bar: the form against what is saved for this layer
+    function refresh() {
+      var v = collect(true), list = v.ok ? diffWords(saved, v.settings, inh) : [{ label: 'not valid yet', from: '', to: '' }];
+      SET.dirty = !v.ok || list.length > 0;
+      $('savebar').hidden = !SET.dirty;
+      $('dirtylist').textContent = SET.dirty ? ': ' + list.map(function (x) { return x.label.toLowerCase(); }).join(', ') : '';
+    }
+    // own questions: checked as you type (the servers check them again when saving)
+    function checkQs(ta) {
+      var out = ta.parentNode.querySelector('.qcheck'), t = ta.value.trim();
+      if (!out) return;
+      if (!t) { out.textContent = ''; out.className = 'qcheck small'; return; }
+      try {
+        var v = JSON.parse(t);
+        if (!Array.isArray(v)) throw new Error('it should be a list: [ {...}, {...} ]');
+        var bad = v.filter(function (x) { return !x || typeof x !== 'object' || !x.id || !x.type; });
+        if (bad.length) throw new Error(bad.length + ' question(s) without an "id" or a "type"');
+        out.textContent = '✓ ' + v.length + (v.length === 1 ? ' question: ' : ' questions: ') + v.map(function (x) { return x.id; }).join(', ');
+        out.className = 'qcheck small ok';
+      } catch (err) { out.textContent = '✗ ' + err.message; out.className = 'qcheck small bad'; }
+    }
+    [].forEach.call(form.querySelectorAll('textarea.qs'), checkQs);
+    form.addEventListener('input', function (ev) { if (ev.target.matches('textarea.qs')) checkQs(ev.target); refresh(); });
+    form.addEventListener('change', refresh);
+    // conditions: the boxes follow the list as it is typed (no extra button)
+    form.conditions.addEventListener('change', function () {
+      var v = collect(true); if (!v.ok) return;
+      var list = form.conditions.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+      var keep = {}; [].forEach.call(form.querySelectorAll('.condbox'), function (b) { keep[b.dataset.cond] = b; });
+      var box = $('condboxes'); box.innerHTML = '';
+      (list.length ? list : (form.conditions.value.trim() ? [] : (inh('conditions') || []))).forEach(function (c) {
+        if (keep[c]) box.appendChild(keep[c]); else { var t = document.createElement('div'); t.innerHTML = condBox(c); box.appendChild(t.firstChild); }
+      });
+      refresh();
+    });
+    [].forEach.call(document.querySelectorAll('.scopebar button'), function (b) {
+      b.onclick = function () { if (SET.dirty && !confirm('Leave these changes unsaved?')) return; SET.scope = b.dataset.scope; SET.draft = null; SET.dirty = false; drawSettings(); };
+    });
+    if ($('copyqs')) $('copyqs').onclick = function () { form.survey.value = JSON.stringify(inh('survey'), null, 1); checkQs(form.survey); refresh(); };
+    $('discard').onclick = function () { SET.draft = null; SET.dirty = false; drawSettings(); };
+    if ($('histmore')) $('histmore').onclick = function () { [].forEach.call(document.querySelectorAll('.hist li.more'), function (li) { li.hidden = false; }); this.remove(); };
+    [].forEach.call(document.querySelectorAll('[data-restore]'), function (b) {
+      b.onclick = function () {
+        SET.draft = log[+b.dataset.restore].before || {};
+        drawSettings();
+        refresh();
+        $('savebar').scrollIntoView({ block: 'nearest' });
+      };
+    });
+    if (SET.draft) refresh();
     form.onsubmit = function (ev) {
       ev.preventDefault();
       var v = collect(); if (!v.ok) return drawSettings(v.problems);
-      $('setmsg').textContent = 'Saving…';
-      fetch('/admin/api/settings?' + q(), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ scope: SET.scope, settings: v.settings }) })
-        .then(function (r) { return r.json(); })
-        .then(function (r) { if (!r.ok) return drawSettings(r.problems || ['could not save']); settings(); load(S.study); })
-        .catch(function () { drawSettings(['could not save: reload the page and try again']); });
+      var list = diffWords(saved, v.settings, inh);
+      if (!list.length) { SET.dirty = false; refresh(); return; }
+      review(list, v.settings);
     };
-    function collect() {
+    // ---- the review before saving: what changes, for whom, and (once people took part) why
+    function review(list, settings) {
+      var need = who.n > 0;
+      var m = document.createElement('div'); m.className = 'modal'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true'); m.setAttribute('aria-labelledby', 'revtitle');
+      m.innerHTML = '<div class="modalbox"><h3 id="revtitle" style="margin-top:0">Save these changes?</h3>'
+        + '<p class="small muted" style="margin:0 0 6px">For ' + esc(title) + '. From the next new session on.</p>' + diffHtml(list)
+        + (need ? '<div class="setnote"><b>' + who.n + (who.n === 1 ? ' person has' : ' people have') + ' already taken part.</b> They keep what they saw; new people will see the new settings, so the reports will compare people who did slightly different tasks. Compare the two versions (Explore) before pooling them.</div>' : '')
+        + '<label class="small" for="revwhy">' + (need ? 'Why this change? (required: kept in the history, for the methods and the ethics record)' : 'Why this change? (optional: kept in the history)') + '</label>'
+        + '<textarea id="revwhy" rows="3" maxlength="300" style="width:100%"></textarea>'
+        + '<div class="setrow" style="justify-content:flex-end;margin-top:10px"><button type="button" class="alt" id="revno">Cancel</button><button type="button" id="revyes">Save changes</button></div><p class="small" id="revmsg" role="alert"></p></div>';
+      document.body.appendChild(m);
+      var why = $('revwhy'); why.focus();
+      function close() { m.remove(); }
+      $('revno').onclick = close;
+      m.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+      m.addEventListener('click', function (e) { if (e.target === m) close(); });
+      $('revyes').onclick = function () {
+        if (need && why.value.trim().length < 5) { $('revmsg').textContent = 'Please say briefly why (a few words).'; why.focus(); return; }
+        $('revyes').disabled = true; $('revmsg').textContent = 'Saving…';
+        fetch('/admin/api/settings?' + q(), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ scope: SET.scope, settings: settings, reason: why.value.trim() }) })
+          .then(function (r) { return r.json(); })
+          .then(function (r) {
+            close();
+            if (!r.ok) return drawSettings(r.problems || ['could not save']);
+            SET.draft = null; SET.dirty = false;
+            SET.flash = 'Saved at ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '. New sessions use these settings now.';
+            settings(); load(S.study);
+          })
+          .catch(function () { close(); drawSettings(['could not save: check the connection, reload the page and try again']); });
+      };
+    }
+    function collect(quiet) {
       var out = {}, probs = [];
       ['nutrition', 'survey_when', 'followup', 'look'].forEach(function (k) { var x = form.querySelector('input[name="' + k + '"]:checked'); if (x && x.value) out[k] = x.value; });
       function parse(txt, where) { if (!txt.trim()) return undefined; try { return JSON.parse(txt); } catch (e) { probs.push(where + ': not valid JSON (' + e.message + ')'); return undefined; } }
@@ -981,6 +1131,15 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
   $('pics').onchange = function () { view.pics = this.checked; try { localStorage.setItem('pzb-admin-pics', view.pics ? '1' : '0'); } catch (e) {} sessions(); };
   $('kpis').addEventListener('click', function (e) { var b = e.target.closest('button[data-status]'); if (b) showStatus(b.dataset.status); });
   $('pager').onclick = function (e) { var b = e.target.closest('button[data-page]'); if (b) { view.page = +b.dataset.page; sessions(); } };
+  // unsaved Settings changes: ask before another tab or another page drops them
+  $('tabs').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-tab]');
+    if (b && b.dataset.tab !== 'settings' && SET.dirty) {
+      if (!confirm('You have unsaved changes on the Settings tab. Leave them unsaved?')) { e.stopImmediatePropagation(); e.preventDefault(); return; }
+      SET.dirty = false; SET.draft = null;
+    }
+  }, true);
+  window.addEventListener('beforeunload', function (e) { if (SET.dirty) { e.preventDefault(); e.returnValue = ''; } });
   window.addEventListener('hashchange', function () { if (S && S.study) show(location.hash.slice(1)); });
   document.addEventListener('click', function (e) { if (e.target.closest('#drawer .close')) closeDrawer(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDrawer(); });

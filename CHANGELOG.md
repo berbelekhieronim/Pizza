@@ -5,6 +5,19 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**Settings tab: safer changes and a record of them (both servers; the task is unchanged).**
+- **Review before saving**: the changes in words (old → new, with what "default" is), for whom, and from when. Once
+  people have taken part, it says so and asks why (required; a few words); before that the reason is optional.
+- **History of changes** under the settings: every saved change with its time, who made it (owner, all-studies or study
+  link), the reason, and before → after; a study shows the global changes too. "Put back the settings from before
+  this change" loads them into the form, to be reviewed and saved like any change. Kept in the database
+  (`meta` `setlog:<layer>`, the last 200 per layer; no migration): a record of the protocol for the methods section and
+  ethics amendments.
+- **Unsaved changes** bar (what is changed, Discard, Review and save); leaving the tab or the page asks first.
+- Own questions are checked as you type (✓ the questions / ✗ what is wrong); the condition boxes follow the list of
+  conditions as it is typed (no extra button); "As inherited" now reads "Default: … (set in …)"; a note when people
+  have already taken part; a "Saved at …" message after saving.
+
 **0.20.0 (task): the realistic look in photographs.**
 - **Photographs** (`images/real/`, 1.6 MB in all; a build page loads about 0.6 MB of it, cached for a day): every
   topping as cut-out photos of single pieces (4 to 8 per topping; which one a piece shows follows its id, so it keeps it

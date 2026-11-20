@@ -72,6 +72,20 @@ def synthetic_n(store, sid):
 SETTINGS_STORE = None      # the open database, for the Settings tab's changes (set by Study)
 
 
+SETTINGS_LOG_MAX = 200        # changes kept per layer in the settings history
+
+
+def settings_log(scope):
+    """The history of the Settings tab's changes of one layer ('*' or a study id): [{t, layer, by, reason, before, after}]."""
+    if SETTINGS_STORE is None:
+        return []
+    try:
+        v = json.loads(SETTINGS_STORE.meta('setlog:' + scope) or '[]')
+    except ValueError:
+        return []
+    return v if isinstance(v, list) else []
+
+
 def overrides(scope):
     """The Settings tab's changes: scope '*' = every study, else a study id (settings.py says which keys)."""
     if SETTINGS_STORE is None:
@@ -442,9 +456,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 'choices': {k: list(v) for k, v in ovr.CHOICES.items()},
                 'global': {'file': pick(f), 'changed': overrides('*')},
                 'own': {'file': pick((f.get('studies') or {}).get(sid, {})), 'changed': overrides(sid)} if sid else None,
-                'effective': pick(eff), 'groups': eff.get('groups') or []}
+                'effective': pick(eff), 'groups': eff.get('groups') or [],
+                'log': settings_log('*') + (settings_log(sid) if sid else [])}
 
-    def save_settings(self, scope, where, changes):
+    def save_settings(self, scope, where, changes, reason=''):
         """Replace the changes of one layer ('*' = every study, or a study id) after checking them."""
         if where == '*':
             if scope[0] not in ('owner', 'all'):
@@ -459,6 +474,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         probs = ovr.problems(changes, conds)
         if probs:
             return False, {'ok': False, 'problems': probs}
+        before = overrides(where)
+        if changes != before:                 # the history of the changes (when, who, what, why): a protocol record
+            log = settings_log(where)
+            reason = reason if isinstance(reason, str) else ''
+            log.append({'t': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'layer': where, 'by': scope[0],
+                        'reason': reason.strip()[:300], 'before': before, 'after': changes})
+            self.study.store.set_meta('setlog:' + where, json.dumps(log[-SETTINGS_LOG_MAX:], ensure_ascii=False))
         self.study.store.set_meta('settings:' + where, json.dumps(changes, ensure_ascii=False))
         return True, {'ok': True}
 
@@ -636,7 +658,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route == '/admin/api/settings':                  # the Settings tab: save the changes of one layer (global or a study)
             body = self.body_json() or {}
             where = body.get('scope') if isinstance(body, dict) else None
-            ok, out = self.save_settings(scope, where, body.get('settings') if isinstance(body, dict) else None)
+            ok, out = self.save_settings(scope, where, body.get('settings') if isinstance(body, dict) else None, body.get('reason', '') if isinstance(body, dict) else '')
             return self.send(200 if ok else 400, json.dumps(out), 'application/json')
         if route == '/admin/api/inclusion':                 # the Sessions tab: analyse this session or not (the reports rebuild when opened)
             form = self.body_form()

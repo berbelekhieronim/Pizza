@@ -326,7 +326,8 @@ class Request_ {
       let sid = ['', 'main'].includes(this.arg('study')) ? '' : this.arg('study');
       if (scope[0] === 'study') sid = scope[1];
       if (sid && !studies().includes(sid)) return json({ error: 'no such study' }, 404);
-      return json(settingsView(scope, sid));
+      const log = async (k) => { try { const v = JSON.parse((await st.meta('setlog:' + k)) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+      return json({ ...settingsView(scope, sid), log: (await log('*')).concat(sid ? await log(sid) : []) });
     }
     if (route === '/admin/api/session') {
       // one session with every field (the Sessions tab's session panel); a study's researchers see their own study only
@@ -388,6 +389,14 @@ class Request_ {
       const conds = clean.conditions || ovr.apply(base, where === '*' ? {} : overrides('*')).conditions || [];
       const probs = ovr.problems(clean, conds);
       if (probs.length) return json({ ok: false, problems: probs }, 400);
+      const before = overrides(where);
+      if (JSON.stringify(sortKeys(before)) !== JSON.stringify(sortKeys(clean))) {
+        // the history of the changes (when, who, what, why): a protocol record (server.py save_settings)
+        let log = [];
+        try { log = JSON.parse((await this.store.meta('setlog:' + where)) || '[]'); if (!Array.isArray(log)) log = []; } catch (e) { log = []; }
+        log.push({ t: now(), layer: where, by: scope[0], reason: String((body && typeof body.reason === 'string' && body.reason) || '').trim().slice(0, 300), before, after: clean });
+        await this.store.setMeta('setlog:' + where, JSON.stringify(log.slice(-SETTINGS_LOG_MAX)));
+      }
       await this.store.setMeta('settings:' + where, JSON.stringify(clean));
       return json({ ok: true });
     }
@@ -526,6 +535,12 @@ export default {
 
 
 // the Settings tab's data: per layer, what study.json sets and what was changed here; what is in force
+const SETTINGS_LOG_MAX = 200;      // changes kept per layer in the settings history (server.py SETTINGS_LOG_MAX)
+function sortKeys(v) {             // the same value with its keys in order, so two settings compare by content
+  if (Array.isArray(v)) return v.map(sortKeys);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeys(v[k])]));
+  return v;
+}
 function settingsView(scope, sid) {
   const f = fileSettings();
   const pick = (d) => Object.fromEntries(ovr.EDITABLE.filter((k) => d[k] !== undefined).map((k) => [k, d[k]]));

@@ -101,6 +101,21 @@ def settings_checks(base, key, who):
     http('POST', url, {'scope': 'pilot-asd', 'settings': {}})
     check(code == 200 and g[0]['nutrition'] == 'none' and g[1]['nutrition'] == 'visible' and sj() == before,
           who + 'Settings tab: a global change applies where the study sets nothing itself (its own study.json line wins); saving nothing undoes it')
+    # the history of the changes: every saved change of a layer, with when, who, why, before and after; refused
+    # changes and saves that change nothing leave no line
+    http('POST', url, {'scope': 'pilot-asd', 'settings': {'look': 'realistic'}, 'reason': 'test the photo look'})
+    http('POST', url, {'scope': 'pilot-asd', 'settings': {'look': 'realistic'}, 'reason': 'same again'})
+    http('POST', url, {'scope': 'pilot-asd', 'settings': {'look': 'photo'}, 'reason': 'refused'})
+    http('POST', url, {'scope': 'pilot-asd', 'settings': {}})
+    log = json.loads(http('GET', url + '&study=pilot-asd')[1]).get('log') or []
+    own = [x for x in log if x.get('layer') == 'pilot-asd']
+    glob = [x for x in log if x.get('layer') == '*']
+    last = own[-2:] if len(own) >= 2 else []
+    check(len(glob) == 2 and [x['after'] for x in glob] == [{'nutrition': 'none'}, {}] and len(last) == 2
+          and last[0]['reason'] == 'test the photo look' and last[0]['before'] == {} and last[0]['after'] == {'look': 'realistic'} and last[0]['by'] == 'owner'
+          and last[1]['before'] == {'look': 'realistic'} and last[1]['after'] == {} and all(x.get('t', '').endswith('Z') for x in log)
+          and not any(x.get('reason') in ('same again', 'refused') for x in log) and sj() == before,
+          who + 'Settings tab: a history of every saved change (when, who, why, before and after), global and per study; refused or unchanged saves add nothing')
 
 
 def save_order_checks(base, key, who):
