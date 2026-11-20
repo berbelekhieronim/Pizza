@@ -1865,7 +1865,7 @@ def thumb(pieces, summary):
     load (a report opened as a file)."""
     rows = [[p.get('id', i), p['ing'], round(p['x'], 4), round(p['y'], 4), p.get('rot') or 0, round(p['s'] / (p.get('g') or 1), 4), p.get('v') or 0, 0, p.get('g') or 1]
             for i, p in enumerate(pieces)]
-    base = {k: summary.get(k) for k in ('sauce', 'cheese') if summary.get(k)}
+    base = {k: summary.get(k) for k in ('sauce', 'cheese', 'look') if summary.get(k)}
     return ('<span class="pzthumb" data-f="%s" data-s="%s"><svg viewBox="-102 -102 204 204" aria-hidden="true">%s%s</svg></span>'
             % (esc(json.dumps(rows, separators=(',', ':'))).replace('"', '&quot;'), esc(json.dumps(base)).replace('"', '&quot;'),
                base_svg(summary), ''.join(glyph(p) for p in pieces)))
@@ -1873,17 +1873,26 @@ def thumb(pieces, summary):
 
 def rthumb(rec, pieces):
     """A person's small pizza with their own sauce and cheese (as on the Sessions tab)."""
-    return thumb(pieces, {k: rec.get(k) for k in ('sauce', 'cheese') if rec.get(k)})
+    return thumb(pieces, {k: rec.get(k) for k in ('sauce', 'cheese', 'look') if rec.get(k)})
 
 
-# the reports' small pizzas drawn like the task draws them (thumb); the study servers serve the task script at /pizza-builder.js
+# the reports' small pizzas drawn like the task draws them (thumb); the study servers serve the task script at /pizza-builder.js.
+# In the project's look: a report of one study (?study=<id>, as the researcher page opens it) asks the server for that
+# study's look (/study.json: its current setting), so switching the look switches every picture; a report of all studies
+# shows each pizza as its participant saw it (summary.look); offline, the drawn look.
 THUMB_JS = ('<style>.pzthumb{display:inline-block;line-height:0}.pzthumb .pzb-picture{display:inline-block}</style>'
             '<script src="/pizza-builder.js"></script><script>(function () {'
             'if (!window.PizzaBuilder || !PizzaBuilder.picture) return;'
+            'function draw(look) {'
             '[].forEach.call(document.querySelectorAll(".pzthumb"), function (t) {'
             ' try { var svg = t.querySelector("svg"), w = svg ? (svg.getBoundingClientRect().width || parseFloat(getComputedStyle(svg).width)) : 0;'
-            ' var pic = PizzaBuilder.picture(JSON.parse(t.getAttribute("data-f")), JSON.parse(t.getAttribute("data-s") || "{}"), Math.round(w || 64));'
-            ' t.innerHTML = ""; t.appendChild(pic); } catch (e) {} });'
+            ' var s = JSON.parse(t.getAttribute("data-s") || "{}");'
+            ' var pic = PizzaBuilder.picture(JSON.parse(t.getAttribute("data-f")), s, Math.round(w || 64), { look: look || s.look || "drawn" });'
+            ' t.innerHTML = ""; t.appendChild(pic); } catch (e) {} }); }'
+            'var sid = new URLSearchParams(location.search).get("study");'
+            'if (!sid || sid === "all" || !window.fetch) return draw(sid === "all" ? "" : "drawn");'
+            'fetch("/study.json?study=" + encodeURIComponent(sid)).then(function (r) { return r.json(); })'
+            '.then(function (c) { draw(c && c.look === "realistic" ? "realistic" : "drawn"); }, function () { draw("drawn"); });'
             '})();</script>')
 
 

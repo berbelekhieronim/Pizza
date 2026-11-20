@@ -301,6 +301,14 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     studyView();
   }
 
+  // every picture of a pizza on this page in its project's look (the study's current setting, so switching the look
+  // switches them all); a record of another study (All studies) in that study's look
+  function lookFor(rec) {
+    var sid = (rec && rec.study) || (S.study && S.study !== 'all' ? S.study : 'main');
+    var st = (S.studies || []).filter(function (x) { return x.id === sid; })[0];
+    return { look: st && st.look === 'realistic' ? 'realistic' : 'drawn' };
+  }
+
   function chooser() {
     $('view').hidden = true; $('chooser').hidden = false;
     var cards = S.studies.map(function (s) {
@@ -499,7 +507,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     ['none', 'Not shown', 'no nutrition information']];
   var WHEN = [['before', 'Before the pizza', 'right after the consent'], ['after', 'After the pizza', 'after "I\'m done"']];
   var LOOK = [['drawn', 'Drawn', 'the current design: flat, illustrated toppings'],
-    ['realistic', 'Realistic (photo-like)', 'the same toppings, sizes and positions, painted with texture, light and shadow; the data mean the same (summary.look)']];
+    ['realistic', 'Realistic (photo-like)', 'photographs of real toppings, crust, sauce and cheese on a wooden board, at the same sizes and positions; the data mean the same (summary.look). Every picture of a pizza here and in the reports follows this setting']];
   var STYLE = [['metryczka', 'Short card (age, autism / ADHD, gender, diet) or your own questions below', ''], ['strong', 'Standard follow-up: strong feelings about the toppings, About you (always after the pizza)', ''],
     ['ratings', 'Standard follow-up with ratings of every topping (always after the pizza)', '']];
   var SET = { scope: null, data: null };
@@ -757,7 +765,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
         rows.forEach(function (x) {
           api('api/session', { pid: x.pid }).then(function (s) {
             var box = el.querySelector('.pic[data-pid="' + x.pid + '"]'), rec = s.record || {};
-            if (box && rec.pz_final && window.PizzaBuilder && PizzaBuilder.picture) { try { box.appendChild(PizzaBuilder.picture(rec.pz_final, rec.pz_summary, 110)); } catch (e) {} }
+            if (box && rec.pz_final && window.PizzaBuilder && PizzaBuilder.picture) { try { box.appendChild(PizzaBuilder.picture(rec.pz_final, rec.pz_summary, 110, lookFor(rec))); } catch (e) {} }
           });
         });
       });
@@ -806,7 +814,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
         + '<details><summary>Every saved field</summary><pre>' + esc(Object.keys(rec).sort().map(function (k) { var v = String(rec[k] == null ? '' : rec[k]); return k + ': ' + (v.length > 300 ? v.slice(0, 300) + '… (' + v.length + ' characters)' : v); }).join('\n')) + '</pre></details>';
       d.innerHTML = html;
       if (rec.pz_final && window.PizzaBuilder && PizzaBuilder.picture) {
-        try { $('drawerpic').appendChild(PizzaBuilder.picture(rec.pz_final, rec.pz_summary, 300)); } catch (e) {}
+        try { $('drawerpic').appendChild(PizzaBuilder.picture(rec.pz_final, rec.pz_summary, 300, lookFor(rec))); } catch (e) {}
       }
       var row = document.querySelector('#table a.pidlink[href="#sessions/' + encodeURIComponent(rec.pid) + '"]');
       if (row) { row = row.closest('tr'); row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); row.scrollIntoView({ block: 'nearest' }); }
@@ -914,7 +922,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       if (view.pics) builderScript().then(function () {              // the small pizzas, drawn from each row's saved pizza
         d.rows.forEach(function (r) {
           var td = document.querySelector('#table td.pic[data-pid="' + r.pid + '"]');
-          if (td && r.pz_final_pic && window.PizzaBuilder && PizzaBuilder.picture) { try { td.appendChild(PizzaBuilder.picture(r.pz_final_pic, r.pz_summary_pic, 44)); } catch (e) {} }
+          if (td && r.pz_final_pic && window.PizzaBuilder && PizzaBuilder.picture) { try { td.appendChild(PizzaBuilder.picture(r.pz_final_pic, r.pz_summary_pic, 44, lookFor(r))); } catch (e) {} }
         });
       });
       $('pager').innerHTML = d.pages > 1 ? (d.page > 1 ? '<button class="alt small" data-page="' + (d.page - 1) + '">&larr; newer</button>' : '')

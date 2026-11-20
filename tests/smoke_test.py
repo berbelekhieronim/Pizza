@@ -1062,7 +1062,7 @@ def main():
                   "var cases = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
                   "console.log(JSON.stringify({ing: Object.keys(I), tier: Object.keys(I).filter(k => I[k].tier), def: PizzaBuilder.defaultIngredients,"
                   " cat: Object.fromEntries(Object.keys(I).map(k => [k, I[k].cat])), pl: PizzaBuilder.names('pl'), vegan: PizzaBuilder.veganSauces.sort(),"
-                  " diet: cases.map(c => PizzaPreview.dietClass(c.ps, c.summ)), realp: PizzaBuilder.realisticToppings}));"
+                  " diet: cases.map(c => PizzaPreview.dietClass(c.ps, c.summ)), realp: PizzaBuilder.realisticToppings, photos: PizzaBuilder.photoCounts}));"
                   % (json.dumps(os.path.join(ROOT, 'pizza-builder.js')), json.dumps(os.path.join(ROOT, 'preview.js'))))
             A = FB.A
             dcases = [{'ps': [{'ing': i} for i in ps], 'summ': {'sauce': sa, 'cheese': ch}} for ps in ([], ['tof'], ['tof', 'mus'], ['egg'], ['tun'], ['pep', 'tof'])
@@ -1082,6 +1082,19 @@ def main():
                   and all(sim[n] == t['def'] for n in sim) and all(A.CATS[k] == t['cat'][k] or (A.CATS[k], t['cat'][k]) in (('seafood', 'fish'),) for k in real),
                   'every topping (tofu too) is in every table: task (and its realistic look), analysis, preview, nutrition, Polish names, codebook, both simulators%s'
                   % (' - missing: ' + ', '.join(missing) if missing else '' if out_.returncode == 0 else ' - ' + out_.stderr[-200:]))
+            # the realistic look's photographs: every topping (practice tomato too) has its photos, each file there, and
+            # every base layer (dough, each sauce, each cheese) and the board; none too big to load quickly
+            IMG = os.path.join(ROOT, 'images', 'real')
+            ph = t.get('photos') or {}
+            need = ['%s%d.webp' % (k, i) for k in ph for i in range(ph[k])] + ['dough.webp', 'board.webp'] + \
+                ['sauce_%s.webp' % x for x in ('tomato', 'white', 'bbq')] + ['cheese_%s.webp' % x for x in ('light', 'normal', 'extra', 'vegan')]
+            have = set(os.listdir(IMG)) if os.path.isdir(IMG) else set()
+            big = [f for f in need if f in have and os.path.getsize(os.path.join(IMG, f)) > (160 if f[:5] in ('dough', 'sauce', 'chees', 'board') else 40) * 1024]
+            check(set(ph) == set(t.get('ing', [])) and all(ph.values()) and not [f for f in need if f not in have] and not big and not (have - set(need)),
+                  'realistic look: photographs of every topping (%d photos) and every base layer, each file there and small (%d KB in all)%s'
+                  % (sum(ph.values()), sum(os.path.getsize(os.path.join(IMG, f)) for f in have) // 1024,
+                     ' - missing: ' + ', '.join(sorted(set(t.get('ing', [])) - set(ph)) + [f for f in need if f not in have]) if set(ph) != set(t.get('ing', [])) or [f for f in need if f not in have]
+                     else ' - too big: ' + ', '.join(big) if big else ' - not used: ' + ', '.join(sorted(have - set(need))) if have - set(need) else ''))
             pyc = [A.pizza_diet_class(c['ps'], c['summ']) for c in dcases]
             check(t.get('vegan') == sorted(k for k, v in A.SAUCE_DIET.items() if v == 'vegan' and k != 'none') == ['bbq', 'tomato']
                   and t.get('diet') == pyc and A.pizza_diet_class([{'ing': 'tof'}], {'sauce': 'bbq', 'cheese': 'vegan'}) == 'vegan'

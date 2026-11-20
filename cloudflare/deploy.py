@@ -40,6 +40,7 @@ def build():
     os.makedirs(out)
     for dest, src in PUBLIC.items():
         shutil.copyfile(os.path.join(ROOT, src), os.path.join(out, dest))
+    shutil.copytree(os.path.join(ROOT, 'images'), os.path.join(out, 'images'))     # the realistic look's photographs
     return out
 
 

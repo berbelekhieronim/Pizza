@@ -16,7 +16,15 @@
   'use strict';
   if (global.PizzaBuilder) return;
 
-  var VERSION = '0.19.0';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
+  var VERSION = '0.20.0';
+  // where the realistic look's photographs are: images/real/ next to this script (the study servers, jsDelivr), or
+  // PizzaBuilder.imageBase if set; none (an inline copy of the script) means the painted realistic look
+  var IMAGE_BASE = (function () {
+    try {
+      var cs = global.document && global.document.currentScript, src = cs && cs.src;
+      return src ? src.replace(/[#?].*$/, '').replace(/[^\/]*$/, '') + 'images/real/' : '';
+    } catch (e) { return ''; }
+  })();   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
   var VIEW = 105;        // half-width of every pizza viewBox; the pizza's outer radius is 100
   var R_SNAP = 0.9;      // with snapIn, a topping centre dropped on the crust is pulled in to this radius
   var R_OFF = 1.0;       // dropped further out than this = off the pizza
@@ -356,7 +364,8 @@
   }
 
   // ---------------------------------------------------------------- the realistic look
-  // look: 'realistic' (a study setting; the drawn look above is the default) paints the same pizza photo-like. Each
+  // look: 'realistic' (a study setting; the drawn look above is the default) shows the same pizza in photographs
+  // (images/real, see PHOTOS below), and paints it photo-like where they cannot load, as follows. Each
   // topping is painted on a canvas at the piece's own rotation (its colours and texture), then lit from a height field
   // (rounded edges, bumps, relief, gloss) with the light from the top left, so the light falls the same way on every
   // piece. Shapes, sizes and positions are those of the drawn look (the painters repeat the drawn shapes and their
@@ -906,9 +915,59 @@
       return layers[key];
     }
 
+    // ---- photographs (images/real next to this script): the realistic look uses them when they load, and the painted
+    // pieces and base above when they cannot (offline copy, blocked host): the picture changes, never the data.
+    // Toppings: PHOTOS[code] cut-out photos of single pieces (192 px WebP, the piece centred, its farthest edge at 0.46 of
+    // the side), drawn so the piece reaches ING[code].size from its centre, as the drawn piece does; which photo a piece
+    // shows follows its id and v, so it keeps its photo when moved. Base: dough, sauce_<sauce>, cheese_<cheese> (1024 px,
+    // pizza radius 470 px), stacked; the board: a wooden board.
+    var PHOTOS = { anc: 4, ban: 6, bas: 6, chk: 6, crn: 6, egg: 4, fig: 4, gor: 6, grp: 6, ham: 6, jal: 6, kan: 4, kim: 4, mus: 6, nor: 4,
+      oli: 8, oni: 6, par: 4, pep: 6, pin: 6, shr: 4, tof: 6, tom: 4, tun: 6, wal: 6 };
+    var photo = { state: null, waiting: [] };          // state: null (not tried), 'wait', 'ok', 'no'
+    function photoUrl(name) { return photoBase() + name + '.webp'; }
+    function photoBase() {
+      var b = global.PizzaBuilder && global.PizzaBuilder.imageBase;
+      return b != null ? b : IMAGE_BASE;
+    }
+    // try the photos once (one small file); fn(ok) when known. Until then the photos are used (they usually load).
+    function photos(fn) {
+      if (photo.state === 'ok' || photo.state === 'no') { if (fn) fn(photo.state === 'ok'); return; }
+      if (fn) photo.waiting.push(fn);
+      if (photo.state === 'wait') return;
+      if (!photoBase() || !global.Image) { done(false); return; }
+      photo.state = 'wait';
+      var im = new global.Image(), t = setTimeout(function () { done(false); }, 15000);
+      im.onload = function () { clearTimeout(t); done(im.naturalWidth > 0); };
+      im.onerror = function () { clearTimeout(t); done(false); };
+      im.src = photoUrl('oli0');
+      function done(ok) {
+        if (photo.state === 'ok' || photo.state === 'no') return;
+        photo.state = ok ? 'ok' : 'no';
+        var w = photo.waiting; photo.waiting = [];
+        w.forEach(function (f) { try { f(ok); } catch (e) { /* a caller gone */ } });
+      }
+    }
+    function usePhotos() { if (photo.state == null) photos(); return photo.state !== 'no'; }
+    function photoPiece(code, v, rot) {
+      var n = PHOTOS[code], half = ING[code].size / 0.92;
+      return '<image href="' + photoUrl(code + (((v % n) + n) % n)) + '" x="' + P(-half) + '" y="' + P(-half) + '" width="' + P(2 * half) +
+        '" height="' + P(2 * half) + '" transform="rotate(' + rot + ')"/>';
+    }
+    function photoBaseLayers(box, sauce, cheese, baked) {
+      var names = ['dough'];
+      if (SAUCE[sauce]) names.push('sauce_' + sauce);
+      if (CHEESE_AT[cheese]) names.push('cheese_' + cheese);
+      // the photos fill the pizza to radius 470 of 512 px; the view is VIEW units across half, the pizza 100 units
+      var pct = P(100 * 100 / VIEW * 512 / 470) + '%', off = P((100 - 100 * 100 / VIEW * 512 / 470) / 2) + '%';
+      box.innerHTML = names.map(function (n) {
+        return '<img class="pzb-rphoto' + (baked ? ' pzb-rph-baked' : '') + '" alt="" draggable="false" src="' + photoUrl(n) + '" style="left:' + off + ';top:' + off + ';width:' + pct + ';height:' + pct + '">';
+      }).join('');
+    }
+
     // a sprite as <use>: its image is defined once in the shared <defs> (pzb-defs), so a re-render does not decode it again
     var seq = 0, SVGNS = 'http://www.w3.org/2000/svg';
     function use(code, v, rot, K) {
+      if (PHOTOS[code] && usePhotos()) return photoPiece(code, v, rot);
       var sp = sprite(code, v, rot, K), doc = global.document;
       if (!sp.id || !doc.getElementById(sp.id)) {
         sp.id = sp.id || 'pzb-s' + (++seq);
@@ -921,6 +980,7 @@
     }
     // the base as canvases in box: crust, then sauce and cheese if chosen (baked: browner cheese and crust)
     function base(box, sauce, cheese, baked) {
+      if (usePhotos()) return photoBaseLayers(box, sauce, cheese, baked);
       var NB = (global.devicePixelRatio || 1) > 1.4 ? 896 : 640, want = [['crust', '', baked]];      // pixels across the view
       if (SAUCE[sauce]) want.push(['sauce', sauce, false]);
       if (CHEESE_AT[cheese]) want.push(['cheese', cheese, baked]);
@@ -931,6 +991,9 @@
     return {
       use: use,
       base: base,
+      photos: photos,                     // photos(fn): fn(true) once the photographs load, fn(false) if they cannot
+      photoUrl: photoUrl,
+      photoCounts: PHOTOS,
       // canvas, Path2D, and reading pixels back as painted: privacy settings that block or scramble canvas reads (Firefox
       // resistFingerprinting, Tor) would turn the lit pieces into blank squares, so those browsers keep the drawn look
       ok: function () {
@@ -981,6 +1044,10 @@
     '.pzb-rbase,.pzb-rraw,.pzb-rbaked{position:absolute;left:0;top:0;width:100%;height:100%}',
     '.pzb-rbase canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block}',
     '.pzb-rbaked{opacity:0;transition:opacity 1.6s}.pzb-baked .pzb-rbaked{opacity:1}',
+    '.pzb-rphoto{position:absolute;max-width:none;pointer-events:none;-webkit-user-select:none;user-select:none}',
+    '.pzb-rphoto:first-child{filter:drop-shadow(1px 4px 5px rgba(45,24,6,.45))}',
+    '.pzb-rph-baked{filter:saturate(1.06) brightness(.97) contrast(1.03)}',
+    '.pzb-rphoto.pzb-rph-baked:first-child{filter:drop-shadow(1px 4px 5px rgba(45,24,6,.45)) saturate(1.06) brightness(.97) contrast(1.03)}',
     '.pzb-real .pzb-tops{filter:drop-shadow(.5px 1.1px 1px rgba(40,18,4,.55))}',
     '.pzb-real.pzb-baked .pzb-tops{filter:drop-shadow(.5px 1.1px 1px rgba(40,18,4,.55)) saturate(1.05) brightness(.97)}',
     '.pzb-target{fill:none;stroke:#fff;stroke-width:2;stroke-dasharray:5 4;animation:pzb-pulse 2.4s ease-in-out infinite}',
@@ -1433,6 +1500,13 @@
     this.baseSvg = pz.querySelector('.pzb-base'); this.guideSvg = pz.querySelector('.pzb-guide'); this.topsSvg = pz.querySelector('.pzb-tops');
     this.rbase = pz.querySelector('.pzb-rbase');
     this._applyBase();
+    if (real) REAL.photos(function (ok) {
+      if (ok) { board.style.background = 'url("' + REAL.photoUrl('board') + '") center/cover #7a5634'; return; }
+      if (self.dead || !self.items) return;   // could not load (already known at the start: painted from the start)
+      self._applyBase(); if (self.finished && self.rbase) REAL.base(self.rbase.lastChild, self.sauce, self.cheese, true);
+      self._render();
+      for (var k in self.items) self.items[k].querySelector('.pzb-bowl').innerHTML = iconMarkup(k, self.look);
+    });
 
     var side = el('div', 'pzb-side'); main.appendChild(side);
     side.appendChild(el('div', 'pzb-label', esc(T.toppings)));
@@ -1631,6 +1705,7 @@
   };
 
   Builder.prototype.destroy = function () {
+    this.dead = true;
     global.removeEventListener('pointermove', this.h.move);
     global.removeEventListener('pointerup', this.h.up);
     global.removeEventListener('pointercancel', this.h.cancel);
@@ -1681,7 +1756,7 @@
       if (node) node.style.visibility = 'hidden';
     }
     var g0 = p.g || 1, S = ING[p.ing].size * 1.3 * p.s * g0, half = S * g.ppu * 1.08;
-    var gh = el('div', 'pzb-ghost', '<svg viewBox="' + P(-S) + ' ' + P(-S) + ' ' + P(2 * S) + ' ' + P(2 * S) + '">' + placed(p.ing, 0, 0, p.rot, p.v, p.s * g0, this.look, this.look === 'realistic' ? this._K(p.s * g0, g.ppu) : 0) + '</svg>');
+    var gh = el('div', 'pzb-ghost', '<svg viewBox="' + P(-S) + ' ' + P(-S) + ' ' + P(2 * S) + ' ' + P(2 * S) + '">' + placed(p.ing, 0, 0, p.rot, this.look === 'realistic' ? p.v + 3 * p.id : p.v, p.s * g0, this.look, this.look === 'realistic' ? this._K(p.s * g0, g.ppu) : 0) + '</svg>');
     gh.style.width = gh.style.height = (2 * half) + 'px';
     document.body.appendChild(gh);
     try { (trayEl || this.pizzaEl).setPointerCapture(e.pointerId); } catch (err) { /* capture is a nicety */ }
@@ -1821,7 +1896,7 @@
     var s = '', counts = this.counts(), real = this.look === 'realistic', ppu = real ? (this.pizzaEl.getBoundingClientRect().width || 520) / (2 * VIEW) : 0;
     for (var i = 0; i < this.pieces.length; i++) {
       var p = this.pieces[i], sc = p.s * (p.g || 1);
-      s += placed(p.ing, p.x * 100, -p.y * 100, p.rot, p.v, sc, this.look, real ? this._K(sc, ppu) : 0, ' data-pid="' + p.id + '"');
+      s += placed(p.ing, p.x * 100, -p.y * 100, p.rot, real ? p.v + 3 * p.id : p.v, sc, this.look, real ? this._K(sc, ppu) : 0, ' data-pid="' + p.id + '"');
     }
     this.topsSvg.innerHTML = s;
     if (this.o.showCounts) for (var k in this.items) {
@@ -2550,15 +2625,24 @@
     var look = lookOf(opts || {}), real = look === 'realistic';
     var px = size || 320, vb = ' viewBox="' + (-VIEW) + ' ' + (-VIEW) + ' ' + (2 * VIEW) + ' ' + (2 * VIEW) + '" aria-hidden="true" focusable="false"';
     var ppu = px / (2 * VIEW) * Math.min(global.devicePixelRatio || 1, 2);
-    var tops = (final || []).filter(function (f) { return ING[f[1]]; }).map(function (f) {
-      var sc = f[5] * (f[8] || 1), need = ppu * sc;
-      return placed(f[1], f[2] * 100, -f[3] * 100, f[4], f[6], sc, look, need <= 4 ? 4 : need <= 6 ? 6 : need <= 8 ? 8 : need <= 11 ? 11 : 15);
-    }).join('');
+    function tops() {
+      return (final || []).filter(function (f) { return ING[f[1]]; }).map(function (f) {
+        var sc = f[5] * (f[8] || 1), need = ppu * sc;
+        return placed(f[1], f[2] * 100, -f[3] * 100, f[4], real ? f[6] + 3 * (f[0] || 0) : f[6], sc, look, need <= 4 ? 4 : need <= 6 ? 6 : need <= 8 ? 8 : need <= 11 ? 11 : 15);
+      }).join('');
+    }
     var w = el('div', 'pzb pzb-baked pzb-picture' + (real ? ' pzb-real' : ''), '<div class="pzb-pizza" style="width:' + px + 'px;height:' + px + 'px" role="img">' +
       (real ? '<div class="pzb-rbase"><div class="pzb-rraw"></div></div>' : '') +
-      '<svg class="pzb-base"' + vb + '>' + (real ? '' : baseMarkup()) + '</svg><svg class="pzb-tops"' + vb + '>' + tops + '</svg></div>');
+      '<svg class="pzb-base"' + vb + '>' + (real ? '' : baseMarkup()) + '</svg><svg class="pzb-tops"' + vb + '>' + tops() + '</svg></div>');
     var base = w.querySelector('.pzb-base'), sauce = summary.sauce || 'tomato', cheese = summary.cheese || 'normal';
-    if (real) { REAL.base(w.querySelector('.pzb-rraw'), sauce, cheese, true); return w; }
+    if (real) {
+      REAL.base(w.querySelector('.pzb-rraw'), sauce, cheese, true);
+      REAL.photos(function (ok) {         // the photographs could not load: paint it instead
+        if (ok) return;
+        REAL.base(w.querySelector('.pzb-rraw'), sauce, cheese, true); w.querySelector('.pzb-tops').innerHTML = tops();
+      });
+      return w;
+    }
     var sv = base.querySelector('.pzb-sauce'), tex = base.querySelector('.pzb-sauce-tex'), ch = base.querySelector('.pzb-cheese');
     if (sauce === 'none') { sv.setAttribute('display', 'none'); tex.setAttribute('display', 'none'); } else sv.setAttribute('fill', 'url(#pzb-g-sauce-' + sauce + ')');
     if (cheese === 'none' || !CHEESE[cheese]) ch.setAttribute('display', 'none'); else ch.setAttribute('filter', 'url(#pzb-f-cheese-' + cheese + ')');
@@ -2578,7 +2662,8 @@
     names: function (lang, flat) { var o = { lang: lang, texts: flat }; texts(o); var out = {}; for (var k in ING) out[k] = iname(o, k); return out; },
     picture: picture,
     looks: ['drawn', 'realistic'],          // the study setting "look"; realistic needs canvas (else the drawn look is used and recorded)
-    realisticToppings: Object.keys(REAL.paints),   // every topping needs a painter for the realistic look (the smoke test checks)
+    realisticToppings: Object.keys(REAL.paints),
+    photoCounts: REAL.photoCounts,          // photographs per topping in images/real (the smoke test checks the files)   // every topping needs a painter for the realistic look (the smoke test checks)
     mount: function (root, opts) {
       if (typeof root === 'string') root = document.querySelector(root);
       if (!(opts && opts.desktopOnly === false) && !isDesktop()) return blocked(root, opts || {});

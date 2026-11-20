@@ -512,6 +512,8 @@ class Request_ {
     const res = await this.env.ASSETS.fetch(this.req);    // index.html (the participant page), pizza-builder.js, ...
     const out = new Response(res.body, res);
     out.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    // the realistic look's photographs change only with a new set: let browsers keep them a day
+    if (p.startsWith('/images/') && res.ok) out.headers.set('Cache-Control', 'public, max-age=86400');
     return out;
   }
 }

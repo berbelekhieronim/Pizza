@@ -96,7 +96,7 @@ is the practice item only. **Tofu** is a cube of firm tofu, about 1.4 cm a side,
 (nutrition: SR28 16426, tofu, raw, firm, prepared with calcium sulfate). Its tier is *mid*: known, but not a
 standard pizza topping. Check every tier against your own sample's ratings.
 
-## Two looks: drawn and realistic (task 0.19.0)
+## Two looks: drawn and realistic (task 0.19.0; photographs 0.20.0)
 
 The study setting `look` (Settings tab, `server/study.json`, or per condition) chooses how the pizza is drawn. Only the
 picture changes: the trays, positions, sizes, rotations, events and every measure are the same in both, and each pizza
@@ -112,9 +112,16 @@ records what was shown (`summary.look`, the `look` column).
   and crust. Everything is drawn in the participant's browser (no images to download). Starting the task takes about
   0.5 s more (0.9 s on a high-density screen); placing toppings is as fast as in the drawn look. A browser without
   canvas, or one that blocks reading canvas pixels (privacy settings), gets the drawn look, and the data say so.
-- A new topping needs a painter in `PAINT` as well (the smoke test checks that every topping has one).
-- The reports keep the drawn look for their thumbnails; the participant's end page shows the baked pizza in the look
-  they built it in (`PizzaBuilder.picture(final, summary, size, {look})`).
+- **Photographs (0.20.0).** When `images/real/` (next to `pizza-builder.js`, or `PizzaBuilder.imageBase`) loads, the
+  realistic look uses photographs instead of the painted pieces and base: `PHOTOS` in `REAL` lists how many photos
+  each topping has (`<code><n>.webp`, 192 px, the piece centred, its farthest edge at 0.46 of the side, drawn so it
+  reaches `ING[code].size` from its centre, like the drawn piece). A piece shows photo `(v + 3 * id) % n`, so it keeps
+  its photo when moved. The base is `dough.webp`, `sauce_<sauce>.webp`, `cheese_<cheese>.webp` (1024 px, pizza radius
+  470 px) stacked; the board is `board.webp`. If the photos fail, the painted look is used.
+- A new topping needs a painter in `PAINT` and its photographs (`PHOTOS` and the files); the smoke test checks both.
+- Every picture of a pizza follows the project's look: the task, the end page (`PizzaBuilder.picture(final, summary,
+  size, {look})`), the researcher page (the study's current setting) and the reports' small pizzas (they ask
+  `/study.json?study=<id>` for the study's look when opened from a study server).
 
 ## The diet of a whole pizza (`diet_class`)
 

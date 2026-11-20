@@ -5,6 +5,25 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**0.20.0 (task): the realistic look in photographs.**
+- **Photographs** (`images/real/`, 1.6 MB in all; a build page loads about 0.6 MB of it, cached for a day): every
+  topping as cut-out photos of single pieces (4 to 8 per topping; which one a piece shows follows its id, so it keeps it
+  when moved, and every piece is turned to its own rotation), and the base as layers on one crust: dough, then the
+  chosen sauce (tomato, white, BBQ), then the chosen cheese (light, normal, extra, vegan), so all 20 sauce and cheese
+  combinations share the same crust and only the chosen layer changes. The pizza lies on a floured wooden board, with a
+  soft shadow; baking warms the colours. Generated with an image model (Canva), each piece cut out and checked by eye.
+- **Sizes**: each photo is scaled so the piece reaches as far from its centre as the drawn piece does (a pepperoni
+  slice about 4 cm across on a 30 cm pizza, an olive ring 1.8 cm, a pinch of three corn kernels), so positions, sizes,
+  overlap and every measure mean the same in both looks.
+- **Everything follows the project's look**: the tray, the piece being dragged, the follow-up cards, the end page, the
+  researcher page's pictures (Overview, Sessions, the session drawer) and the reports' small pizzas. On the researcher
+  page and in a study's reports they follow the study's current setting, so switching it switches every picture (All
+  studies: each in its own study's look; a report opened as a file: drawn).
+- **Fallback**: where the photographs cannot load (blocked host, an inline copy of the script) the painted realistic
+  look of 0.19.0 is used; where canvas is blocked too, the drawn look (recorded in `summary.look`).
+- Both study servers serve `/images/real/*.webp` (the Worker's deploy copies them into `public/`); Qualtrics loads them
+  from jsDelivr next to the script. The pilot keeps the drawn look (off by default); the test study uses the realistic.
+
 **0.19.0 (task): a realistic, photo-like look of the pizza, as a setting (off by default).**
 - **Look of the pizza** (`look`: `drawn`, the default, or `realistic`), on the Settings tab for every study, one study
   or one condition (a between-subjects test of the look is possible). The Settings tab shows the same pizza in both looks.
