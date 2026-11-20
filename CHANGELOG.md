@@ -5,6 +5,22 @@ matched to the format below. Add an entry for every change that reaches particip
 
 ## Unreleased
 
+**0.19.0 (task): a realistic, photo-like look of the pizza, as a setting (off by default).**
+- **Look of the pizza** (`look`: `drawn`, the default, or `realistic`), on the Settings tab for every study, one study
+  or one condition (a between-subjects test of the look is possible). The Settings tab shows the same pizza in both looks.
+  The pilot keeps the drawn look; the test study (`tests`) uses the realistic one.
+- **The realistic look** paints every topping, the crust, the three sauces and the cheeses on canvas in the
+  participant's browser: the same shapes, sizes and random variation as the drawn toppings, then light from the top
+  left over a height field (rounded edges, bumps, raised details such as the yolk and seeds, gloss), each piece at its
+  own rotation so the light is the same on every piece; soft shadows under the toppings; baking turns the cheese and
+  crust golden. Tray icons, the piece being dragged, the follow-up cards and the end page's baked pizza use it too.
+  Nothing to download; starting the task takes about 0.5 s more (0.9 s on high-density screens), placing toppings is
+  as fast as before. A browser without canvas, or one that blocks reading canvas pixels (privacy settings such as
+  Firefox's resistFingerprinting), gets the drawn look, and the data say so.
+- **Recorded:** `summary.look` (what was shown), the `look` column (`drawn` before 0.19.0), an Explore grouping (Look of
+  the pizza, with the study's groupings), a line in Who took part and a key point when both looks were used. Positions,
+  sizes and every measure are computed the same way for both looks. Both servers check the new setting the same way.
+
 **Neurodivergence and gender identity: new explorations.**
 - **Trans or non-binary** (`gender_diverse`, a new column): non-binary or another gender, or transgender; `0` = a
   cisgender woman or man (said no to transgender); empty when not known. An Explore grouping in the study's family of

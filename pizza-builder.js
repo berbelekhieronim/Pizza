@@ -16,7 +16,7 @@
   'use strict';
   if (global.PizzaBuilder) return;
 
-  var VERSION = '0.18.2';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
+  var VERSION = '0.19.0';   // stored with every pizza (summary.v); see CHANGELOG.md for what each version records
   var VIEW = 105;        // half-width of every pizza viewBox; the pizza's outer radius is 100
   var R_SNAP = 0.9;      // with snapIn, a topping centre dropped on the crust is pulled in to this radius
   var R_OFF = 1.0;       // dropped further out than this = off the pizza
@@ -277,16 +277,20 @@
     if (!markupCache[k]) markupCache[k] = ING[code].draw(rng(hash(code) * 31 + v));
     return markupCache[k];
   }
-  function placed(code, x, y, rot, v, s) {
-    return '<g transform="translate(' + P(x) + ' ' + P(y) + ') rotate(' + rot + ')' + (s ? ' scale(' + s + ')' : '') + '">' + pieceMarkup(code, v) + '</g>';
+  // one piece in either look (realistic: a sprite painted at its rotation, K pixels per unit; see REAL below)
+  function placed(code, x, y, rot, v, s, look, K, attrs) {
+    if (look === 'realistic') {
+      return '<g' + (attrs || '') + ' transform="translate(' + P(x) + ' ' + P(y) + ')' + (s ? ' scale(' + P(s) + ')' : '') + '">' + REAL.use(code, v, rot, K || 8) + '</g>';
+    }
+    return '<g' + (attrs || '') + ' transform="translate(' + P(x) + ' ' + P(y) + ') rotate(' + rot + ')' + (s ? ' scale(' + P(s) + ')' : '') + '">' + pieceMarkup(code, v) + '</g>';
   }
-  function iconMarkup(code) {
-    var s = ING[code].size, inner, half;
+  function iconMarkup(code, look) {
+    var s = ING[code].size, inner, half, K = look === 'realistic' ? ((global.devicePixelRatio || 1) > 1.4 ? 6 : 4) : 0;
     if (s < 9) {        // small toppings show as a little heap of three
-      inner = placed(code, 0, -s * 0.75, 20, 0) + placed(code, -s * 0.85, s * 0.6, 140, 1) + placed(code, s * 0.85, s * 0.6, 260, 2);
+      inner = placed(code, 0, -s * 0.75, 20, 0, 0, look, K) + placed(code, -s * 0.85, s * 0.6, 140, 1, 0, look, K) + placed(code, s * 0.85, s * 0.6, 260, 2, 0, look, K);
       half = s * 2;
     } else {
-      inner = placed(code, 0, 0, (code === 'anc' || code === 'bas') ? -30 : 15, 0);
+      inner = placed(code, 0, 0, (code === 'anc' || code === 'bas') ? -30 : 15, 0, 0, look, K);
       half = s * 1.12;
     }
     return '<svg viewBox="' + P(-half) + ' ' + P(-half) + ' ' + P(2 * half) + ' ' + P(2 * half) + '" aria-hidden="true" focusable="false">' + inner + '</svg>';
@@ -351,6 +355,605 @@
       '<rect class="pzb-brown" x="-86" y="-86" width="172" height="172" filter="url(#pzb-f-brown)"/></g>';
   }
 
+  // ---------------------------------------------------------------- the realistic look
+  // look: 'realistic' (a study setting; the drawn look above is the default) paints the same pizza photo-like. Each
+  // topping is painted on a canvas at the piece's own rotation (its colours and texture), then lit from a height field
+  // (rounded edges, bumps, relief, gloss) with the light from the top left, so the light falls the same way on every
+  // piece. Shapes, sizes and positions are those of the drawn look (the painters repeat the drawn shapes and their
+  // random draws), so the data mean the same; only the picture changes. The base (crust, sauce, cheese) is three canvas
+  // layers under the toppings. Needs canvas and Path2D; without them the task keeps the drawn look (and records it).
+
+  var REAL = (function () {
+    var sprites = {}, layers = {}, okay = null;
+    var L = unit(-0.42, -0.56, 0.71), HV = unit(L[0], L[1], L[2] + 1), AMB = 0.7, DIF = 0.42;   // flat: AMB + DIF * L[2] = 1
+    function unit(a, b, c) { var n = Math.sqrt(a * a + b * b + c * c); return [a / n, b / n, c / n]; }
+    function canvas(w, h) { var c = global.document.createElement('canvas'); c.width = w; c.height = h || w; return c; }
+    function clamp(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
+    function smooth(a, b, v) { var t = (v - a) / (b - a); t = t < 0 ? 0 : t > 1 ? 1 : t; return t * t * (3 - 2 * t); }
+
+    // value noise (seeded) and its fractal sum, 0..1
+    function noise2(seed) {
+      var r = rng(seed), perm = new Uint8Array(512), val = new Float32Array(256), i, j, t;
+      for (i = 0; i < 256; i++) { val[i] = r(); perm[i] = i; }
+      for (i = 255; i > 0; i--) { j = Math.floor(r() * (i + 1)); t = perm[i]; perm[i] = perm[j]; perm[j] = t; }
+      for (i = 0; i < 256; i++) perm[i + 256] = perm[i];
+      return function (x, y) {
+        var xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi, X = xi & 255, Y = yi & 255;
+        var u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+        var a = val[perm[X + perm[Y]]], b = val[perm[X + 1 + perm[Y]]], c = val[perm[X + perm[Y + 1]]], d = val[perm[X + 1 + perm[Y + 1]]];
+        return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+      };
+    }
+    function fbm(n, x, y, oct) { var s = 0, a = 1, w = 0; for (var i = 0; i < oct; i++) { s += a * n(x, y); w += a; a *= 0.5; x = x * 2.07 + 17.3; y = y * 2.07 + 9.1; } return s / w; }
+
+    // box blur of a W x H field, in place (twice is close to a Gaussian)
+    function boxBlur(a, W, H, r) {
+      var t = new Float32Array(a.length), x, y, s, w = 2 * r + 1, row, add, sub;
+      for (y = 0; y < H; y++) {
+        row = y * W; s = 0;
+        for (x = 0; x <= r && x < W; x++) s += a[row + x];
+        for (x = 0; x < W; x++) {
+          t[row + x] = s / w; add = x + r + 1; sub = x - r;
+          if (add < W) s += a[row + add];
+          if (sub >= 0) s -= a[row + sub];
+        }
+      }
+      for (x = 0; x < W; x++) {
+        s = 0;
+        for (y = 0; y <= r && y < H; y++) s += t[y * W + x];
+        for (y = 0; y < H; y++) {
+          a[y * W + x] = s / w; add = y + r + 1; sub = y - r;
+          if (add < H) s += t[add * W + x];
+          if (sub >= 0) s -= t[sub * W + x];
+        }
+      }
+    }
+
+    // light a painted canvas. Height = the alpha blurred over `bevel` units (rounded edges) x `thick` + `bump` noise +
+    // `relief` (the painter's height canvas); gloss x the painter's gloss canvas; `grain` varies the colour a little.
+    function light(c, hc, gc, m, K, seed) {
+      var W = c.width, H = c.height, n = W * H, x = c.getContext('2d'), img = x.getImageData(0, 0, W, H), d = img.data;
+      var hd = hc.getContext('2d').getImageData(0, 0, W, H).data, gd = gc.getContext('2d').getImageData(0, 0, W, H).data;
+      var h = new Float32Array(n), rel = new Float32Array(n), ht = new Float32Array(n), i, j, k;
+      for (i = 0; i < n; i++) { h[i] = d[4 * i + 3] / 255; rel[i] = hd[4 * i] * hd[4 * i + 3] / 65025; }
+      var rb = Math.max(1, Math.round((m.bevel || 0.8) * K / 2));
+      boxBlur(h, W, H, rb); boxBlur(h, W, H, rb);
+      if (m.relief) { var rr = Math.max(1, Math.round(0.28 * K)); boxBlur(rel, W, H, rr); boxBlur(rel, W, H, rr); }
+      var thick = m.thick || 1, bump = m.bump || 0, relief = m.relief || 0, nb = noise2(seed), ng = noise2(seed + 7);
+      var bs = (m.bumpScale || 1) * K, gs = (m.grainScale || 0.5) * K, s;
+      for (j = 0, i = 0; j < H; j++) {
+        for (k = 0; k < W; k++, i++) {
+          s = h[i]; s = s * s * (3 - 2 * s);
+          ht[i] = thick * s + (bump ? bump * (fbm(nb, k / bs, j / bs, 3) - 0.5) * 2 * s : 0) + relief * rel[i];
+        }
+      }
+      var gl = m.gloss || 0, sh = m.shine || 20, grain = m.grain || 0, alpha = m.alpha || 1, hk = K / 2;
+      for (j = 1; j < H - 1; j++) {
+        for (k = 1; k < W - 1; k++) {
+          i = j * W + k;
+          var A = d[4 * i + 3]; if (!A) continue;
+          var sx = (ht[i + 1] - ht[i - 1]) * hk, sy = (ht[i + W] - ht[i - W]) * hk, inv = 1 / Math.sqrt(sx * sx + sy * sy + 1);
+          var nx = -sx * inv, ny = -sy * inv, nz = inv;
+          var dif = nx * L[0] + ny * L[1] + nz * L[2], hv = nx * HV[0] + ny * HV[1] + nz * HV[2];
+          var f = (AMB + DIF * (dif > 0 ? dif : 0)) * (grain ? 1 + grain * 2 * (fbm(ng, k / gs, j / gs, 2) - 0.5) : 1);
+          var sp = hv > 0 && gl ? 255 * gl * (gd[4 * i] / 255) * Math.pow(hv, sh) : 0;
+          d[4 * i] = clamp(d[4 * i] * f + sp); d[4 * i + 1] = clamp(d[4 * i + 1] * f + sp); d[4 * i + 2] = clamp(d[4 * i + 2] * f + sp);
+          if (alpha < 1) d[4 * i + 3] = A * alpha;
+        }
+      }
+      x.putImageData(img, 0, 0);
+    }
+
+    // ---- painting helpers (in pizza units, the piece centred and already turned)
+    function circle(x, cx, cy, r) { x.beginPath(); x.arc(cx, cy, r, 0, 6.2832); }
+    function rgrad(x, cx, cy, r0, r1, stops) { var g = x.createRadialGradient(cx, cy, r0, cx, cy, r1); stops.forEach(function (s) { g.addColorStop(s[0], s[1]); }); return g; }
+    function lgrad(x, x0, y0, x1, y1, stops) { var g = x.createLinearGradient(x0, y0, x1, y1); stops.forEach(function (s) { g.addColorStop(s[0], s[1]); }); return g; }
+    function rrect(x0, y0, w, h, rad) {
+      var p = new global.Path2D();
+      p.moveTo(x0 + rad, y0); p.arcTo(x0 + w, y0, x0 + w, y0 + h, rad); p.arcTo(x0 + w, y0 + h, x0, y0 + h, rad);
+      p.arcTo(x0, y0 + h, x0, y0, rad); p.arcTo(x0, y0, x0 + w, y0, rad); p.closePath();
+      return p;
+    }
+    function path(d) { return new global.Path2D(d); }
+    function spot(x, cx, cy, rad, r, col) {         // a small irregular fleck
+      var pts = [], i, a;
+      for (i = 0; i < 6; i++) { a = i / 6 * 6.2832; pts.push([cx + Math.cos(a) * rad * (0.7 + r() * 0.6), cy + Math.sin(a) * rad * (0.7 + r() * 0.6)]); }
+      x.fillStyle = col; x.fill(path(blob(pts)));
+    }
+    function lines(x, col, w, segs) { x.strokeStyle = col; x.lineWidth = w; segs.forEach(function (s) { x.beginPath(); x.moveTo(s[0], s[1]); x.lineTo(s[2], s[3]); x.stroke(); }); }
+
+    // ---- each topping: paint(x: colour, r: the drawn look's random draws, hx: height, gx: gloss) -> material
+    var PAINT = {
+      pep: function (x, r, hx) {
+        var pts = [], i, a, d;
+        for (i = 0; i < 36; i++) { a = i / 36 * 6.2832; d = 12.55 + r() * 0.45; pts.push([Math.cos(a) * d, Math.sin(a) * d]); }
+        var p = path(blob(pts));
+        x.fillStyle = rgrad(x, -1.2, -1.4, 0, 13.4, [[0, '#c03b26'], [0.55, '#ae2e1d'], [0.85, '#8f2116'], [1, '#5c130b']]); x.fill(p);
+        x.save(); x.clip(p);
+        for (i = 0; i < 40; i++) { a = r() * 6.2832; d = Math.sqrt(r()) * 11; spot(x, Math.cos(a) * d, Math.sin(a) * d, 0.2 + r() * 0.5, r, 'rgba(232,150,126,' + P(0.25 + r() * 0.4) + ')'); }
+        for (i = 0; i < 26; i++) { a = r() * 6.2832; d = Math.sqrt(r()) * 11.8; spot(x, Math.cos(a) * d, Math.sin(a) * d, 0.15 + r() * 0.3, r, 'rgba(66,9,5,' + P(0.35 + r() * 0.4) + ')'); }
+        x.lineWidth = 1.3; x.strokeStyle = 'rgba(70,12,6,.5)'; circle(x, 0, 0, 12.5); x.stroke();
+        x.restore();
+        hx.fillStyle = rgrad(hx, 0, 0, 8, 13, [[0, 'rgba(255,255,255,0)'], [1, 'rgba(255,255,255,1)']]); circle(hx, 0, 0, 13); hx.fill();   // the rim curls up
+        return { thick: 0.8, bevel: 0.8, relief: 0.9, gloss: 0.45, shine: 24, grain: 0.16, grainScale: 1.2 };
+      },
+      ham: function (x, r) {
+        var w = 6.4 + r() * 1.2, h = 5.4 + r(), i, y0;
+        var p = rrect(-w, -h, 2 * w, 2 * h, 2.4);
+        x.fillStyle = lgrad(x, 0, -h, 0, h, [[0, '#efb3ad'], [1, '#de8f88']]); x.fill(p);
+        x.save(); x.clip(p);
+        x.fillStyle = 'rgba(250,232,226,.9)';                                     // the fat along one edge
+        x.beginPath(); x.moveTo(-w - 1, -h - 1); x.lineTo(w + 1, -h - 1); x.lineTo(w + 1, -h + 1.2 + r() * 0.6);
+        x.bezierCurveTo(w / 3, -h + 0.8 + r(), -w / 3, -h + 1.6 + r() * 0.6, -w - 1, -h + 1 + r() * 0.6); x.closePath(); x.fill();
+        for (i = 0; i < 3; i++) {                                                 // pale marbling
+          y0 = -h + 3.2 + i * (2 * h - 4.5) / 3 + r();
+          x.strokeStyle = 'rgba(252,226,220,' + P(0.3 + r() * 0.3) + ')'; x.lineWidth = 0.4 + r() * 0.7;
+          x.beginPath(); x.moveTo(-w, y0); x.bezierCurveTo(-w / 3, y0 - 1.5 + r() * 3, w / 3, y0 - 1.5 + r() * 3, w, y0 + r() * 2 - 1); x.stroke();
+        }
+        x.lineWidth = 1; x.strokeStyle = 'rgba(165,78,70,.3)'; x.stroke(p);
+        x.restore();
+        return { thick: 0.5, bevel: 0.9, gloss: 0.3, shine: 22, grain: 0.1, grainScale: 0.5, bump: 0.1, bumpScale: 1.4 };
+      },
+      chk: function (x, r) {
+        var pts = [], i, a, rr, yy;
+        for (i = 0; i < 9; i++) { a = i / 9 * 6.283; rr = 5.2 + r() * 2.2; pts.push([Math.cos(a) * rr * 1.1, Math.sin(a) * rr * 0.85]); }
+        var p = path(blob(pts));
+        x.fillStyle = rgrad(x, -1, -1.2, 0, 8, [[0, '#f3e3c6'], [0.65, '#e6c99c'], [1, '#c4904f']]); x.fill(p);
+        x.save(); x.clip(p);
+        for (i = 0; i < 6; i++) spot(x, (r() - 0.5) * 10, (r() - 0.5) * 8, 1 + r() * 1.7, r, 'rgba(172,108,50,' + P(0.3 + r() * 0.3) + ')');
+        x.lineWidth = 0.2;
+        for (i = 0; i < 17; i++) {
+          yy = -6.5 + i * 0.8 + r() * 0.4; x.strokeStyle = 'rgba(140,96,52,' + P(0.15 + r() * 0.2) + ')';
+          x.beginPath(); x.moveTo(-8.5, yy + r()); x.bezierCurveTo(-3, yy - 1 + r() * 2, 3, yy - 1 + r() * 2, 8.5, yy + r()); x.stroke();
+        }
+        x.restore();
+        return { thick: 1.5, bevel: 1.6, gloss: 0.16, shine: 14, grain: 0.12, grainScale: 0.8, bump: 0.18, bumpScale: 1.2 };
+      },
+      anc: function (x, r) {
+        var b = (r() - 0.5) * 3, i;
+        var p = path('M-15 0C-10 ' + P(-3.4 + b) + ' 8 ' + P(-3.2 + b) + ' 15 -.4C8 ' + P(2.6 + b) + ' -10 ' + P(3.2 + b) + ' -15 0Z');
+        x.fillStyle = lgrad(x, 0, -3 + b, 0, 3 + b, [[0, '#9c6a55'], [0.5, '#7a4b3b'], [1, '#4c2d23']]); x.fill(p);
+        x.save(); x.clip(p);
+        x.lineCap = 'round';
+        x.strokeStyle = 'rgba(206,199,190,.75)'; x.lineWidth = 0.9;                // the silvery skin along one side
+        x.beginPath(); x.moveTo(-14, 1.2 + b * 0.3); x.bezierCurveTo(-8, 2.5 + b, 6, 2.3 + b, 14, 0.3); x.stroke();
+        x.strokeStyle = 'rgba(214,186,166,.5)'; x.lineWidth = 0.45;
+        x.beginPath(); x.moveTo(-13, 0.1); x.bezierCurveTo(-6, -0.9 + b, 6, -0.9 + b, 13, -0.3); x.stroke();
+        for (i = -13.5; i < 14; i += 0.85) lines(x, 'rgba(48,24,16,.22)', 0.16, [[i, -4 + b, i + 0.9, 4 + b]]);
+        x.restore();
+        return { thick: 0.7, bevel: 0.7, gloss: 0.75, shine: 45, grain: 0.1, grainScale: 0.4 };
+      },
+      mus: function (x, r) {
+        var k = 0.92 + r() * 0.16, i;
+        x.scale(k, 1);
+        var p = path('M-11.5 2.5C-11.8-6-6.5-11 0-11S11.8-6 11.5 2.5C9 3.6 6.5 2.6 4.2 2.8L3.6 9.8C3.3 11.8-3.3 11.8-3.6 9.8L-4.2 2.8C-6.5 2.6-9 3.6-11.5 2.5Z');
+        x.fillStyle = lgrad(x, 0, -11, 0, 11, [[0, '#eadabd'], [0.5, '#e1caa5'], [1, '#d3b68c']]); x.fill(p);
+        x.save(); x.clip(p);
+        x.fillStyle = 'rgba(150,116,82,.38)'; x.fillRect(-12, -1.6, 24, 4.4);       // the gills under the cap
+        for (i = -10.5; i <= 10.5; i += 0.4) lines(x, 'rgba(110,80,52,' + P(0.12 + r() * 0.14) + ')', 0.12, [[i, -1.6, i * 0.92, 2.6]]);
+        x.lineWidth = 2.6; x.strokeStyle = 'rgba(112,78,48,.85)'; x.stroke(path('M-11.7 2.4C-11.9-6-6.5-11 0-11S11.9-6 11.7 2.4'));   // the cap's brown skin
+        x.restore();
+        x.lineWidth = 1.1; x.strokeStyle = '#8a6440'; x.stroke(p);
+        return { thick: 0.9, bevel: 0.8, gloss: 0.25, shine: 18, grain: 0.07, grainScale: 0.9, bump: 0.05, bumpScale: 1.2 };
+      },
+      grp: function (x, r) {
+        var p = path('M-12 4Q0 ' + P(-(5 + r() * 5)) + ' 12 4');
+        x.lineCap = 'round';
+        x.lineWidth = 4.6; x.strokeStyle = '#245a17'; x.stroke(p);
+        x.lineWidth = 3.4; x.strokeStyle = '#3b8a2a'; x.stroke(p);
+        x.save(); x.translate(0, 1.35); x.lineWidth = 1; x.strokeStyle = 'rgba(176,218,132,.85)'; x.stroke(p); x.restore();   // the pale cut flesh
+        return { thick: 1.2, bevel: 2.2, gloss: 0.95, shine: 70, grain: 0.06, grainScale: 0.6 };
+      },
+      oni: function (x, r) {
+        var k = -(6 + r() * 4);
+        function arc(d) {
+          var p = path(d);
+          x.lineCap = 'round';
+          x.lineWidth = 2.3; x.strokeStyle = 'rgba(122,36,94,.96)'; x.stroke(p);
+          x.save(); x.translate(0, 0.5); x.lineWidth = 1.1; x.strokeStyle = 'rgba(244,228,240,.9)'; x.stroke(p); x.restore();
+        }
+        arc('M-11 3.5Q0 ' + P(k) + ' 11 3.5');
+        if (r() < 0.6) arc('M-8 5.8Q0 ' + P(k + 3.6) + ' 8 5.8');
+        return { thick: 0.6, bevel: 1.2, gloss: 0.7, shine: 45, grain: 0.05, alpha: 0.94 };
+      },
+      oli: function (x) {
+        x.lineWidth = 3.2; x.strokeStyle = '#221b1e'; circle(x, 0, 0, 4.5); x.stroke();
+        x.lineWidth = 1.4; x.strokeStyle = 'rgba(74,52,66,.55)'; circle(x, 0, 0, 4.7); x.stroke();
+        return { thick: 1.3, bevel: 1.6, gloss: 1, shine: 55, grain: 0.15, grainScale: 0.35, bump: 0.1, bumpScale: 0.6 };
+      },
+      crn: function (x, r) {
+        for (var i = 0; i < 3; i++) {
+          var a = i * 2.094 + r() * 0.6, cx = Math.cos(a) * 2.6, cy = Math.sin(a) * 2.6, rot = Math.round(r() * 180) * Math.PI / 180;
+          x.save(); x.translate(cx, cy); x.rotate(rot);
+          x.beginPath(); x.ellipse(0, 0, 1.9, 2.3, 0, 0, 6.2832);
+          x.fillStyle = rgrad(x, -0.3, -0.8, 0, 2.6, [[0, '#ffe791'], [0.55, '#f6c43a'], [1, '#d99c17']]); x.fill();
+          x.restore();
+        }
+        return { thick: 1.3, bevel: 1.4, gloss: 0.75, shine: 40, grain: 0.05 };
+      },
+      pin: function (x, r) {
+        var t = 5.8 + r() * 1.4, b = 3.8 + r() * 1.2, i;
+        var p = path('M' + P(-t) + ' -5.2L' + P(t) + ' -5.2 ' + P(b) + ' 5.6' + P(-b) + ' 5.6Z');
+        x.lineJoin = 'round'; x.lineWidth = 1.3;
+        x.fillStyle = lgrad(x, 0, -6, 0, 6, [[0, '#fbe37c'], [1, '#efbd42']]); x.fill(p); x.strokeStyle = '#e6b23a'; x.stroke(p);
+        x.save(); x.clip(p);
+        for (i = -7; i <= 7; i += 0.65) lines(x, 'rgba(200,146,30,.32)', 0.22, [[i * t / 7, -6, i * b / 7, 6]]);
+        x.lineWidth = 1.8; x.strokeStyle = 'rgba(186,118,40,.3)'; x.stroke(p);
+        x.restore();
+        return { thick: 1.4, bevel: 1.2, gloss: 0.55, shine: 28, grain: 0.1, grainScale: 0.6, bump: 0.08, bumpScale: 0.6 };
+      },
+      jal: function (x, r, hx) {
+        var i, a, cx, cy;
+        circle(x, 0, 0, 5.6); x.fillStyle = '#26561a'; x.fill();
+        circle(x, 0, 0, 4.7); x.fillStyle = rgrad(x, 0, 0, 2.5, 4.7, [[0, '#c4da8c'], [1, '#86ad4f']]); x.fill();
+        circle(x, 0, 0, 3); x.fillStyle = '#e4e6bd'; x.fill();
+        for (i = 0; i < 28; i++) { a = i / 28 * 6.2832; lines(x, 'rgba(88,128,48,.32)', 0.18, [[Math.cos(a) * 3.1, Math.sin(a) * 3.1, Math.cos(a) * 4.6, Math.sin(a) * 4.6]]); }
+        for (i = 0; i < 5; i++) {
+          a = i * 1.2566 + r() * 0.5; cx = Math.cos(a) * 1.8; cy = Math.sin(a) * 1.8;
+          [x, hx].forEach(function (t, j) {
+            t.save(); t.translate(cx, cy); t.rotate(a); t.beginPath(); t.ellipse(0, 0, 0.85, 0.6, 0, 0, 6.2832);
+            t.fillStyle = j ? '#fff' : '#f6f0d8'; t.fill(); t.restore();
+          });
+        }
+        return { thick: 0.8, bevel: 0.6, relief: 0.5, gloss: 0.65, shine: 40, grain: 0.08 };
+      },
+      bas: function (x, r, hx) {
+        var k = 0.85 + r() * 0.25;
+        x.scale(k, k); hx.scale(k, k);
+        var p = path('M-11 0C-6-6.6 5-7 11 0 5 7-6 6.6-11 0Z');
+        x.fillStyle = lgrad(x, 0, -6, 0, 6, [[0, '#3d903f'], [0.5, '#2b792f'], [1, '#1b5920']]); x.fill(p);
+        x.save(); x.clip(p);
+        x.strokeStyle = 'rgba(122,188,106,.6)'; x.lineWidth = 0.45; x.beginPath(); x.moveTo(-11, 0); x.quadraticCurveTo(0, -0.4, 10.5, 0); x.stroke();
+        x.strokeStyle = 'rgba(112,178,96,.45)'; x.lineWidth = 0.22;
+        [-5.5, -1.5, 2.5, 6].forEach(function (s) {
+          x.beginPath(); x.moveTo(s, -0.1); x.quadraticCurveTo(s + 1.4, -2.4, s + 2.8, -4.2 + Math.abs(s) * 0.12); x.stroke();
+          x.beginPath(); x.moveTo(s, 0.1); x.quadraticCurveTo(s + 1.4, 2.4, s + 2.8, 4.2 - Math.abs(s) * 0.12); x.stroke();
+        });
+        x.restore();
+        hx.fillStyle = lgrad(hx, 0, -6, 0, 6, [[0, 'rgba(255,255,255,0)'], [0.5, 'rgba(255,255,255,.9)'], [1, 'rgba(255,255,255,0)']]); hx.fill(p);
+        return { thick: 0.3, bevel: 0.7, relief: 0.9, gloss: 0.6, shine: 32, grain: 0.08 };
+      },
+      tun: function (x, r) {
+        var i, a, d, j, rr, b, pts, cols = ['#c69a82', '#d5ae96', '#ba8a70', '#cfa48a'];
+        for (i = 0; i < 4; i++) {
+          a = i * 1.57 + r() * 0.8; d = i ? 3.2 : 0; pts = [];
+          for (j = 0; j < 7; j++) { b = j / 7 * 6.283; rr = 3.4 + r() * 1.6; pts.push([Math.cos(a) * d + Math.cos(b) * rr * 1.2, Math.sin(a) * d + Math.sin(b) * rr * 0.8]); }
+          var p = path(blob(pts)), ox = Math.cos(a) * d, oy = Math.sin(a) * d;
+          x.fillStyle = cols[i]; x.fill(p);
+          x.save(); x.clip(p);
+          for (j = -6; j < 6; j += 0.55) lines(x, 'rgba(118,78,58,.28)', 0.16, [[ox + j, oy - 5, ox + j + 1.6, oy + 5]]);
+          x.restore();
+          x.strokeStyle = 'rgba(138,88,64,.35)'; x.lineWidth = 0.3; x.stroke(p);
+        }
+        return { thick: 0.9, bevel: 0.9, gloss: 0.32, shine: 20, grain: 0.12, grainScale: 0.5, bump: 0.2, bumpScale: 0.55 };
+      },
+      tof: function (x, r) {
+        var h = 4.4 + r() * 0.5, w = 4.4 + r() * 0.5, i;
+        x.rotate(Math.round(r() * 30 - 15) * Math.PI / 180);
+        x.fillStyle = '#d6a868'; x.fill(rrect(-w, -h, 2 * w, 2 * h, 1.6));
+        x.fillStyle = rgrad(x, -0.5, -0.5, 1, w, [[0, '#f7efd8'], [1, '#ebd9ab']]); x.fill(rrect(-w + 1.25, -h + 1.25, 2 * w - 2.5, 2 * h - 2.5, 1));
+        for (i = 0; i < 26; i++) { circle(x, (r() - 0.5) * (2 * w - 2.2), (r() - 0.5) * (2 * h - 2.2), 0.1 + r() * 0.18); x.fillStyle = 'rgba(186,156,106,.55)'; x.fill(); }
+        return { thick: 2.2, bevel: 1, gloss: 0.25, shine: 16, grain: 0.1, grainScale: 0.3, bump: 0.12, bumpScale: 0.4 };
+      },
+      kan: function (x, r) {
+        var w = 10 + r() * 1.2, h = 3.6 + r() * 0.6, i;
+        var p = rrect(-w, -h, 2 * w, 2 * h, 3);
+        x.fillStyle = '#4a1b13'; x.fill(p);
+        x.fillStyle = lgrad(x, 0, -h, 0, h, [[0, '#86302a'], [0.5, '#a2443a'], [1, '#782a21']]); x.fill(rrect(-w + 1.2, -h + 1.1, 2 * w - 2.4, 2 * h - 2.2, 2));
+        x.save(); x.clip(p);
+        x.lineCap = 'round';
+        for (i = -6; i <= 9; i += 5) lines(x, 'rgba(28,9,5,.72)', 1.1, [[i, -h - 1, i - 2.4, h + 1]]);
+        for (i = -w; i < w; i += 0.7) lines(x, 'rgba(58,18,12,.22)', 0.18, [[i, -h, i + 0.3, h]]);
+        x.restore();
+        return { thick: 1, bevel: 1, gloss: 0.45, shine: 26, grain: 0.12, grainScale: 0.4, bump: 0.2, bumpScale: 0.6 };
+      },
+      fig: function (x, r, hx) {
+        var k = 0.92 + r() * 0.16, i, a, d, seeds = [];
+        x.scale(k, 1); hx.scale(k, 1);
+        x.fillStyle = rgrad(x, -2, -2, 1, 11, [[0, '#6f3561'], [1, '#3c1634']]);
+        x.fill(path('M0 -10C3 -9 4 -6.5 6.4 -3.5C9.4 0 9.6 5 6 8.2C3 10.6-3 10.6-6 8.2C-9.6 5-9.4 0-6.4-3.5C-4-6.5-3-9 0-10Z'));
+        x.fillStyle = rgrad(x, 0, 2, 2, 8, [[0, '#f0c8a6'], [1, '#f4e3c6']]);
+        x.fill(path('M0 -7.6C2.4 -6.8 3 -4.6 4.8 -2.4C7.2 .4 7.4 4.2 4.6 6.6C2.4 8.4-2.4 8.4-4.6 6.6C-7.4 4.2-7.2 .4-4.8-2.4C-3-4.6-2.4-6.8 0-7.6Z'));
+        x.beginPath(); x.ellipse(0, 2.4, 4.2, 4.6, 0, 0, 6.2832);
+        x.fillStyle = rgrad(x, 0, 2.4, 0.5, 4.8, [[0, '#da586b'], [0.7, '#bd3245'], [1, '#d8807c']]); x.fill();
+        for (i = 0; i < 12; i++) { a = r() * 6.283; d = Math.sqrt(r()) * 3.4; seeds.push([Math.cos(a) * d, 2.4 + Math.sin(a) * d * 1.1, 0.35]); }
+        for (i = 0; i < 16; i++) { a = r() * 6.283; d = Math.sqrt(r()) * 3.7; seeds.push([Math.cos(a) * d, 2.4 + Math.sin(a) * d * 1.1, 0.22]); }
+        seeds.forEach(function (s) { circle(x, s[0], s[1], s[2]); x.fillStyle = '#f3d48e'; x.fill(); circle(hx, s[0], s[1], s[2]); hx.fillStyle = '#fff'; hx.fill(); });
+        return { thick: 1, bevel: 0.9, relief: 0.4, gloss: 0.55, shine: 34, grain: 0.08 };
+      },
+      nor: function (x, r) {
+        var pts = [[-7, -5.5], [7, -6], [6.6, 5.8], [-6.8, 5.2]].map(function (q) { return P(q[0] + (r() - 0.5) * 1.6) + ' ' + P(q[1] + (r() - 0.5) * 1.6); });
+        var p = path('M' + pts.join('L') + 'Z'), i, xx, yy;
+        x.lineJoin = 'round'; x.lineWidth = 0.8;
+        x.fillStyle = '#17231a'; x.fill(p); x.strokeStyle = '#0d150e'; x.stroke(p);
+        x.save(); x.clip(p);
+        for (i = 0; i < 46; i++) { yy = -6 + r() * 12; xx = -7.5 + r() * 15; lines(x, 'rgba(72,104,62,.3)', 0.14, [[xx, yy, xx + 1 + r() * 2.5, yy + (r() - 0.5) * 0.6]]); }
+        x.restore();
+        return { thick: 0.25, bevel: 0.35, gloss: 0.42, shine: 18, grain: 0.25, grainScale: 0.3, bump: 0.2, bumpScale: 0.9 };
+      },
+      kim: function (x, r) {
+        var pts = [], i, a, rr;
+        for (i = 0; i < 8; i++) { a = i / 8 * 6.283; rr = 5.4 + r() * 2; pts.push([Math.cos(a) * rr * 1.15, Math.sin(a) * rr * 0.8]); }
+        var p = path(blob(pts));
+        x.fillStyle = rgrad(x, 0, 0, 1, 8, [[0, '#dc5f31'], [1, '#b63f1e']]); x.fill(p);
+        x.save(); x.clip(p);
+        x.lineCap = 'round';
+        x.strokeStyle = 'rgba(245,214,168,.8)'; x.lineWidth = 2.1; x.beginPath(); x.moveTo(-7, -1.2); x.bezierCurveTo(-2, -3, 2, -2.4, 7, -3); x.stroke();
+        x.strokeStyle = 'rgba(236,188,138,.55)'; x.lineWidth = 1.1; x.beginPath(); x.moveTo(-6, 2.4); x.bezierCurveTo(-1, 1, 3, 2, 7, 1); x.stroke();
+        for (i = 0; i < 32; i++) spot(x, (r() - 0.5) * 13, (r() - 0.5) * 10, 0.14 + r() * 0.34, r, 'rgba(118,18,8,' + P(0.4 + r() * 0.4) + ')');
+        x.restore();
+        return { thick: 0.7, bevel: 0.8, gloss: 0.72, shine: 36, grain: 0.12, grainScale: 0.4, bump: 0.35, bumpScale: 0.6 };
+      },
+      par: function (x, r) {
+        x.scale(1, 0.9 + r() * 0.2);
+        var p = path('M-11 2C-8-6 6-8 11-3C7 3-4 6-11 2Z');
+        x.fillStyle = rgrad(x, -1, -1, 1, 11, [[0, '#f8f3dc'], [1, '#eee4be']]); x.fill(p);
+        x.lineJoin = 'round'; x.lineWidth = 1.6; x.strokeStyle = '#b0b748'; x.stroke(p);
+        x.save(); x.clip(p); x.lineWidth = 0.9; x.strokeStyle = 'rgba(168,118,58,.45)'; x.stroke(p); x.restore();
+        x.strokeStyle = 'rgba(212,198,148,.75)'; x.lineWidth = 1.1; x.beginPath(); x.moveTo(-3.5, 0.6); x.bezierCurveTo(-1, -1.6, 2, -1.6, 4.2, -0.6); x.stroke();
+        [[-0.3, -0.3], [2, -0.7]].forEach(function (s) { x.beginPath(); x.ellipse(s[0], s[1], 0.9, 0.5, 0, 0, 6.2832); x.fillStyle = '#4a2c14'; x.fill(); });
+        return { thick: 0.8, bevel: 0.8, gloss: 0.5, shine: 30, grain: 0.07, grainScale: 0.3 };
+      },
+      shr: function (x) {
+        var p = path('M-6 3A6.5 6.5 0 1 1 5.5 4.5'), i, ang, cx = 0.13, cy = 0.84;
+        x.lineCap = 'round';
+        x.lineWidth = 5; x.strokeStyle = rgrad(x, cx, cy, 3.8, 9.2, [[0, '#fbd6be'], [0.45, '#ef895c'], [1, '#c44927']]); x.stroke(p);
+        for (i = 0; i < 7; i++) { ang = 3.05 + i * 0.6; lines(x, 'rgba(158,54,24,.38)', 0.32, [[cx + Math.cos(ang) * 4.2, cy + Math.sin(ang) * 4.2, cx + Math.cos(ang) * 8.8, cy + Math.sin(ang) * 8.8]]); }
+        x.fillStyle = lgrad(x, 5.4, 4.4, 9, 7.6, [[0, '#e8714a'], [1, '#9c3317']]); x.fill(path('M5.4 4.4L9 7.6 8 3.2Z'));
+        return { thick: 1.6, bevel: 1.6, gloss: 0.7, shine: 38, grain: 0.06 };
+      },
+      egg: function (x, r, hx, gx) {
+        var yx = r() - 0.5, yy = r() - 0.5, i, a, f;
+        x.beginPath(); x.ellipse(0, 0, 8.3, 7, 0, 0, 6.2832);
+        x.fillStyle = rgrad(x, 0, 0, 3, 8.4, [[0, '#fdfcf6'], [0.72, '#f8f4e8'], [1, '#e7d8bb']]); x.fill();
+        x.save(); x.clip();
+        for (i = 0; i < 44; i++) { a = r() * 6.2832; f = 0.86 + r() * 0.16; spot(x, Math.cos(a) * 8.3 * f, Math.sin(a) * 7 * f, 0.3 + r() * 0.6, r, 'rgba(196,140,78,' + P(0.2 + r() * 0.3) + ')'); }
+        x.restore();
+        circle(x, yx, yy, 3.8); x.fillStyle = rgrad(x, yx - 0.8, yy - 0.9, 0.2, 4, [[0, '#ffd75c'], [0.7, '#f6aa1e'], [1, '#e48d10']]); x.fill();
+        gx.fillStyle = 'rgba(0,0,0,.45)'; gx.fillRect(-10, -10, 20, 20);          // the white is less glossy than the yolk
+        circle(gx, yx, yy, 3.8); gx.fillStyle = '#fff'; gx.fill();
+        circle(hx, yx, yy, 3.8); hx.fillStyle = rgrad(hx, yx, yy, 0, 3.8, [[0, '#fff'], [0.7, 'rgba(255,255,255,.75)'], [1, 'rgba(255,255,255,.1)']]); hx.fill();
+        return { thick: 0.5, bevel: 1.2, relief: 1.8, gloss: 0.65, shine: 40, grain: 0.03 };
+      },
+      gor: function (x, r) {
+        var pts = [], i, a;
+        for (i = 0; i < 7; i++) { a = i / 7 * 6.283; pts.push([Math.cos(a) * (4 + r() * 1.8), Math.sin(a) * (4 + r() * 1.8)]); }
+        var p = path(blob(pts));
+        x.fillStyle = rgrad(x, -1, -1, 0.5, 6, [[0, '#f5f0e2'], [1, '#e0d6ba']]); x.fill(p);
+        x.save(); x.clip(p);
+        for (i = 0; i < 9; i++) spot(x, (r() - 0.5) * 8, (r() - 0.5) * 8, 0.3 + r() * 0.8, r, 'rgba(70,104,114,' + P(0.45 + r() * 0.4) + ')');
+        for (i = 0; i < 14; i++) { circle(x, (r() - 0.5) * 9, (r() - 0.5) * 9, 0.12 + r() * 0.2); x.fillStyle = 'rgba(44,74,84,.6)'; x.fill(); }
+        x.restore();
+        return { thick: 1.3, bevel: 0.8, gloss: 0.12, shine: 10, grain: 0.1, grainScale: 0.4, bump: 0.3, bumpScale: 0.4 };
+      },
+      ban: function (x, r) {
+        var i, a;
+        circle(x, 0, 0, 6.2); x.fillStyle = '#e8d38c'; x.fill();
+        circle(x, 0, 0, 5.4); x.fillStyle = rgrad(x, 0, 0, 0.5, 5.4, [[0, '#f2e4b0'], [1, '#faf3d7']]); x.fill();
+        for (i = 0; i < 24; i++) { a = i / 24 * 6.2832; lines(x, 'rgba(198,176,116,.3)', 0.14, [[Math.cos(a) * 1.8, Math.sin(a) * 1.8, Math.cos(a) * 5.2, Math.sin(a) * 5.2]]); }
+        for (i = 0; i < 5; i++) { a = i * 1.2566 + r() * 0.3; circle(x, Math.cos(a) * 1.4, Math.sin(a) * 1.4, 0.36); x.fillStyle = '#6c5832'; x.fill(); }
+        circle(x, 0, 0, 0.9); x.fillStyle = 'rgba(198,172,108,.6)'; x.fill();
+        return { thick: 1, bevel: 0.9, gloss: 0.35, shine: 24, grain: 0.06 };
+      },
+      wal: function (x, r, hx) {
+        var pts = [], i, a;
+        for (i = 0; i < 10; i++) { a = i / 10 * 6.283; pts.push([Math.cos(a) * (5.2 + (i % 2) * 1.3 + r() * 0.6), Math.sin(a) * (4.4 + (i % 2) * 1.1)]); }
+        var p = path(blob(pts));
+        x.fillStyle = rgrad(x, -1, -1, 0.5, 7, [[0, '#a9753f'], [1, '#774a23']]); x.fill(p);
+        hx.fillStyle = '#fff'; hx.fill(p);
+        x.save(); x.clip(p); hx.save(); hx.clip(p);
+        x.strokeStyle = 'rgba(66,38,16,.6)'; x.lineWidth = 0.45; hx.strokeStyle = '#000'; hx.lineWidth = 0.7;
+        ['M-4 0C-2.5-2 -1 2 0 0S2.5-2 4 0', 'M0-4.6V4.6', 'M-5.6-2.4C-4-1-3-3.2-1.4-2', 'M1.4 2.4C3 1 4 3.2 5.6 2', 'M-5 2.6C-3.5 1.4-2.5 3.3-1 2.4',
+          'M1 -2.4C2.5 -3.4 3.6 -1.5 5 -2.6'].forEach(function (g) { var gp = path(g); x.stroke(gp); hx.stroke(gp); });
+        x.restore(); hx.restore();
+        return { thick: 0.6, bevel: 1.3, relief: 1, gloss: 0.18, shine: 14, grain: 0.18, grainScale: 0.3, bump: 0.45, bumpScale: 0.4 };
+      },
+      tom: function (x, r) {
+        var i, a, cx, cy;
+        circle(x, 0, 0, 10); x.fillStyle = '#b5271a'; x.fill();
+        circle(x, 0, 0, 9); x.fillStyle = rgrad(x, 0, 0, 2, 9, [[0, '#e9684b'], [1, '#d53b26']]); x.fill();
+        for (i = 0; i < 6; i++) {
+          a = i * 1.0472 + r() * 0.2; cx = Math.cos(a) * 4.9; cy = Math.sin(a) * 4.9;
+          x.save(); x.translate(cx, cy); x.rotate(a); x.beginPath(); x.ellipse(0, 0, 2.7, 1.7, 0, 0, 6.2832); x.fillStyle = 'rgba(248,172,132,.85)'; x.fill(); x.restore();
+          circle(x, Math.cos(a) * 5.3, Math.sin(a) * 5.3, 0.5); x.fillStyle = '#f6e3a8'; x.fill();
+        }
+        circle(x, 0, 0, 2.2); x.fillStyle = '#ee8062'; x.fill();
+        return { thick: 0.9, bevel: 0.7, gloss: 0.65, shine: 36, grain: 0.06 };
+      }
+    };
+
+    // one piece at its rotation, K pixels per unit: {url, half}
+    function sprite(code, v, rot, K) {
+      var key = code + v + '|' + rot + '|' + K;
+      if (sprites[key]) return sprites[key];
+      var half = ING[code].size * 1.2, W = Math.ceil(2 * half * K), c = canvas(W), hc = canvas(W), gc = canvas(W), m;
+      var x = c.getContext('2d'), hx = hc.getContext('2d'), gx = gc.getContext('2d');
+      gx.fillStyle = '#fff'; gx.fillRect(0, 0, W, W);
+      [x, hx, gx].forEach(function (t) { t.setTransform(K, 0, 0, K, W / 2, W / 2); t.rotate(rot * Math.PI / 180); });
+      m = PAINT[code](x, rng(hash(code) * 31 + v), hx, gx) || {};
+      light(c, hc, gc, m, K, hash(code) + 7919 * v + rot);
+      return (sprites[key] = { url: c.toDataURL('image/png'), half: half });
+    }
+
+    // ---- the base: crust (with the dough and the pizza's shadow), sauce, cheese; each a canvas over the whole view
+    // sauce: [colour, lighter, darker, gloss, shine, bumps (units)]
+    var SAUCE = { tomato: [[158, 30, 16], [184, 52, 26], [116, 18, 9], 0.42, 34, 0.06], white: [[236, 228, 208], [246, 240, 226], [212, 198, 170], 0.3, 26, 0.06],
+      bbq: [[88, 28, 12], [116, 44, 20], [52, 15, 6], 0.6, 38, 0.08] };
+    var CHEESE_AT = { light: 0.555, normal: 0.47, extra: 0.4, vegan: 0.47 };      // the share of the sauce covered rises as this falls
+    // a noise field computed every `step` pixels (smooth fields need few) and sampled bilinearly
+    function field(NB, seed, scale, oct, step) {
+      var M = Math.ceil(NB / step) + 1, f = new Float32Array(M * M), n = noise2(seed), i, j, u = 2 * VIEW / NB * step / scale;
+      for (j = 0; j < M; j++) for (i = 0; i < M; i++) f[j * M + i] = fbm(n, i * u, j * u, oct);
+      return function (k, j2) {
+        var x = k / step, y = j2 / step, xi = x | 0, yi = y | 0, fx = x - xi, fy = y - yi, o = yi * M + xi;
+        return f[o] + (f[o + 1] - f[o]) * fx + (f[o + M] - f[o]) * fy + (f[o] - f[o + 1] - f[o + M] + f[o + M + 1]) * fx * fy;
+      };
+    }
+    // the fields, each made when a layer first needs it: [seed, scale in units, octaves, step]
+    var FIELDS = { rim: [11, 7, 4, 4], blis: [23, 3.2, 3, 2], char: [31, 4.6, 3, 2], dust: [37, 0.8, 2, 2], sauce: [41, 1.4, 2, 2], sauce2: [43, 7, 3, 4],
+      sauce3: [71, 3.2, 3, 2], cov: [47, 12, 3, 4], cov2: [53, 4.5, 2, 2], brown: [59, 7, 2, 4], bub: [61, 2.6, 2, 2] };
+    function fields(NB) {
+      var key = 'f' + NB, F = layers[key];
+      if (!F) {
+        F = layers[key] = { edge: noise2(67) };
+        Object.keys(FIELDS).forEach(function (name) {
+          var made = null, d = FIELDS[name];
+          F[name] = function (k, j) { if (!made) made = field(NB, d[0], d[1], d[2], d[3]); return made(k, j); };
+        });
+      }
+      return F;
+    }
+    // shade one layer: per pixel {a: alpha 0..1, h: height in units, c: [r, g, b], gl: gloss, sh: shine}; returns a canvas
+    function shadeLayer(NB, fn, shadow) {
+      var c = canvas(NB), x = c.getContext('2d'), img = x.createImageData(NB, NB), d = img.data, n = NB * NB, i, j, k;
+      var A = new Float32Array(n), Hh = new Float32Array(n), R = new Float32Array(n), G = new Float32Array(n), B = new Float32Array(n), GL = new Float32Array(n), SH = new Float32Array(n);
+      var u = 2 * VIEW / NB, px = {};
+      for (j = 0, i = 0; j < NB; j++) {
+        for (k = 0; k < NB; k++, i++) {
+          px.a = 0; fn(k * u - VIEW + u / 2, j * u - VIEW + u / 2, k, j, px);
+          A[i] = px.a; if (!px.a) continue;
+          Hh[i] = px.h; R[i] = px.c[0]; G[i] = px.c[1]; B[i] = px.c[2]; GL[i] = px.gl; SH[i] = px.sh;
+        }
+      }
+      var hk = 1 / (2 * u);
+      for (j = 0; j < NB; j++) {
+        for (k = 0; k < NB; k++) {
+          i = j * NB + k;
+          var a = A[i];
+          if (!a) continue;
+          var o = 4 * i, l = k > 0 ? i - 1 : i, rr = k < NB - 1 ? i + 1 : i, up = j > 0 ? i - NB : i, dn = j < NB - 1 ? i + NB : i;
+          var sx = (Hh[rr] * A[rr] - Hh[l] * A[l]) * hk, sy = (Hh[dn] * A[dn] - Hh[up] * A[up]) * hk, inv = 1 / Math.sqrt(sx * sx + sy * sy + 1);
+          var nx = -sx * inv, ny = -sy * inv, nz = inv, dif = nx * L[0] + ny * L[1] + nz * L[2], hv = nx * HV[0] + ny * HV[1] + nz * HV[2];
+          var f = AMB + DIF * (dif > 0 ? dif : 0), sp = hv > 0 && GL[i] ? 255 * GL[i] * Math.pow(hv, SH[i]) : 0;
+          d[o] = clamp(R[i] * f + sp); d[o + 1] = clamp(G[i] * f + sp); d[o + 2] = clamp(B[i] * f + sp); d[o + 3] = 255 * a;
+        }
+      }
+      x.putImageData(img, 0, 0);
+      if (!shadow) return c;
+      // a soft shadow cast to the bottom right where this layer ends (the light is at the top left)
+      var out = canvas(NB), ox = out.getContext('2d');
+      ox.shadowColor = 'rgba(30,14,4,' + shadow[2] + ')'; ox.shadowBlur = shadow[1] / u; ox.shadowOffsetX = ox.shadowOffsetY = shadow[0] / u;
+      ox.drawImage(c, 0, 0);
+      return out;
+    }
+    function mix(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
+    var edges = {};
+    function edgeR(F, X, Y, r0, amp) {           // the radius of an irregular edge in the direction of (X, Y)
+      var key = r0 + '|' + amp, T = edges[key], i;
+      if (!T) {
+        T = edges[key] = new Float32Array(1025);
+        for (i = 0; i <= 1024; i++) { var t = i / 1024 * 6.2832 - 3.1416; T[i] = r0 + amp * (F.edge(Math.cos(t) * 2.2 + 5, Math.sin(t) * 2.2 + 5) - 0.5) * 2; }
+      }
+      return T[Math.round((Math.atan2(Y, X) + 3.1416) / 6.2832 * 1024)];
+    }
+
+    function crust(NB, baked) {
+      var F = fields(NB);
+      return shadeLayer(NB, function (X, Y, k, j, o) {
+        var r = Math.sqrt(X * X + Y * Y), e = r > 80 ? edgeR(F, X, Y, 99, 1.1) : 99;
+        if (r > e + 0.6) return;
+        o.a = r > e - 0.6 ? (e + 0.6 - r) / 1.2 : 1;
+        var q = Math.min(1, Math.max(0, (r - 82) / (e - 82))), rim = Math.pow(Math.sin(Math.PI * Math.pow(q, 0.85)), 0.6);
+        var bl = F.blis(k, j), ch = F.char(k, j), ru = F.rim(k, j);
+        o.h = 0.2 + 3.6 * rim + (ru - 0.5) * 0.5 * rim + smooth(0.64, 0.8, bl) * 0.5 * rim;
+        var col = mix([238, 216, 170], [230, 206, 158], ru);                                         // dough
+        col = mix(col, mix([226, 172, 98], [204, 140, 70], smooth(0.35, 0.7, ru)), smooth(0.05, 0.6, rim) * smooth(82, 86, r));   // golden crust
+        col = mix(col, [158, 92, 40], smooth(0.55, 1, q) * 0.8);                                     // browner towards the outer edge
+        var spot = smooth(0.72, 0.82, ch) * smooth(0.3, 0.8, rim) * (baked ? 1 : 0.6);              // a few leopard spots
+        col = mix(col, [120, 70, 32], Math.min(1, spot * 1.6) * 0.6); col = mix(col, [58, 32, 16], smooth(0.5, 1, spot) * 0.85);
+        if (baked) col = mix(col, [172, 106, 48], 0.15 * rim);
+        o.c = mix(col, [250, 246, 236], smooth(0.8, 0.88, F.dust(k, j)) * rim * 0.45); o.gl = 0.12; o.sh = 14;
+      }, [1.6, 2.2, 0.55]);
+    }
+    function sauce(NB, kind) {
+      var F = fields(NB), S = SAUCE[kind];
+      return shadeLayer(NB, function (X, Y, k, j, o) {
+        var r = Math.sqrt(X * X + Y * Y);
+        if (r > 87) return;
+        var e = r > 78 ? edgeR(F, X, Y, 84.5, 1.8) : 84.5;
+        if (r > e + 0.5) return;
+        o.a = (r > e - 0.5 ? (e + 0.5 - r) : 1) * (0.86 + 0.14 * smooth(e - 4, e - 1.5, e - r));
+        var s1 = F.sauce(k, j), s2 = F.sauce2(k, j), s3 = F.sauce3(k, j);
+        o.h = (s1 - 0.5) * S[5] * 2 + (s2 - 0.5) * 0.9 + smooth(0.62, 0.75, s3) * 0.25;
+        var col = mix(S[0], S[1], smooth(0.42, 0.72, s2));
+        col = mix(col, S[2], smooth(0.6, 0.4, s2) * 0.35 + smooth(0.64, 0.76, s3) * 0.45);           // darker pulp
+        o.c = mix(col, S[2], (s1 - 0.5) * 0.25); o.gl = S[3]; o.sh = S[4];
+      });
+    }
+    function cheese(NB, kind, baked) {
+      var F = fields(NB), at = CHEESE_AT[kind], vegan = kind === 'vegan';
+      var base = vegan ? [240, 238, 226] : [242, 230, 194], thickc = vegan ? [234, 230, 214] : [240, 218, 156];
+      return shadeLayer(NB, function (X, Y, k, j, o) {
+        var r = Math.sqrt(X * X + Y * Y);
+        if (r > 87) return;
+        var cv = F.cov(k, j) * 0.92 + F.cov2(k, j) * 0.08, m = smooth(at - 0.04, at + 0.03, cv) * (1 - smooth(82, 86, r));
+        if (m <= 0.01) return;
+        o.a = Math.min(1, m * 1.15);
+        var bub = F.bub(k, j), br = F.brown(k, j), thick = smooth(at, at + 0.16, cv);
+        o.h = 0.8 * m * m + 0.45 * thick + smooth(0.64, 0.8, bub) * thick * (baked ? 0.7 : 0.1);
+        var col = mix(base, thickc, thick * 0.75);
+        col = mix(col, [238, 176, 118], (1 - m) * 0.6 * (vegan ? 0.3 : 1));                          // thin cheese takes the sauce's colour
+        var gold = smooth(0.54, 0.7, br) * (0.4 + 0.6 * thick) * (baked ? 0.75 : 0.08) * (vegan ? 0.35 : 1);       // golden where it baked most
+        var spot = baked && !vegan ? smooth(0.74, 0.84, bub) * smooth(0.5, 0.65, br) : 0;                          // browned blister tops
+        col = mix(col, [228, 180, 104], Math.min(1, gold));
+        col = mix(col, [178, 114, 52], spot * 0.8);
+        o.c = col; o.gl = vegan ? 0.25 : 0.5; o.sh = vegan ? 14 : 16;
+      }, [0.7, 0.9, 0.45]);
+    }
+    function layer(kind, sub, baked, NB) {
+      var key = kind + '|' + sub + '|' + (baked ? 1 : 0) + '|' + NB;
+      if (!layers[key]) layers[key] = kind === 'crust' ? crust(NB, baked) : kind === 'sauce' ? sauce(NB, sub) : cheese(NB, sub, baked);
+      return layers[key];
+    }
+
+    // a sprite as <use>: its image is defined once in the shared <defs> (pzb-defs), so a re-render does not decode it again
+    var seq = 0, SVGNS = 'http://www.w3.org/2000/svg';
+    function use(code, v, rot, K) {
+      var sp = sprite(code, v, rot, K), doc = global.document;
+      if (!sp.id || !doc.getElementById(sp.id)) {
+        sp.id = sp.id || 'pzb-s' + (++seq);
+        var im = doc.createElementNS(SVGNS, 'image');
+        im.setAttribute('id', sp.id); im.setAttribute('href', sp.url);
+        im.setAttribute('x', P(-sp.half)); im.setAttribute('y', P(-sp.half)); im.setAttribute('width', P(2 * sp.half)); im.setAttribute('height', P(2 * sp.half));
+        doc.querySelector('.pzb-defs defs').appendChild(im);
+      }
+      return '<use href="#' + sp.id + '"/>';
+    }
+    // the base as canvases in box: crust, then sauce and cheese if chosen (baked: browner cheese and crust)
+    function base(box, sauce, cheese, baked) {
+      var NB = (global.devicePixelRatio || 1) > 1.4 ? 896 : 640, want = [['crust', '', baked]];      // pixels across the view
+      if (SAUCE[sauce]) want.push(['sauce', sauce, false]);
+      if (CHEESE_AT[cheese]) want.push(['cheese', cheese, baked]);
+      box.innerHTML = '';
+      want.forEach(function (w) { var c = canvas(NB); c.getContext('2d').drawImage(layer(w[0], w[1], w[2], NB), 0, 0); box.appendChild(c); });
+    }
+
+    return {
+      use: use,
+      base: base,
+      // canvas, Path2D, and reading pixels back as painted: privacy settings that block or scramble canvas reads (Firefox
+      // resistFingerprinting, Tor) would turn the lit pieces into blank squares, so those browsers keep the drawn look
+      ok: function () {
+        if (okay == null) {
+          try {
+            var c = canvas(4), x = c.getContext && c.getContext('2d');
+            okay = !!(x && global.Path2D);
+            if (okay) {
+              x.fillStyle = 'rgb(200,60,30)'; x.fillRect(0, 0, 4, 4);
+              var px = x.getImageData(1, 1, 1, 1).data;
+              okay = Math.abs(px[0] - 200) < 10 && Math.abs(px[1] - 60) < 10 && Math.abs(px[2] - 30) < 10 && px[3] === 255
+                && c.toDataURL('image/png').indexOf('data:image/png') === 0;
+            }
+          } catch (e) { okay = false; }
+        }
+        return okay;
+      },
+      sprite: sprite,
+      layer: layer,
+      paints: PAINT
+    };
+  })();
+
   // ---------------------------------------------------------------- styles
 
   var CSS = [
@@ -374,6 +977,12 @@
     '.pzb-baked .pzb-brown{opacity:.55}',
     '.pzb-baked .pzb-base{filter:saturate(1.12) brightness(.95) sepia(.08)}',
     '.pzb-baked .pzb-tops{filter:drop-shadow(0 .7px .9px rgba(0,0,0,.45)) saturate(1.1) brightness(.94) sepia(.1)}',
+    // the realistic look: canvas layers under the toppings, a softer shadow cast to the bottom right (light from the top left)
+    '.pzb-rbase,.pzb-rraw,.pzb-rbaked{position:absolute;left:0;top:0;width:100%;height:100%}',
+    '.pzb-rbase canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block}',
+    '.pzb-rbaked{opacity:0;transition:opacity 1.6s}.pzb-baked .pzb-rbaked{opacity:1}',
+    '.pzb-real .pzb-tops{filter:drop-shadow(.5px 1.1px 1px rgba(40,18,4,.55))}',
+    '.pzb-real.pzb-baked .pzb-tops{filter:drop-shadow(.5px 1.1px 1px rgba(40,18,4,.55)) saturate(1.05) brightness(.97)}',
     '.pzb-target{fill:none;stroke:#fff;stroke-width:2;stroke-dasharray:5 4;animation:pzb-pulse 2.4s ease-in-out infinite}',
     '@keyframes pzb-pulse{50%{opacity:.55}}',
     '.pzb-side{flex:0 0 300px;width:300px}',
@@ -759,8 +1368,11 @@
     // click shows it for the rest of the build (logged as nshow, like the button above). Until then it is not updated,
     // so the blurred bars give nothing away.
     nutritionBlur: false,
+    // researcher setting: how the pizza looks: 'drawn' (default) or 'realistic' (photo-like; REAL). Recorded as summary.look.
+    look: 'drawn',
     names: null, text: null, lang: null, texts: null, onSave: null, onFinish: null, onEvent: null
   };
+  function lookOf(o) { return o.look === 'realistic' && REAL.ok() ? 'realistic' : 'drawn'; }
 
   function Builder(root, opts) {
     injectOnce();
@@ -769,6 +1381,7 @@
     if (o.prefix == null) o.prefix = this.practice ? 'pzp_' : 'pz_';
     if (this.practice) { o.ingredients = ['tom']; o.baseChoices = false; o.confirm = false; o.bake = false; o.shuffle = false; o.nutrition = false; o.nutritionReveal = false; }
     if (!o.nutrition) o.nutritionBlur = false;
+    this.look = lookOf(o);
     this.T = texts(o);
     this.root = root;
     this.pieces = []; this.stack = []; this.ev = [];
@@ -798,7 +1411,7 @@
 
   Builder.prototype._build = function () {
     var o = this.o, T = this.T, self = this;
-    var w = this.w = el('div', 'pzb pzb-mode-' + o.mode);
+    var w = this.w = el('div', 'pzb pzb-mode-' + o.mode + (this.look === 'realistic' ? ' pzb-real' : ''));
     var prompt = o.prompt != null ? o.prompt : (this.practice ? T.promptPractice : T.promptBuild);
     if (prompt) w.appendChild(el('p', 'pzb-prompt', esc(prompt)));
     var main = el('div', 'pzb-main'); w.appendChild(main);
@@ -813,9 +1426,12 @@
     }
     var pz = this.pizzaEl = el('div', 'pzb-pizza'); board.appendChild(pz);
     var vb = ' viewBox="' + (-VIEW) + ' ' + (-VIEW) + ' ' + (2 * VIEW) + ' ' + (2 * VIEW) + '" aria-hidden="true" focusable="false"';
-    pz.innerHTML = '<svg class="pzb-base"' + vb + '>' + baseMarkup() + '</svg>' +
+    var real = this.look === 'realistic';
+    pz.innerHTML = (real ? '<div class="pzb-rbase"><div class="pzb-rraw"></div><div class="pzb-rbaked"></div></div>' : '') +
+      '<svg class="pzb-base"' + vb + '>' + (real ? '' : baseMarkup()) + '</svg>' +
       '<svg class="pzb-guide"' + vb + '></svg><svg class="pzb-tops"' + vb + '></svg><div class="pzb-ring"></div>';
-    this.baseSvg = pz.children[0]; this.guideSvg = pz.children[1]; this.topsSvg = pz.children[2];
+    this.baseSvg = pz.querySelector('.pzb-base'); this.guideSvg = pz.querySelector('.pzb-guide'); this.topsSvg = pz.querySelector('.pzb-tops');
+    this.rbase = pz.querySelector('.pzb-rbase');
     this._applyBase();
 
     var side = el('div', 'pzb-side'); main.appendChild(side);
@@ -829,7 +1445,7 @@
     }
     this.items = {};
     this.tray.forEach(function (code) {
-      var it = el('div', 'pzb-item', '<div class="pzb-bowl">' + iconMarkup(code) + '</div><div class="pzb-iname">' + esc(iname(o, code)) + '</div>');
+      var it = el('div', 'pzb-item', '<div class="pzb-bowl">' + iconMarkup(code, self.look) + '</div><div class="pzb-iname">' + esc(iname(o, code)) + '</div>');
       it.setAttribute('role', 'button'); it.setAttribute('aria-label', iname(o, code));
       it.setAttribute('data-ing', code);
       if (o.showCounts) { it.appendChild(el('span', 'pzb-badge')); }
@@ -890,6 +1506,7 @@
   };
 
   Builder.prototype._applyBase = function () {
+    if (this.rbase) return REAL.base(this.rbase.firstChild, this.sauce, this.cheese, false);
     var s = this.baseSvg.querySelector('.pzb-sauce'), c = this.baseSvg.querySelector('.pzb-cheese');
     var t = this.baseSvg.querySelector('.pzb-sauce-tex');
     if (this.sauce === 'none') { s.setAttribute('display', 'none'); t.setAttribute('display', 'none'); }
@@ -1026,6 +1643,13 @@
     if (this.w.parentNode) this.w.parentNode.removeChild(this.w);
   };
 
+  // realistic sprites: pixels per pizza unit for a piece drawn at scale sc on this pizza (in steps, so sprites are reused)
+  Builder.prototype._K = function (sc, ppu) {
+    if (ppu == null) ppu = (this.pizzaEl.getBoundingClientRect().width || 520) / (2 * VIEW);
+    var need = ppu * Math.min(global.devicePixelRatio || 1, 2) * (sc || 1);
+    return need <= 4 ? 4 : need <= 6 ? 6 : need <= 8 ? 8 : need <= 11 ? 11 : 15;
+  };
+
   Builder.prototype._geom = function () {
     var r = this.pizzaEl.getBoundingClientRect();
     return { left: r.left, top: r.top, ppu: r.width / (2 * VIEW) };
@@ -1057,7 +1681,7 @@
       if (node) node.style.visibility = 'hidden';
     }
     var g0 = p.g || 1, S = ING[p.ing].size * 1.3 * p.s * g0, half = S * g.ppu * 1.08;
-    var gh = el('div', 'pzb-ghost', '<svg viewBox="' + P(-S) + ' ' + P(-S) + ' ' + P(2 * S) + ' ' + P(2 * S) + '"><g transform="rotate(' + p.rot + ') scale(' + P(p.s * g0) + ')">' + pieceMarkup(p.ing, p.v) + '</g></svg>');
+    var gh = el('div', 'pzb-ghost', '<svg viewBox="' + P(-S) + ' ' + P(-S) + ' ' + P(2 * S) + ' ' + P(2 * S) + '">' + placed(p.ing, 0, 0, p.rot, p.v, p.s * g0, this.look, this.look === 'realistic' ? this._K(p.s * g0, g.ppu) : 0) + '</svg>');
     gh.style.width = gh.style.height = (2 * half) + 'px';
     document.body.appendChild(gh);
     try { (trayEl || this.pizzaEl).setPointerCapture(e.pointerId); } catch (err) { /* capture is a nicety */ }
@@ -1194,10 +1818,10 @@
   };
 
   Builder.prototype._render = function () {
-    var s = '', counts = this.counts();
+    var s = '', counts = this.counts(), real = this.look === 'realistic', ppu = real ? (this.pizzaEl.getBoundingClientRect().width || 520) / (2 * VIEW) : 0;
     for (var i = 0; i < this.pieces.length; i++) {
-      var p = this.pieces[i];
-      s += '<g data-pid="' + p.id + '" transform="translate(' + P(p.x * 100) + ' ' + P(-p.y * 100) + ') rotate(' + p.rot + ') scale(' + P(p.s * (p.g || 1)) + ')">' + pieceMarkup(p.ing, p.v) + '</g>';
+      var p = this.pieces[i], sc = p.s * (p.g || 1);
+      s += placed(p.ing, p.x * 100, -p.y * 100, p.rot, p.v, sc, this.look, real ? this._K(sc, ppu) : 0, ' data-pid="' + p.id + '"');
     }
     this.topsSvg.innerHTML = s;
     if (this.o.showCounts) for (var k in this.items) {
@@ -1352,6 +1976,7 @@
     this.save(true);
     try { global.sessionStorage.setItem('pzb:' + this.o.prefix + 'counts', countsString(this.counts())); } catch (e) { /* storage blocked */ }
     if (this.o.bake) {
+      if (this.rbase) { REAL.base(this.rbase.lastChild, this.sauce, this.cheese, true); void this.rbase.offsetWidth; }
       this.w.classList.add('pzb-baked');
       this.noteEl.textContent = this.T.baked;
       setTimeout(function () { if (self.o.onFinish) self.o.onFinish(self.data()); }, 1700);
@@ -1400,7 +2025,7 @@
       tFinish: fin, tDone: first.done == null ? null : first.done, tSubmit: fin, nDone: n.done || 0, nDoneCancelled: n.cancel || 0,
       tFirstPick: first.pick == null ? null : first.pick, tFirstAdd: first.add == null ? null : first.add, tLast: last,
       nPieces: this.pieces.length, nDistinct: Object.keys(counts).filter(function (k) { return counts[k] > 0; }).length,
-      counts: counts, sauce: o.baseChoices ? this.sauce : null, cheese: o.baseChoices ? this.cheese : null, tray: this.tray,
+      counts: counts, sauce: o.baseChoices ? this.sauce : null, cheese: o.baseChoices ? this.cheese : null, tray: this.tray, look: this.look,
       nutrition: o.nutrition ? { show: o.nutritionShow, base: o.nutritionBase !== false, blur: !!o.nutritionBlur } : null,
       reveal: o.nutritionReveal || o.nutritionBlur ? { how: o.nutritionBlur ? 'blur' : 'button', shown: n.nshow || 0, tFirst: first.nshow == null ? null : first.nshow, doneSeen: n.nmodal || 0, changedMind: n.changemind || 0,
         base: o.nutritionBase !== false } : null,
@@ -1484,13 +2109,15 @@
     // 'About you', the last card: who the participant is, so patterns can be explored across many kinds of people.
     // 'diet' is asked here only when the separate diet card is off. Set askAbout: false if the survey asks these itself.
     askAbout: true, aboutQuestions: ['neuro', 'eating', 'diet', 'scales', 'age', 'gender'],
-    scales: ['like', 'fam', 'safe', 'disg', 'norm'], pizzaItems: null, names: null, text: null, lang: null, texts: null, onSave: null, onFinish: null
+    scales: ['like', 'fam', 'safe', 'disg', 'norm'], pizzaItems: null, names: null, text: null, lang: null, texts: null, onSave: null, onFinish: null,
+    look: 'drawn'       // the toppings' pictures: as the build (see BUILD_DEFAULTS)
   };
 
   function Followup(root, opts) {
     injectOnce();
     var o = this.o = extend({}, FOLLOW_DEFAULTS, opts);
     var strong = o.style !== 'ratings', met = o.style === 'metryczka';
+    this.look = lookOf(o);
     if (o.askPizza == null) o.askPizza = !strong;
     if (o.askDiet == null) o.askDiet = !strong;
     this.T = texts(o);
@@ -1615,7 +2242,7 @@
     var it = this.res.items[code] = { placed: placed, t: {} };
     var nItems = this.order.length, nth = this.order.indexOf(code) + 1;
     card.appendChild(el('div', 'pzb-prog', esc(fmt(T.progress, { i: nth, n: nItems }))));
-    card.appendChild(el('div', 'pzb-head', '<div class="pzb-bowl">' + iconMarkup(code) + '</div><h3>' + esc(name) + '</h3>'));
+    card.appendChild(el('div', 'pzb-head', '<div class="pzb-bowl">' + iconMarkup(code, self.look) + '</div><h3>' + esc(name) + '</h3>'));
     var scales = o.scales.slice();
     if (o.askIdentity && placed !== 0) scales.push('ident');      // only for toppings they used (all, if counts are unknown)
     scales.forEach(function (k) {
@@ -1665,7 +2292,7 @@
     card.appendChild(el('p', 'pzb-sub', esc(T.strongSub)));
     var grid = el('div', 'pzb-tiles'), noneBtn;
     this.order.forEach(function (code) {
-      var b = el('button', 'pzb-tile', '<div class="pzb-bowl">' + iconMarkup(code) + '</div><span>' + esc(iname(o, code)) + '</span>');
+      var b = el('button', 'pzb-tile', '<div class="pzb-bowl">' + iconMarkup(code, self.look) + '</div><span>' + esc(iname(o, code)) + '</span>');
       b.type = 'button'; b.setAttribute('aria-pressed', 'false'); b.setAttribute('data-ing', code);
       b.onclick = function () {
         var i = r.strong.indexOf(code);
@@ -1694,7 +2321,7 @@
     var picked = this.screens.filter(function (x) { return x.indexOf('f:') === 0; });
     var it = this.res.items[code] = { placed: this.haveCounts ? (this.counts[code] || 0) : null, t: {} };
     card.appendChild(el('div', 'pzb-prog', esc(fmt(T.strongProgress, { i: picked.indexOf('f:' + code) + 1, n: picked.length }))));
-    card.appendChild(el('div', 'pzb-head', '<div class="pzb-bowl">' + iconMarkup(code) + '</div><h3>' + esc(name) + '</h3>'));
+    card.appendChild(el('div', 'pzb-head', '<div class="pzb-bowl">' + iconMarkup(code, self.look) + '</div><h3>' + esc(name) + '</h3>'));
     var qs = o.feelQuestions.filter(function (k) { return T.feel[k]; }).slice(0, 5);
     qs.forEach(function (k) {
       var def = T.feel[k], multi = def[1], sel = [];
@@ -1913,19 +2540,25 @@
   }
 
   // ================================================================= the baked pizza, as a picture
-  // An element showing a finished pizza (pz_final and pz_summary as saved), baked: for a thank-you page.
-  function picture(final, summary, size) {
+  // An element showing a finished pizza (pz_final and pz_summary as saved), baked: for a thank-you page. opts.look:
+  // 'realistic' draws it photo-like (pass summary.look to show it as the participant saw it); the reports keep 'drawn'.
+  function picture(final, summary, size, opts) {
     injectOnce();
     if (typeof final === 'string') { try { final = JSON.parse(final); } catch (e) { final = []; } }
     if (typeof summary === 'string') { try { summary = JSON.parse(summary); } catch (e) { summary = {}; } }
     summary = summary || {};
+    var look = lookOf(opts || {}), real = look === 'realistic';
     var px = size || 320, vb = ' viewBox="' + (-VIEW) + ' ' + (-VIEW) + ' ' + (2 * VIEW) + ' ' + (2 * VIEW) + '" aria-hidden="true" focusable="false"';
+    var ppu = px / (2 * VIEW) * Math.min(global.devicePixelRatio || 1, 2);
     var tops = (final || []).filter(function (f) { return ING[f[1]]; }).map(function (f) {
-      return '<g transform="translate(' + P(f[2] * 100) + ' ' + P(-f[3] * 100) + ') rotate(' + f[4] + ') scale(' + P(f[5] * (f[8] || 1)) + ')">' + pieceMarkup(f[1], f[6]) + '</g>';
+      var sc = f[5] * (f[8] || 1), need = ppu * sc;
+      return placed(f[1], f[2] * 100, -f[3] * 100, f[4], f[6], sc, look, need <= 4 ? 4 : need <= 6 ? 6 : need <= 8 ? 8 : need <= 11 ? 11 : 15);
     }).join('');
-    var w = el('div', 'pzb pzb-baked pzb-picture', '<div class="pzb-pizza" style="width:' + px + 'px;height:' + px + 'px" role="img">' +
-      '<svg class="pzb-base"' + vb + '>' + baseMarkup() + '</svg><svg class="pzb-tops"' + vb + '>' + tops + '</svg></div>');
+    var w = el('div', 'pzb pzb-baked pzb-picture' + (real ? ' pzb-real' : ''), '<div class="pzb-pizza" style="width:' + px + 'px;height:' + px + 'px" role="img">' +
+      (real ? '<div class="pzb-rbase"><div class="pzb-rraw"></div></div>' : '') +
+      '<svg class="pzb-base"' + vb + '>' + (real ? '' : baseMarkup()) + '</svg><svg class="pzb-tops"' + vb + '>' + tops + '</svg></div>');
     var base = w.querySelector('.pzb-base'), sauce = summary.sauce || 'tomato', cheese = summary.cheese || 'normal';
+    if (real) { REAL.base(w.querySelector('.pzb-rraw'), sauce, cheese, true); return w; }
     var sv = base.querySelector('.pzb-sauce'), tex = base.querySelector('.pzb-sauce-tex'), ch = base.querySelector('.pzb-cheese');
     if (sauce === 'none') { sv.setAttribute('display', 'none'); tex.setAttribute('display', 'none'); } else sv.setAttribute('fill', 'url(#pzb-g-sauce-' + sauce + ')');
     if (cheese === 'none' || !CHEESE[cheese]) ch.setAttribute('display', 'none'); else ch.setAttribute('filter', 'url(#pzb-f-cheese-' + cheese + ')');
@@ -1944,6 +2577,8 @@
     languages: ['en'].concat(Object.keys(LANG)),          // languages the task has texts for
     names: function (lang, flat) { var o = { lang: lang, texts: flat }; texts(o); var out = {}; for (var k in ING) out[k] = iname(o, k); return out; },
     picture: picture,
+    looks: ['drawn', 'realistic'],          // the study setting "look"; realistic needs canvas (else the drawn look is used and recorded)
+    realisticToppings: Object.keys(REAL.paints),   // every topping needs a painter for the realistic look (the smoke test checks)
     mount: function (root, opts) {
       if (typeof root === 'string') root = document.querySelector(root);
       if (!(opts && opts.desktopOnly === false) && !isDesktop()) return blocked(root, opts || {});

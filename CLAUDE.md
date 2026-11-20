@@ -14,7 +14,8 @@ make sure the smoke test passes, push, and check that the GitHub Actions run is 
 - Computations that also run in the demo preview (`preview.js`: face detection, symmetry) must stay identical to
   `analyse.py`; the smoke test compares the two on hundreds of pizzas.
 - **Desktop only.** The task blocks phones and tablets (`desktopOnly`). Do not work on mobile or touch layouts.
-- Toppings live in several tables that must stay in step: `ING`/`TIER`/`DEFAULT_INGREDIENTS` in `pizza-builder.js`;
+- Toppings live in several tables that must stay in step: `ING`/`TIER`/`DEFAULT_INGREDIENTS` and the realistic look's
+  painter (`PAINT` in `REAL`) in `pizza-builder.js`;
   `CATS`, `NAMES`, `TIER`, `PERISHABLE`, `SIZE`, `FOOT`, `COLORS`, `MEATS`/`DIET_EXCLUDES`/`DIET_CLASS` in
   `analysis/analyse.py`; `NAMES`, `DIET`, `TIER`, `FOOT`, `SIZE`, `CATS`, colours and the simulated `REF` in
   `preview.js`; `TRAY` in `examples/simulate.py`; the topping table in `CODEBOOK.md`.

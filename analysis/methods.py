@@ -235,6 +235,7 @@ SECTIONS = [
         ('inclusion', 'auto = analysed by the automatic rule (own pizza finished); researcher = an unfinished pizza kept in by a researcher on the Sessions tab. A session a researcher left out is not analysed at all (excluded.csv, reason "excluded by the researcher").', 'analyse'),
         ('synthetic', '1 if the pizza is synthetic test data (analysis/synthetic.py: ids SYN-…, session field synthetic = 1), made for the test study with known built-in group differences; 0 for real participants. Every report says how many synthetic pizzas it includes.', 'analyse'),
         ('task_version', 'Version of the task that recorded the pizza (summary.v; see the Changelog for what each version records).', 'analyse'),
+        ('look', 'How the pizza looked in the task (summary.look; study or condition setting look, task 0.19.0): drawn (the illustrated look) or realistic (the same toppings, sizes and positions painted photo-like). drawn before 0.19.0, and when the browser could not draw the realistic look (the task records what was shown). Positions, sizes and every measure are computed the same way for both. An Explore grouping with the study\'s groupings.', 'analyse'),
         ('restarts', 'Study server: times the participant came back mid-study (reload, closed tab, personal link reopened) and the part they were on started again; their pizza is from the last attempt.', 'analyse'),
     ]),
     ('Profiles and clusters (profiles.html, profiles.csv)', None, [

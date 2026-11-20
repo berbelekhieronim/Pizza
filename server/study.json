@@ -48,6 +48,7 @@
     "tests": {
       "description": "Tests by the research team: not participant data",
       "nutrition": "hidden",
+      "look": "realistic",
       "synthetic": 100
     },
     "pilot-2026-11": {

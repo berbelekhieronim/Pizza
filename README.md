@@ -347,18 +347,23 @@ What a pilot gives for the larger study (in `explore.html`):
 - To compare the pilot with a non-autistic sample, run a second study (e.g. `general`, recruited the same way, or
   via Prolific) on the same server and look at *All studies*.
 
-### Settings tab: nutrition, questions and conditions per study
+### Settings tab: nutrition, questions, look and conditions per study
 
 The researcher page has a **Settings** tab. For every study (global) and for each study on its own it sets:
 - **Nutrition information while building** (`nutrition`): *shown* (`visible`, the default), *hidden until asked*
   (`hidden`: the table is blurred with a *Pokaż wartości odżywcze* button over it; whether and when they show it and
   what they change afterwards is analysed), or *not shown* (`none`).
+- **Look of the pizza** (`look`, task 0.19.0): *drawn* (`drawn`, the default: the illustrated look) or *realistic*
+  (`realistic`: the same toppings, sizes and positions painted photo-like, with texture, light from the top left, gloss
+  and shadows; drawn in the participant's browser, nothing to download). Positions, sizes and every measure are the
+  same in both, so only the picture changes; each pizza records what was shown (`summary.look`, the `look` column, an
+  Explore grouping). The tab shows the same pizza in both looks. The test study (`tests`) uses the realistic look.
 - **Questions**: when (`survey_when`: `before` the pizza, the default, or `after`), what (`followup`: the short card
   or your own questions, or the standard follow-up, which asks about the toppings and so always comes after), and your
   own questions (`survey`, see `docs/SURVEY.md`).
 - **Between subjects** (`conditions`, `condition_settings`): conditions assigned in turn to new sessions (or set by
-  `&cond=` in the link), each with its own nutrition setting and questions. The reports compare them (Explore:
-  Condition, Nutrition information).
+  `&cond=` in the link), each with its own nutrition setting, questions and look. The reports compare them (Explore:
+  Condition, Nutrition information, Look of the pizza).
 
 Anything left "as inherited" follows the layer below: global changes on top of `server/study.json`, a study's own lines
 in `study.json`, then the study's changes. The changes are kept in the database (both servers; `server/settings.py`,

@@ -80,16 +80,16 @@ def settings_checks(base, key, who):
     sj = lambda: json.loads(http('GET', base + '/study.json?study=pilot-asd')[1])
     url = base + '/admin/api/settings?key=' + key
     before = sj()
-    good = {'nutrition': 'hidden', 'survey_when': 'after', 'conditions': ['a', 'b'],
-            'condition_settings': {'a': {'nutrition': 'none', 'survey': [{'id': 'age', 'type': 'number'}, {'id': 'sleep', 'type': 'single', 'text': 'Sen?', 'options': [['ok', 'dobrze'], ['bad', 'źle']]}]}}}
+    good = {'nutrition': 'hidden', 'survey_when': 'after', 'look': 'realistic', 'conditions': ['a', 'b'],
+            'condition_settings': {'a': {'nutrition': 'none', 'look': 'drawn', 'survey': [{'id': 'age', 'type': 'number'}, {'id': 'sleep', 'type': 'single', 'text': 'Sen?', 'options': [['ok', 'dobrze'], ['bad', 'źle']]}]}}}
     code, _ = http('POST', url, {'scope': 'pilot-asd', 'settings': good})
     after = sj()
     view = json.loads(http('GET', url + '&study=pilot-asd')[1])
     check(before['nutrition'] == 'visible' and before['survey_when'] == 'before' and code == 200 and after['nutrition'] == 'hidden' and after['survey_when'] == 'after'
           and after['condition_settings']['a']['nutrition'] == 'none' and view['effective']['conditions'] == ['a', 'b'] and view['own']['changed']['nutrition'] == 'hidden'
-          and view['global']['file']['nutrition'] == 'visible',
-          who + 'Settings tab: a study\'s changes (nutrition hidden, questions after, two conditions with their own settings) are in force on the participant page')
-    bad = [{'nutrition': 'blurry'}, {'survey': [{'id': 'X', 'type': 'single'}]}, {'conditions': ['a'], 'condition_settings': {'c': {'nutrition': 'none'}}},
+          and view['global']['file']['nutrition'] == 'visible' and before.get('look') is None and after['look'] == 'realistic' and after['condition_settings']['a']['look'] == 'drawn',
+          who + 'Settings tab: a study\'s changes (nutrition hidden, questions after, the realistic look, two conditions with their own settings) are in force on the participant page')
+    bad = [{'nutrition': 'blurry'}, {'look': 'photo'}, {'survey': [{'id': 'X', 'type': 'single'}]}, {'conditions': ['a'], 'condition_settings': {'c': {'nutrition': 'none'}}},
            {'condition_settings': {'a': {'groups': []}}}, {'title': 'x'}]
     codes = [http('POST', url, {'scope': 'pilot-asd', 'settings': b}) for b in bad]
     check(all(c == 400 and json.loads(t)['problems'] for c, t in codes) and sj()['nutrition'] == 'hidden'
@@ -578,6 +578,23 @@ def main():
               'Trans or non-binary: non-binary, another gender or transgender (cisgender only when they said no to transgender); its overlap with '
               'neurodivergence shown in Overview and Explore with the comparison among cisgender participants only; finer groups described, not tested; '
               'ideas 14 (neurodivergence as a whole) and 15 (trans and non-binary) in place')
+        # the look of the pizza (task 0.19.0): recorded per pizza (summary.look), a line in Who took part and a key point
+        # when both looks were used, a grouping in Explore
+        looks_in, looks_out = os.path.join(tmp, 'looks'), os.path.join(tmp, 'looks_out')
+        os.makedirs(looks_in, exist_ok=True)
+        for i, f in enumerate(sorted(glob.glob(os.path.join(tmp, 'sample', '*.json')))[:12]):
+            d = json.load(open(f, encoding='utf-8'))
+            if i % 2:
+                sm = d.get('pz_summary'); sm = json.loads(sm) if isinstance(sm, str) else (sm or {})
+                sm['look'] = 'realistic'; d['pz_summary'] = json.dumps(sm)
+            json.dump(d, open(os.path.join(looks_in, os.path.basename(f)), 'w', encoding='utf-8'))
+        ok = run('analysis/analyse.py', *sorted(glob.glob(os.path.join(looks_in, '*.json'))), '--out', looks_out)
+        lk = __import__('collections').Counter(r['look'] for r in csv.DictReader(open(os.path.join(looks_out, 'participants.csv'), encoding='utf-8')) if r['build'] == 'pz') if ok else {}
+        dash = open(os.path.join(looks_out, 'dashboard.html'), encoding='utf-8').read() if ok else ''
+        exl = open(os.path.join(looks_out, 'explore.html'), encoding='utf-8').read() if ok else ''
+        check(ok and lk.get('realistic', 0) >= 3 and lk.get('drawn', 0) >= 3 and set(lk) == {'realistic', 'drawn'} and '>Look of the pizza<' in dash
+              and 'Two looks of the pizza' in dash and 'Look of the pizza: drawn / realistic' in exl,
+              'The look of the pizza (drawn / realistic): recorded with each pizza, in Who took part and a key point when both were used, an Explore grouping')
         # an independent recount from the raw sessions, without analyse.py: pieces, kinds of topping, the base and the diet class
         # of each analysed pizza, and one group difference (Cliff's delta) by hand
         MEAT, FISH, VEG_ONLY = {'pep', 'ham', 'chk', 'kan'}, {'anc', 'tun', 'shr'}, {'egg', 'gor'}
@@ -950,7 +967,8 @@ def main():
                      {'survey': []}, {'survey': [{'id': 'q', 'type': 'single', 'text': 'Q', 'options': [['a', 'A'], ['a', 'B']], 'other': 'z'}]},
                      {'survey': [{'id': 'n', 'type': 'number', 'text': 'N', 'min': 5, 'max': 1, 'required': 'yes', 'colour': 1}]},
                      {'conditions': ['A', 'B'], 'condition_settings': {'A': {'nutrition': 'none'}, 'C': {}}}, {'conditions': ['A', 'A']},
-                     {'condition_settings': {'A': {'title': 'x'}}}, {'title': 'x'}, {'nutrition': None}, []]
+                     {'condition_settings': {'A': {'title': 'x'}}}, {'title': 'x'}, {'nutrition': None}, [], {'look': 'realistic'}, {'look': 'photo'},
+                     {'conditions': ['A'], 'condition_settings': {'A': {'look': 'realistic', 'nutrition': 'hidden'}}}, {'condition_settings': {'A': {'look': 'x'}}}]
             js = ("import('./cloudflare/src/settings.js').then((m) => console.log(JSON.stringify(%s.map((c) => m.problems(c, ['A'])))))" % json.dumps(cases))
             r = subprocess.run(['node', '--input-type=module', '-e', js], cwd=ROOT, capture_output=True, text=True)
             check(r.returncode == 0 and json.loads(r.stdout) == [OVR.problems(c, ['A']) for c in cases],
@@ -1044,7 +1062,7 @@ def main():
                   "var cases = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
                   "console.log(JSON.stringify({ing: Object.keys(I), tier: Object.keys(I).filter(k => I[k].tier), def: PizzaBuilder.defaultIngredients,"
                   " cat: Object.fromEntries(Object.keys(I).map(k => [k, I[k].cat])), pl: PizzaBuilder.names('pl'), vegan: PizzaBuilder.veganSauces.sort(),"
-                  " diet: cases.map(c => PizzaPreview.dietClass(c.ps, c.summ))}));"
+                  " diet: cases.map(c => PizzaPreview.dietClass(c.ps, c.summ)), realp: PizzaBuilder.realisticToppings}));"
                   % (json.dumps(os.path.join(ROOT, 'pizza-builder.js')), json.dumps(os.path.join(ROOT, 'preview.js'))))
             A = FB.A
             dcases = [{'ps': [{'ing': i} for i in ps], 'summ': {'sauce': sa, 'cheese': ch}} for ps in ([], ['tof'], ['tof', 'mus'], ['egg'], ['tun'], ['pep', 'tof'])
@@ -1058,10 +1076,11 @@ def main():
                    for f in ('examples/simulate.py', 'analysis/synthetic.py')}
             missing = [k for k in real if not (k in A.CATS and k in A.NAMES and k in A.TIER and k in A.SIZE and k in A.FOOT and k in A.COLORS
                                                and k in nut['toppings'] and k in t['tier'] and t['pl'].get(k) and all(re.search(r'\b%s:' % k, tb) for tb in pv_tables)
+                                               and k in t.get('realp', [])
                                                and ('%s' % k) in open(os.path.join(ROOT, 'CODEBOOK.md'), encoding='utf-8').read())]
             check(out_.returncode == 0 and 'tof' in real and not missing and set(t['def']) <= set(real) and 'tof' in t['def']
                   and all(sim[n] == t['def'] for n in sim) and all(A.CATS[k] == t['cat'][k] or (A.CATS[k], t['cat'][k]) in (('seafood', 'fish'),) for k in real),
-                  'every topping (tofu too) is in every table: task, analysis, preview, nutrition, Polish names, codebook, both simulators%s'
+                  'every topping (tofu too) is in every table: task (and its realistic look), analysis, preview, nutrition, Polish names, codebook, both simulators%s'
                   % (' - missing: ' + ', '.join(missing) if missing else '' if out_.returncode == 0 else ' - ' + out_.stderr[-200:]))
             pyc = [A.pizza_diet_class(c['ps'], c['summ']) for c in dcases]
             check(t.get('vegan') == sorted(k for k, v in A.SAUCE_DIET.items() if v == 'vegan' and k != 'none') == ['bbq', 'tomato']

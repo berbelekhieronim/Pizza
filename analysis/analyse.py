@@ -2355,6 +2355,7 @@ NEUROTYPE_NOTE = ('AuDHD: answered yes to both the autism and the ADHD question 
 GENDER_WORDS = {'man': 'men', 'woman': 'women', 'nonbinary': 'non-binary'}
 DIET_WORDS = {'vegetarian': 'vegetarian', 'vegan': 'vegan', 'allergy': 'food allergies', 'other': 'another diet', 'none': 'no special diet'}
 MODE_WORDS = {'visible': 'in view the whole time', 'hidden': 'hidden until asked', 'button': 'on a button', 'none': 'not shown'}
+LOOK_WORDS = {'drawn': 'drawn', 'realistic': 'realistic (photo-like)'}
 # the measures of the first look, most telling first; amount first, as it can explain the others
 FIRST_LOOK = ['n_pieces', 'n_distinct', 'diet_rank', 'nut_kcal', 'atypicality_bits', 'prop_touching', 'prop_stacked', 'coverage', 'clark_evans',
               'mirror_score', 'blockiness', 'resized_share', 'decision_median', 't_active', 'revision_rate']
@@ -2405,6 +2406,9 @@ def sample_facts(recs):
     modes = Counter(r.get('nutrition_mode') for r in recs if r.get('nutrition_mode'))
     if modes:
         rows.append(('Nutrition table', ', '.join('%s %d' % (MODE_WORDS.get(k, k), v) for k, v in modes.most_common())))
+    looks = Counter(r.get('look') for r in recs if r.get('look'))
+    if looks.get('realistic'):
+        rows.append(('Look of the pizza', ', '.join('%s %d' % (LOOK_WORDS.get(k, k), v) for k, v in looks.most_common())))
     conds = Counter(r.get('condition') for r in recs if r.get('condition'))
     if len(conds) > 1:
         rows.append(('Condition', ', '.join('%s %d' % kv for kv in sorted(conds.items()))))
@@ -2556,6 +2560,12 @@ def key_points(recs, check, mc, fl):
         out.append(('info', 'Everyone saw the nutrition table the whole time',
                     'So these data cannot show whether people choose to look at nutrition, or what seeing it changes.',
                     'To study that, set Nutrition to "hidden until asked" on the Settings tab (for everyone, or for one condition).'))
+    looks = Counter(r.get('look') for r in recs if r.get('look'))
+    if looks.get('realistic') and len(looks) > 1:
+        out.append(('info', 'Two looks of the pizza',
+                    '%d pizza%s %s made with the realistic (photo-like) look and %d with the drawn one.' % (looks['realistic'], '' if looks['realistic'] == 1 else 's',
+                                                                                                      'was' if looks['realistic'] == 1 else 'were', looks.get('drawn', 0)),
+                    'Compare the two (Explore: Look of the pizza) before pooling them: the look may change what people put on the pizza.'))
     vers = Counter(str(r.get('task_version') or '?') for r in recs)
     layouts = Counter(r.get('layout') for r in recs if r.get('layout'))
     if len(vers) > 1:
@@ -3664,7 +3674,7 @@ EXPLORE_GROUPINGS = [
     ('nd_identified', 'Autism / ADHD: formally diagnosed or not'), ('eat_any', 'Any eating difficulty, allergy or intolerance (yes / no)'),
     ('eat_picky', 'Picky eating since childhood (yes / no)'), ('gender', 'Gender'), ('age_band', 'Age'),
     ('transgender', 'Transgender (yes / no)'), ('gender_diverse', 'Trans or non-binary (yes / no)'), ('diet_special', 'Special diet (vegetarian, vegan or other; yes / no)'), ('diet_plant', 'Vegetarian or vegan (yes / no)'),
-    ('nutrition_mode', 'Nutrition information: shown / hidden until asked / none'), ('nutrition_panel', 'Nutrition panel shown (yes / no)'), ('nutri_revealed', 'Revealed the nutrition while building (yes / no)'), ('group', 'Recruitment group (study link)'), ('source', 'Recruitment source'), ('study', 'Study'), ('condition', 'Condition'),
+    ('nutrition_mode', 'Nutrition information: shown / hidden until asked / none'), ('look', 'Look of the pizza: drawn / realistic'), ('nutrition_panel', 'Nutrition panel shown (yes / no)'), ('nutri_revealed', 'Revealed the nutrition while building (yes / no)'), ('group', 'Recruitment group (study link)'), ('source', 'Recruitment source'), ('study', 'Study'), ('condition', 'Condition'),
 ]
 EXPLORE_COVARIATES = [('self_picky', '"I am a picky eater" (1-7)'), ('self_sensory_food', '"Food textures, smells or looks bother me" (1-7)'), ('age_years', 'Age (years)')]
 
@@ -3787,7 +3797,8 @@ def t_sf2(t, df):
 TOPPING_AREAS = ('Toppings', 'Strong ', 'Changed mind', 'Considered')      # per-topping rows of explore.html
 # the groupings the study is about; the others (demographics, recruitment) are shown folded away. The task is desktop
 # only, so the device is not a grouping.
-RESEARCH_GROUPINGS = ('neurotype', 'nd_any', 'nd_autistic', 'nd_adhd', 'nd_identified', 'gender_diverse', 'eat_picky', 'eat_any', 'nutri_revealed', 'nutrition_mode', 'nutrition_panel', 'study', 'condition')
+RESEARCH_GROUPINGS = ('neurotype', 'nd_any', 'nd_autistic', 'nd_adhd', 'nd_identified', 'gender_diverse', 'eat_picky', 'eat_any', 'nutri_revealed', 'nutrition_mode', 'nutrition_panel',
+                      'look', 'study', 'condition')
 # measures that make a lead: not the per-topping indicators, base choices or the low-level process and movement
 # timings (they stay in the full screen)
 NOT_LEADS = TOPPING_AREAS + ('Base and diet', 'Process', 'Movement')
@@ -4927,6 +4938,9 @@ def analyse(rows, builds, out_dir, seed, group_cols=None, ref_rows=None, k_force
             rec['flag_fast'] = int(rec['t_finish'] is not None and rec['t_finish'] < 15000)
             rec['flag_empty'] = int(n == 0)
             rec['task_version'] = summary.get('v')
+            # how the pizza looked in the task (study setting look, task 0.19.0): drawn, or realistic (photo-like); always
+            # drawn before 0.19.0, and when the browser could not draw the realistic look (the task records what was shown)
+            rec['look'] = summary.get('look') or 'drawn'
             rec['synthetic'] = int(str(pid).startswith('SYN-') or field(row, 'synthetic') == '1')   # analysis/synthetic.py
             rec['inclusion'] = 'researcher' if choice == 'include' else 'auto'
             try:                                   # study server: times the participant came back and restarted a part

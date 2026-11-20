@@ -83,6 +83,7 @@ th a{color:var(--fg);text-decoration:none;cursor:pointer}
 .setsec h3{margin:0 0 4px;font-size:1rem}.setsec p.help{margin:0 0 8px;font-size:.85rem;color:var(--muted)}
 .opts{display:flex;flex-direction:column;gap:6px}.opts label{display:flex;gap:8px;align-items:flex-start;color:var(--fg);font-size:.92rem}
 .opts label small{color:var(--muted);display:block}
+.lookprev{display:flex;gap:16px;margin-top:10px;flex-wrap:wrap}.lookprev figure{margin:0;text-align:center}.lookprev figcaption{font-size:.8rem;color:var(--muted);margin-top:4px}
 .setrow{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin:6px 0}
 textarea.qs{width:100%;min-height:150px;font:12.5px/1.4 ui-monospace,Menlo,Consolas,monospace;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--panel);color:var(--fg)}
 .condbox{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:8px 0}
@@ -311,6 +312,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
         + '<span class="small muted">Personal links: ' + s.invites[0] + ' made, ' + s.invites[1] + ' opened, ' + s.invites[2] + ' finished'
         + (s.synthetic && s.synthetic.stored ? ' · <span class="syn">+' + s.synthetic.stored + ' synthetic</span>' : '')
         + (s.nutrition && s.nutrition !== 'none' ? ' · <span class="pill on">nutrition ' + (s.nutrition === 'hidden' ? 'hidden until asked' : 'shown') + '</span>' : '')
+        + (s.look === 'realistic' ? ' · <span class="pill on">realistic look</span>' : '')
         + (s.conditions && s.conditions.length ? ' · <span class="pill on">' + s.conditions.length + ' conditions</span>' : '') + '</span></a>';
     });
     cards.push('<a class="scard" href="?' + new URLSearchParams({ key: KEY, study: 'all' }) + '"><span class="name">All studies together</span>'
@@ -496,6 +498,8 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     ['hidden', 'Hidden until asked', 'blurred, with a "Show nutrition information" button over it; whether and when they show it, and what they change afterwards, is analysed'],
     ['none', 'Not shown', 'no nutrition information']];
   var WHEN = [['before', 'Before the pizza', 'right after the consent'], ['after', 'After the pizza', 'after "I\'m done"']];
+  var LOOK = [['drawn', 'Drawn', 'the current design: flat, illustrated toppings'],
+    ['realistic', 'Realistic (photo-like)', 'the same toppings, sizes and positions, painted with texture, light and shadow; the data mean the same (summary.look)']];
   var STYLE = [['metryczka', 'Short card (age, autism / ADHD, gender, diet) or your own questions below', ''], ['strong', 'Standard follow-up: strong feelings about the toppings, About you (always after the pizza)', ''],
     ['ratings', 'Standard follow-up with ratings of every topping (always after the pizza)', '']];
   var SET = { scope: null, data: null };
@@ -508,6 +512,22 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     }).catch(function () { $('setcard').innerHTML = '<p>Could not load the settings.</p>'; });
   }
   function optLabel(list, v) { var x = list.filter(function (o) { return o[0] === v; })[0]; return x ? x[1] : (v || '–'); }
+  // the same small pizza in both looks, baked (as on the end page), so the choice can be seen before it is made
+  var PREVIEW = [[1, 'pep', -0.42, 0.3, 20, 1, 0, 0, 1], [2, 'pep', 0.38, 0.4, 200, 1.05, 1, 0, 1], [3, 'pep', 0.05, -0.45, 90, 0.95, 2, 0, 1],
+    [4, 'mus', -0.1, 0.5, 30, 1, 0, 0, 1], [5, 'mus', 0.5, -0.15, 250, 1, 1, 0, 1], [6, 'oli', -0.45, -0.25, 0, 1, 0, 0, 1], [7, 'oli', 0.12, 0.08, 0, 1, 1, 0, 1],
+    [8, 'bas', -0.15, -0.1, 320, 1, 0, 0, 1], [9, 'grp', 0.3, 0.1, 140, 1, 1, 0, 1], [10, 'crn', -0.6, 0.0, 60, 1, 2, 0, 1], [11, 'oni', 0.15, 0.62, 10, 1, 0, 0, 1],
+    [12, 'ham', -0.4, -0.6, 70, 1, 1, 0, 1], [13, 'shr', 0.45, -0.5, 300, 1, 0, 0, 1], [14, 'jal', -0.65, 0.4, 0, 1, 1, 0, 1]];
+  function lookPreview() {
+    builderScript().then(function () {
+      var box = $('lookprev');
+      if (!box || box.childNodes.length || !window.PizzaBuilder || !PizzaBuilder.picture) return;
+      LOOK.forEach(function (o) {
+        var fig = document.createElement('figure');
+        try { fig.appendChild(PizzaBuilder.picture(PREVIEW, { sauce: 'tomato', cheese: 'normal' }, 190, { look: o[0] })); } catch (e) { return; }
+        var cap = document.createElement('figcaption'); cap.textContent = o[1]; fig.appendChild(cap); box.appendChild(fig);
+      });
+    });
+  }
   function drawSettings(probs) {
     var d = SET.data, glob = SET.scope === '*', ch = (glob ? d.global.changed : d.own.changed) || {};
     // what this layer inherits: for a study, study.json's main settings with the global changes, then the study's own lines in study.json
@@ -523,7 +543,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     }
     function radios(name, list, help) {
       var cur = ch[name] === undefined ? '' : ch[name], iv = inh(name);
-      return '<div class="opts">' + [['', 'As inherited: ' + optLabel(list, iv || (name === 'survey_when' ? 'after' : name === 'nutrition' ? 'none' : 'strong')), src(name)]].concat(list).map(function (o) {
+      return '<div class="opts">' + [['', 'As inherited: ' + optLabel(list, iv || (name === 'survey_when' ? 'after' : name === 'nutrition' ? 'none' : name === 'look' ? 'drawn' : 'strong')), src(name)]].concat(list).map(function (o) {
         return '<label><input type="radio" name="' + name + '" value="' + o[0] + '"' + (o[0] === cur ? ' checked' : '') + '><span>' + esc(o[1]) + (o[2] ? '<small>' + esc(o[2]) + '</small>' : '') + '</span></label>';
       }).join('') + '</div>';
     }
@@ -537,36 +557,40 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       return '<div class="condbox" data-cond="' + esc(c) + '"><h4>Condition ' + esc(c) + '</h4><div class="setrow">'
         + '<label>Nutrition table<br>' + sel('c_nutrition', NUTRI, x.nutrition, 'as the study') + '</label>'
         + '<label>Questions<br>' + sel('c_survey_when', WHEN, x.survey_when, 'as the study') + '</label>'
-        + '<label>Kind of questions<br>' + sel('c_followup', [['metryczka', 'short card / own questions'], ['strong', 'standard follow-up'], ['ratings', 'standard with ratings']], x.followup, 'as the study') + '</label></div>'
+        + '<label>Kind of questions<br>' + sel('c_followup', [['metryczka', 'short card / own questions'], ['strong', 'standard follow-up'], ['ratings', 'standard with ratings']], x.followup, 'as the study') + '</label>'
+        + '<label>Look<br>' + sel('c_look', LOOK, x.look, 'as the study') + '</label></div>'
         + '<details' + (x.survey ? ' open' : '') + '><summary class="small">Own questions for this condition (optional)</summary><textarea class="qs" name="c_survey" spellcheck="false" placeholder="empty: the questions of the study">' + esc(x.survey ? JSON.stringify(x.survey, null, 1) : '') + '</textarea></details></div>';
     }).join('');
     var e = d.effective, effCs = e.condition_settings || {};
     var force = '<div class="card inforce"><h3 style="margin-top:0">In force for new sessions</h3><dl>'
       + '<dt>Nutrition</dt><dd>' + esc(optLabel(NUTRI, e.nutrition || 'none')) + '</dd>'
+      + '<dt>Look</dt><dd>' + esc(optLabel(LOOK, e.look || 'drawn')) + '</dd>'
       + '<dt>Questions</dt><dd>' + esc(optLabel(WHEN, e.survey_when || 'after')) + (e.followup !== 'metryczka' && !e.survey ? ' (the standard follow-up: after)' : '') + '</dd>'
       + '<dt>Asked</dt><dd>' + esc(e.survey ? e.survey.map(function (x) { return x.id; }).join(', ') : e.followup === 'metryczka' ? 'the short card' : 'the standard follow-up') + '</dd>'
       + '<dt>Conditions</dt><dd>' + esc((e.conditions || []).length ? e.conditions.join(', ') : 'none (everyone the same)') + '</dd>'
       + (e.conditions || []).map(function (c) {
         var x = effCs[c] || {};
-        return '<dt>' + esc(c) + '</dt><dd>' + esc([x.nutrition ? 'nutrition ' + optLabel(NUTRI, x.nutrition).toLowerCase() : '', x.survey_when ? 'questions ' + x.survey_when : '', x.survey ? x.survey.length + ' own questions' : ''].filter(Boolean).join(', ') || 'as the study') + '</dd>';
-      }).join('') + '</dl><p class="small muted" style="margin:10px 0 0">Applies to new sessions and to people who reload the page; the data keeps what each person saw (summary.nutrition / reveal, pzf_data.when, the condition).</p></div>';
+        return '<dt>' + esc(c) + '</dt><dd>' + esc([x.nutrition ? 'nutrition ' + optLabel(NUTRI, x.nutrition).toLowerCase() : '', x.survey_when ? 'questions ' + x.survey_when : '', x.survey ? x.survey.length + ' own questions' : '', x.look ? optLabel(LOOK, x.look).toLowerCase() + ' look' : ''].filter(Boolean).join(', ') || 'as the study') + '</dd>';
+      }).join('') + '</dl><p class="small muted" style="margin:10px 0 0">Applies to new sessions and to people who reload the page; the data keeps what each person saw (summary.nutrition / reveal, summary.look, pzf_data.when, the condition).</p></div>';
     var title = glob ? 'Every study (global)' : 'This study: ' + d.study;
     $('setcard').innerHTML = '<div class="setgrid"><form id="setform"><h2 style="margin-top:0">Settings</h2>'
       + (d.own && d.can_global ? '<div class="scopebar"><button type="button" class="alt small" data-scope="' + esc(d.study) + '" aria-pressed="' + !glob + '">This study</button><button type="button" class="alt small" data-scope="*" aria-pressed="' + glob + '">Every study (global)</button></div>' : '')
       + '<p class="muted small" style="margin:0 0 6px">Changing: <b>' + esc(title) + '</b>. ' + (glob ? 'A study\'s own settings (on its own Settings tab or in server/study.json) win over these.' : 'Anything left "as inherited" follows the settings of every study.') + '</p>'
       + (probs && probs.length ? '<div class="probs"><b>Not saved:</b><br>' + probs.map(esc).join('<br>') + '</div>' : '')
       + '<div class="setsec"><h3>Nutrition information while building</h3>' + radios('nutrition', NUTRI) + '</div>'
+      + '<div class="setsec"><h3>Look of the pizza</h3>' + radios('look', LOOK) + '<div class="lookprev" id="lookprev"></div></div>'
       + '<div class="setsec"><h3>Questions (survey)</h3><p class="help">When to ask them, and what.</p>' + radios('survey_when', WHEN)
       + '<p class="help" style="margin-top:10px">What to ask:</p>' + radios('followup', STYLE)
       + '<details style="margin-top:8px"' + (ch.survey ? ' open' : '') + '><summary class="small">Your own questions (JSON, see docs/SURVEY.md)' + (ch.survey ? '' : inh('survey') ? ': inherited ' + inh('survey').length + ' questions' : '') + '</summary>'
       + '<p class="help">A list of questions: <code>{"id": "sleep", "type": "single", "text": "Jak spałeś/spałaś?", "options": [["well", "dobrze"], ["badly", "źle"]]}</code>; types number, single, multi, text. The short card\'s own questions (age, autism, adhd, gender, trans, diet) need only id and type. Add <code>"explore": {"measures": ["n_distinct", "nut_kcal"], "direction": "lower", "answer": "badly"}</code> to make a question an idea to test in Explore (docs/SURVEY.md). Empty: as inherited.</p>'
       + '<textarea class="qs" name="survey" spellcheck="false">' + esc(ch.survey ? JSON.stringify(ch.survey, null, 1) : '') + '</textarea>'
       + (inh('survey') && !ch.survey ? '<button type="button" class="alt small" id="copyqs">Start from the inherited questions</button>' : '') + '</details></div>'
-      + '<div class="setsec"><h3>Between subjects: conditions</h3><p class="help">Each new session gets the next condition in turn (A, B, A, B…), or the one in its link (<code>&amp;cond=A</code>). A condition can have its own nutrition table and questions; the reports compare the conditions (Explore: Condition).</p>'
+      + '<div class="setsec"><h3>Between subjects: conditions</h3><p class="help">Each new session gets the next condition in turn (A, B, A, B…), or the one in its link (<code>&amp;cond=A</code>). A condition can have its own nutrition table, questions and look; the reports compare the conditions (Explore: Condition).</p>'
       + '<div class="setrow"><label>Conditions (comma-separated, empty = ' + (inheritedConds ? 'as inherited' : 'none') + ')<br><input name="conditions" size="30" value="' + esc(inheritedConds ? '' : conds.join(', ')) + '" placeholder="' + esc((inh('conditions') || []).join(', ') || 'e.g. visible, hidden') + '"></label>'
       + '<button type="button" class="alt small" id="condapply">Update the list below</button></div>' + condHtml + '</div>'
       + '<div class="setrow" style="margin-top:12px"><button type="submit">Save</button><span class="small muted" id="setmsg"></span></div></form>' + force + '</div>';
     var form = $('setform');
+    lookPreview();
     [].forEach.call(document.querySelectorAll('.scopebar button'), function (b) { b.onclick = function () { SET.scope = b.dataset.scope; drawSettings(); }; });
     if ($('copyqs')) $('copyqs').onclick = function () { form.survey.value = JSON.stringify(inh('survey'), null, 1); };
     $('condapply').onclick = function () { var v = collect(); if (v.ok) { (glob ? d.global : d.own).changed = v.settings; drawSettings(); } else drawSettings(v.problems); };
@@ -581,7 +605,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
     };
     function collect() {
       var out = {}, probs = [];
-      ['nutrition', 'survey_when', 'followup'].forEach(function (k) { var x = form.querySelector('input[name="' + k + '"]:checked'); if (x && x.value) out[k] = x.value; });
+      ['nutrition', 'survey_when', 'followup', 'look'].forEach(function (k) { var x = form.querySelector('input[name="' + k + '"]:checked'); if (x && x.value) out[k] = x.value; });
       function parse(txt, where) { if (!txt.trim()) return undefined; try { return JSON.parse(txt); } catch (e) { probs.push(where + ': not valid JSON (' + e.message + ')'); return undefined; } }
       var sv = parse(form.survey.value, 'your own questions'); if (sv !== undefined) out.survey = sv;
       var cl = form.conditions.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean);
@@ -589,7 +613,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
       var css = {};
       [].forEach.call(form.querySelectorAll('.condbox'), function (box) {
         var c = box.dataset.cond, x = {};
-        ['nutrition', 'survey_when', 'followup'].forEach(function (k) { var v = box.querySelector('[name="c_' + k + '"]').value; if (v) x[k] = v; });
+        ['nutrition', 'survey_when', 'followup', 'look'].forEach(function (k) { var v = box.querySelector('[name="c_' + k + '"]').value; if (v) x[k] = v; });
         var qv = parse(box.querySelector('[name="c_survey"]').value, 'condition ' + c + ' questions'); if (qv !== undefined) x.survey = qv;
         if (Object.keys(x).length && (cl.length ? cl : conds).indexOf(c) >= 0) css[c] = x;
       });
@@ -772,6 +796,7 @@ tr.flash td{animation:pzflash 2.4s ease-out 1} @keyframes pzflash{0%,30%{backgro
         + dl([['Started', when(rec.started)], ['Last saved', when(rec.updated)], ['Finished', rec.finished ? when(rec.finished) : ''], ['Time taken', rec.seconds != null ? mins(rec.seconds) : ''],
               ['Came back', rec.restarts ? rec.restarts + '×' : ''], ['Group / source', [rec.group, rec.source].filter(Boolean).join(' / ')], ['Condition', rec.cond],
               ['Pizza', rec.pz_final ? (J('pz_final') || []).length + ' pieces, ' + new Set((J('pz_final') || []).map(function (x) { return x[1]; })).size + ' toppings, sauce ' + (summ.sauce || '–') + ', cheese ' + (summ.cheese || '–') + (summ.finished === false ? ' (not finished)' : '') : ''],
+              ['Look', !rec.pz_summary ? '' : summ.look === 'realistic' ? 'realistic (photo-like)' : 'drawn'],
               ['Nutrition', !rec.pz_summary ? '' : summ.nutrition ? (summ.nutrition.blur ? 'hidden until asked: ' + (summ.reveal && summ.reveal.shown ? 'shown after ' + mins(summ.reveal.tFirst / 1000) : 'never shown') : 'shown')
                 : summ.reveal ? 'on a button: ' + (summ.reveal.shown ? 'shown after ' + mins(summ.reveal.tFirst / 1000) : 'not shown while building') : 'not shown'],
               ['Finish button pulsed', summ.nudges ? summ.nudges + '×' : ''],

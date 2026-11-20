@@ -69,7 +69,7 @@ export async function adminState(r, scope, f) {
       built: stt.analysed, active: stt.active + stt.pending, declined: stt.declined, stopped: c.n - stt.analysed - stt.active - stt.pending - stt.declined,
       last: await st.lastStarted(sid), median_seconds: await st.medianSeconds(sid),
       invites: [invs.length, invs.filter((i) => i.stage).length, invs.filter((i) => i.stage === 'done').length],
-      links: openLinks(r, sid), nutrition: nutritionMode(cfg), survey_when: cfg.survey_when || 'after', conditions: cfg.conditions || [],
+      links: openLinks(r, sid), nutrition: nutritionMode(cfg), survey_when: cfg.survey_when || 'after', look: cfg.look || 'drawn', conditions: cfg.conditions || [],
       synthetic: sid && cfg.synthetic ? { n: await syntheticN(st, sid), stored: syn, choices: SYNTHETIC_CHOICES } : null,
     };
     if (own) row.researcher_link = r.base() + '/admin?' + new URLSearchParams({ key: await st.studyKey(sid) });

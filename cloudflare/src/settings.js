@@ -1,10 +1,11 @@
 // The study settings a researcher changes on the researcher page (Settings tab), as overrides of server/study.json.
 // The same checker as server/settings.py (keep them in step). Layers, later ones win: study.json's main settings, the
 // global changes, the study's own settings in study.json, the study's changes. Each condition of a between-subjects
-// study can set its own nutrition table and questions (condition_settings).
-export const EDITABLE = ['nutrition', 'survey_when', 'followup', 'survey', 'conditions', 'condition_settings'];
-export const COND_KEYS = ['nutrition', 'survey_when', 'followup', 'survey'];
-export const CHOICES = { nutrition: ['visible', 'hidden', 'none'], survey_when: ['before', 'after'], followup: ['strong', 'ratings', 'metryczka'] };
+// study can set its own nutrition table, questions and look (condition_settings).
+export const EDITABLE = ['nutrition', 'survey_when', 'followup', 'survey', 'look', 'conditions', 'condition_settings'];
+export const COND_KEYS = ['nutrition', 'survey_when', 'followup', 'survey', 'look'];
+// look: how the pizza is drawn in the task (pizza-builder.js): drawn (the default) or realistic (photo-like)
+export const CHOICES = { nutrition: ['visible', 'hidden', 'none'], survey_when: ['before', 'after'], followup: ['strong', 'ratings', 'metryczka'], look: ['drawn', 'realistic'] };
 const BUILTIN_QUESTIONS = ['age', 'autism', 'adhd', 'gender', 'trans', 'diet'];
 const QUESTION_KEYS = ['id', 'type', 'text', 'options', 'other', 'min', 'max', 'required', 'placeholder', 'explore'];
 const EXPLORE_KEYS = ['title', 'why', 'measures', 'direction', 'answer'];

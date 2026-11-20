@@ -366,6 +366,7 @@
       if (show) opts.nutritionShow = show;
       if ((cs.nutrition_base != null ? cs.nutrition_base : S.study.nutrition_base) === false) opts.nutritionBase = false;
     }
+    if (cfg('look')) opts.look = cfg('look');      // drawn (default) or realistic: the study setting, or the condition's
     document.body.classList.toggle('wide', !!opts.nutrition && (name === 'build' || name === 'typical'));
     document.body.classList.add('task');
     widget = PizzaBuilder.mount(box, opts);
@@ -397,7 +398,8 @@
     stage.innerHTML = '<h1>' + esc(st.completion_title || L.thanks) + '</h1><p>' + esc(st.completion_message || '') + '</p>';
     if (st.bake_picture && S.fields.pz_final) {          // the participant's own pizza, baked
       var pic = document.createElement('div'); pic.className = 'baked';
-      pic.appendChild(PizzaBuilder.picture(S.fields.pz_final, S.fields.pz_summary, Math.min(380, (stage.clientWidth || 380) - 20)));
+      var sm = S.fields.pz_summary; try { sm = typeof sm === 'string' ? JSON.parse(sm) : sm || {}; } catch (e) { sm = {}; }
+      pic.appendChild(PizzaBuilder.picture(S.fields.pz_final, sm, Math.min(380, (stage.clientWidth || 380) - 20), { look: sm.look }));   // as they saw it
       stage.appendChild(pic);
     }
     if (st.show_code !== false) stage.insertAdjacentHTML('beforeend', '<p class="code">' + esc(S.pid) + '</p>');

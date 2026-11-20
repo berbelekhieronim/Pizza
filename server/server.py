@@ -55,7 +55,8 @@ STUDY_RE = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 STUDY_KEYS = ('title', 'intro', 'consent', 'completion_message', 'completion_redirect', 'typical_build', 'about_you', 'conditions', 'groups',
               'nutrition', 'nutrition_panel', 'nutrition_show', 'nutrition_base', 'nutrition_reveal', 'condition_settings', 'synthetic',
               # a study's own flow: language, consent with yes/no, the questions at the end, the base choices, the end page
-              'lang', 'consent_choice', 'decline_message', 'followup', 'sauces', 'sauce', 'cheeses', 'cheese', 'bake_picture', 'show_code', 'completion_title', 'texts', 'survey', 'survey_when')
+              'lang', 'consent_choice', 'decline_message', 'followup', 'sauces', 'sauce', 'cheeses', 'cheese', 'bake_picture', 'show_code', 'completion_title', 'texts', 'survey', 'survey_when',
+              'look')
 SYNTHETIC_CHOICES = (0, 25, 50, 100, 200, 500)        # synthetic pizzas a test study can hold (study.json "synthetic" = the default)
 
 
@@ -696,7 +697,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                    'n': c['n'], 'done': c['done'], 'status': stt, 'built': stt['analysed'], 'active': stt['active'] + stt['pending'], 'declined': stt['declined'],
                    'stopped': c['n'] - stt['analysed'] - stt['active'] - stt['pending'] - stt['declined'], 'last': st.last_started(sid), 'median_seconds': st.median_seconds(sid),
                    'invites': [len(invs), sum(1 for i in invs if i['stage']), sum(1 for i in invs if i['stage'] == 'done')],
-                   'links': self.open_links(sid), 'nutrition': ovr.nutrition_mode(cfg), 'survey_when': cfg.get('survey_when') or 'after', 'conditions': cfg.get('conditions') or [],
+                   'links': self.open_links(sid), 'nutrition': ovr.nutrition_mode(cfg), 'survey_when': cfg.get('survey_when') or 'after', 'look': cfg.get('look') or 'drawn', 'conditions': cfg.get('conditions') or [],
                    'synthetic': {'n': synthetic_n(st, sid), 'stored': syn, 'choices': SYNTHETIC_CHOICES} if sid and cfg.get('synthetic') else None}
             if own:
                 row['researcher_link'] = self.base_url() + '/admin?' + urllib.parse.urlencode({'key': st.study_key(sid)})

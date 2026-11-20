@@ -16,7 +16,8 @@ be analysed together (see *Changing the builder without breaking the data* below
    from the **tray** onto the pizza, one piece per drag. A piece is resized by holding it, removed by dragging it off
    the pizza. The tray order is shuffled for each participant and recorded (`tray` in the summary, `start` event).
 3. Optional, per study (Settings tab, or `server/study.json`): the nutrition table (`nutrition`: `visible` by default,
-   `hidden` = blurred until *Pokaż wartości odżywcze*, `none`), a
+   `hidden` = blurred until *Pokaż wartości odżywcze*, `none`), the look (`look`: `drawn` by default, or `realistic`:
+   photo-like, see below), a
    "typical participant" pizza (`pzt_`), and the follow-up questions (`pzf_data`).
 
 **Fits the window (task 0.17.1).** With the nutrition table on a computer at least about 1100 px wide, the task is
@@ -94,6 +95,26 @@ Pear (`par`), banana (`ban`) and walnuts (`wal`) are drawn too but are not on th
 is the practice item only. **Tofu** is a cube of firm tofu, about 1.4 cm a side, cream with lightly browned edges
 (nutrition: SR28 16426, tofu, raw, firm, prepared with calcium sulfate). Its tier is *mid*: known, but not a
 standard pizza topping. Check every tier against your own sample's ratings.
+
+## Two looks: drawn and realistic (task 0.19.0)
+
+The study setting `look` (Settings tab, `server/study.json`, or per condition) chooses how the pizza is drawn. Only the
+picture changes: the trays, positions, sizes, rotations, events and every measure are the same in both, and each pizza
+records what was shown (`summary.look`, the `look` column).
+
+- **drawn** (default): the illustrated SVG toppings and base above.
+- **realistic** (photo-like): `REAL` in `pizza-builder.js` paints each topping on a canvas with the same shape, size
+  and random variation as the drawn one (its painter in `PAINT` repeats the drawn shape's random draws), then lights it
+  from a height field: rounded edges, small bumps, raised details (the yolk, seeds, a pepperoni's curled rim), gloss,
+  and the light from the top left. Each piece is painted at its own rotation so the light falls the same way on every
+  piece (a sprite per topping, variant, rotation and resolution, cached, placed with `<use>`). The base is three
+  canvas layers (crust with the board shadow, sauce, melted cheese), lit the same way; baking fades in browner cheese
+  and crust. Everything is drawn in the participant's browser (no images to download). Starting the task takes about
+  0.5 s more (0.9 s on a high-density screen); placing toppings is as fast as in the drawn look. A browser without
+  canvas, or one that blocks reading canvas pixels (privacy settings), gets the drawn look, and the data say so.
+- A new topping needs a painter in `PAINT` as well (the smoke test checks that every topping has one).
+- The reports keep the drawn look for their thumbnails; the participant's end page shows the baked pizza in the look
+  they built it in (`PizzaBuilder.picture(final, summary, size, {look})`).
 
 ## The diet of a whole pizza (`diet_class`)
 

@@ -2,14 +2,16 @@
 
 Layers, later ones win: study.json's main settings (every study's defaults), the global changes made on the Settings
 tab, the study's own settings in study.json, the study's changes on the Settings tab. A between-subjects study lists
-its conditions; each condition can set its own nutrition table and questions (condition_settings), assigned in turn
+its conditions; each condition can set its own nutrition table, questions and look (condition_settings), assigned in turn
 at the start of a session. cloudflare/src/settings.js is the same checker for the Worker (keep them in step).
 """
 import re
 
-EDITABLE = ('nutrition', 'survey_when', 'followup', 'survey', 'conditions', 'condition_settings')
-COND_KEYS = ('nutrition', 'survey_when', 'followup', 'survey')
-CHOICES = {'nutrition': ('visible', 'hidden', 'none'), 'survey_when': ('before', 'after'), 'followup': ('strong', 'ratings', 'metryczka')}
+EDITABLE = ('nutrition', 'survey_when', 'followup', 'survey', 'look', 'conditions', 'condition_settings')
+COND_KEYS = ('nutrition', 'survey_when', 'followup', 'survey', 'look')
+# look: how the pizza is drawn in the task (pizza-builder.js): drawn (the default) or realistic (photo-like)
+CHOICES = {'nutrition': ('visible', 'hidden', 'none'), 'survey_when': ('before', 'after'), 'followup': ('strong', 'ratings', 'metryczka'),
+           'look': ('drawn', 'realistic')}
 BUILTIN_QUESTIONS = ('age', 'autism', 'adhd', 'gender', 'trans', 'diet')     # their wording comes from the task's texts
 QUESTION_KEYS = ('id', 'type', 'text', 'options', 'other', 'min', 'max', 'required', 'placeholder', 'explore')
 EXPLORE_KEYS = ('title', 'why', 'measures', 'direction', 'answer')

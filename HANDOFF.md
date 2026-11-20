@@ -4,7 +4,7 @@ The state of the project for whoever works on it next (a person or a new Claude 
 (rules for changing the code) and the top of `CHANGELOG.md` first. **Update this file at the end of every working
 session**: the snapshot, anything decided, and the open items.
 
-## Snapshot (2026-11-17, task version 0.18.2, server 0.14.0)
+## Snapshot (2026-11-20, task version 0.19.0, server 0.14.0)
 
 - **Repository:** github.com/berbelekhieronim/Pizza, branch `main`. All smoke-test checks pass locally and in CI.
 - **Purpose:** an exploratory study of food choice in autistic, ADHD and AuDHD adults (and comparison groups). People
@@ -150,9 +150,16 @@ push, check the GitHub Actions run, and republish the demo artifact.
 - **Trans and non-binary participants pooled for tests** (`gender_diverse`, idea 15). Each group alone is small, and
   testing the subgroups too would test the same people again; they are described separately in Explore instead. When
   neurodivergence and gender identity overlap, the reports repeat the neurotype comparison among cisgender participants.
+- **The look is a setting, not a new task.** The realistic look repeats the drawn toppings' shapes, sizes and random
+  draws, so positions and every measure mean the same in both; only the picture differs, and each pizza records it.
 
 ## Known limitations and open questions
 
+- **The realistic look is rendered, not photographed.** It is painted in code (texture, light, gloss, shadow), so it
+  reads as a high-quality render rather than a photograph. Real photographs of each topping (a photo shoot or a
+  licensed set, cut out on transparent backgrounds) would be needed for true photo realism; the `look` setting and the
+  sprite pipeline (`REAL.use`) are where such images would go. Not yet tried with participants; compare the looks
+  before pooling them (Explore: Look of the pizza).
 - **Neurotype and gender identity overlap in the pilot.** 6 of its 9 neurodivergent participants are trans or
   non-binary and none of the 6 others, so a neurotype difference there is also a gender-identity difference. Explore →
   *Neurotype and gender identity* repeats the comparison among cisgender participants (3 and 6 in the pilot). The main
@@ -224,6 +231,7 @@ push, check the GitHub Actions run, and republish the demo artifact.
 ## Session log
 
 | date | session | what was done |
+| 2026-11-20 | Claude Code (cloud) | 0.19.0: realistic (photo-like) look as a setting (`look`: drawn default / realistic; global, per study, per condition; Settings tab preview; both servers); canvas renderer `REAL` in pizza-builder.js (painters per topping, lit height fields, base layers); `look` column, Explore grouping; test study uses it |
 | 2026-11-18 | Claude Code (cloud) | Neurodivergence and gender identity: gender_diverse column and grouping, Explore section (overlap table, neurotype comparison among cisgender only, trans / non-binary described separately), Overview line + key point + cisgender column, ideas 14 (ND overall) and 15 (trans and non-binary, pooled) |
 | 2026-11-18 | Claude Code (cloud) | Fixed Explore blinking (reload loop after a build); AuDHD one definition (idea 6 vs autistic-only / ADHD-only, nd_identified mixed, Sessions label + filter on both servers); Explore outline and explanations, verdicts discount piece-driven differences; independent recount of the pilot matched; recount added to the smoke test |
 | 2026-11-18 | Claude Code (cloud) | Reports reworked after a full review on the pilot: Overview (key points, who took part, how it ran, every pizza, measure check, first look with the piece-count check), Explore (how to read, ideas in words with dots, stats folded, piece check on leads), Profiles (partial ρ, hidden empty columns), Symmetry purpose, Methods reading guide; analysis/insight.py; per-person diet shares; thumbnails with own base |

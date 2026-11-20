@@ -87,6 +87,7 @@ The build summary has `move: {n, straight, pausesPerDrag, dwell, hold, path}` (m
 `nDoneCancelled` (times they went back to edit), `tFirstPick`, `tFirstAdd`, `tLast` · `nPieces`, `nDistinct`, `counts` {code: n} · `sauce`, `cheese` · `tray` order ·
 `n` {event type: count} · `nGrown`, `nShrunk` (pieces made bigger / smaller) · `dragMsMedian` · `addGapMsMedian` · `hiddenMs`, `hides` ·
 `nudges`, `tFirstNudge` (the finish button's pulse: times started, ms of the first; from 0.18.0) · `nutrition` `{show, base, blur}` (`blur`: hidden until asked, 0.18.0) ·
+`look` (how the pizza was drawn: `drawn`, or `realistic` = photo-like; the study setting `look`, from 0.19.0; `drawn` also when the browser could not draw the realistic look) ·
 `pointer` (first pointer type used) · `coarse` (touch-first device) · `hover` (device can hover) · `vw`, `vh`, `dpr` ·
 `pizzaPx` (pizza diameter on screen in CSS px) · `layout` (`wide` side-by-side, `narrow` stacked, or `columns` from task 0.17.1: pizza, toppings and the nutrition panel in three columns fitted to the window) · `trimmed` (hover events dropped to save space).
 Practice only: `targetErr` (distance from the target centre for each attempt, max 3), `stepT` (time each step was completed), `stepsDone`.
@@ -246,6 +247,7 @@ Scales run 1-7:
 | `nd_autistic`, `nd_adhd`, `nd_dys`, `nd_otherND`, `nd_none`, `nd_pnts` | each self-description ticked (0/1) |
 | `dx_autistic`, `dx_adhd`, `nd_identified` | how each was identified (`formal` / `self` / `waiting` / `pnts`); `formal` if every autism/ADHD identity is formally diagnosed, `mixed` if AuDHD with one diagnosed and one not, else `self or waiting` |
 | `gender_diverse` | trans or non-binary: `1` = non-binary / another gender, or transgender; `0` = a cisgender woman or man; empty if not known |
+| `look` | how the pizza looked in the task: `drawn` or `realistic` (photo-like; study setting `look`, task 0.19.0); `drawn` before 0.19.0 |
 | `eat_picky`, `eat_arfid`, `eat_ed`, `eat_allergy`, `eat_none`, `eat_pnts`, `eat_any` | eating history ticked (0/1); `eat_any`: any of the first four |
 | `self_picky`, `self_sensory_food` | the two 1-7 self-ratings |
 | `age_band`, `gender` | demographics (empty if prefer not to say) |
